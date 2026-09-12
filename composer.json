@@ -1,0 +1,35 @@
+{
+  "name": "cajeer/cajeerservers",
+  "description": "Russian-first API-first web control shell for infrastructure data collection and management.",
+  "type": "project",
+  "license": "Apache-2.0",
+  "require": {
+    "php": ">=8.4",
+    "ext-json": "*",
+    "ext-pdo": "*",
+    "symfony/http-foundation": "^7.0",
+    "symfony/routing": "^7.0",
+    "symfony/console": "^7.0",
+    "symfony/yaml": "^7.0",
+    "psr/log": "^3.0"
+  },
+  "require-dev": {
+    "phpunit/phpunit": "^11.0"
+  },
+  "autoload": {
+    "psr-4": {
+      "Cajeer\\Servers\\": "core/"
+    }
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "Cajeer\\Servers\\Tests\\": "tests/"
+    }
+  },
+  "scripts": {
+    "test": "phpunit",
+    "doctor": "php bin/cajeer doctor"
+  },
+  "minimum-stability": "stable",
+  "prefer-stable": true
+}

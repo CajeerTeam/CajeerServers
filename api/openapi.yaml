@@ -1,0 +1,91 @@
+openapi: 3.1.1
+info:
+  title: CajeerServers API
+  version: 0.1.0
+  description: API-first web control shell for infrastructure data collection and management.
+servers:
+  - url: /api/v1
+security:
+  - ApiTokenAuth: []
+paths:
+  /health:
+    get:
+      summary: Проверка состояния API
+      responses:
+        '200':
+          description: OK
+  /system:
+    get:
+      summary: Информация о системе
+      responses:
+        '200':
+          description: OK
+  /inventory/assets:
+    get:
+      summary: Список инфраструктурных объектов
+      responses:
+        '200':
+          description: OK
+  /connectors:
+    get:
+      summary: Список коннекторов
+      responses:
+        '200':
+          description: OK
+  /connectors/{connector}/sync:
+    post:
+      summary: Запуск синхронизации коннектора
+      parameters:
+        - name: connector
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '202':
+          description: Синхронизация поставлена в очередь
+  /webhooks/{source}:
+    post:
+      summary: Приём signed webhook payload
+      parameters:
+        - name: source
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '202':
+          description: Accepted
+  /scripts:
+    get:
+      summary: Список script templates
+      responses:
+        '200':
+          description: OK
+  /actions:
+    post:
+      summary: Создание безопасного action request
+      responses:
+        '202':
+          description: Action accepted
+components:
+  securitySchemes:
+    ApiTokenAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: API token
+  schemas:
+    InfrastructureAsset:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        type: { type: string, enum: [server, vm, container, router, workstation, network] }
+        name: { type: string }
+        status: { type: string }
+        source: { type: string }
+    Connector:
+      type: object
+      properties:
+        name: { type: string }
+        type: { type: string }
+        health: { type: string }

@@ -1,0 +1,10 @@
+{
+  "name": "windows-collector",
+  "type": "module",
+  "description": "Windows PowerShell/WinRM collectors module",
+  "version": "0.1.0",
+  "permissions": [
+    "scripts.run",
+    "inventory.write"
+  ]
+}

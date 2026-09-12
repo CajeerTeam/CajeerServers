@@ -1,0 +1,9 @@
+{
+  "source": "custom",
+  "event": "inventory.asset.updated",
+  "signature": "hmac-sha256-placeholder",
+  "payload": {
+    "name": "server-01",
+    "type": "server"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "name": "linux-collector",
+  "type": "module",
+  "description": "Debian/Ubuntu scripts and collectors module",
+  "version": "0.1.0",
+  "permissions": [
+    "scripts.run",
+    "inventory.write"
+  ]
+}

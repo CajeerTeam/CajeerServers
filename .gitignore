@@ -1,0 +1,13 @@
+/.env
+/vendor
+/admin/node_modules
+/admin/.nuxt
+/admin/.output
+/storage/cache/*
+/storage/logs/*
+/storage/tmp/*
+/storage/backups/*
+/storage/database/*
+!/storage/**/.gitkeep
+.phpunit.result.cache
+.DS_Store

@@ -1,0 +1,10 @@
+{
+  "name": "router-collector",
+  "type": "module",
+  "description": "Router/SNMP collector module",
+  "version": "0.1.0",
+  "permissions": [
+    "connectors.router.read",
+    "inventory.write"
+  ]
+}

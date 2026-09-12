@@ -1,0 +1,10 @@
+{
+  "name": "proxmox",
+  "type": "module",
+  "description": "Proxmox API connector module",
+  "version": "0.1.0",
+  "permissions": [
+    "connectors.proxmox.read",
+    "connectors.proxmox.action"
+  ]
+}

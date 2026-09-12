@@ -1,0 +1,12 @@
+{
+  "name": "demo-connector",
+  "type": "connector",
+  "title": "Demo Connector",
+  "version": "0.1.0",
+  "cajeer": "^0.1",
+  "permissions": [
+    "inventory.read",
+    "connectors.sync"
+  ],
+  "entry": "src/DemoConnector.php"
+}

@@ -1,0 +1,15 @@
+#!/usr/bin/env php
+<?php
+$command = $argv[1] ?? 'help';
+$commands = [
+    'help', 'doctor', 'install:check', 'migrate', 'queue:work', 'scheduler:run',
+    'connector:sync', 'scripts:run', 'system:report', 'openapi:lint', 'self:test', 'update:check'
+];
+
+if ($command === 'help' || !in_array($command, $commands, true)) {
+    echo "CajeerServers CLI\n";
+    echo "Available commands: " . implode(', ', $commands) . "\n";
+    exit(0);
+}
+
+echo "[cajeerservers] executing {$command}\n";

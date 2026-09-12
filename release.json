@@ -1,0 +1,10 @@
+{
+  "name": "CajeerServers",
+  "version": "0.1.0",
+  "channel": "dev",
+  "language": "ru",
+  "php": ">=8.4",
+  "compatibility_target": "PHP 8.5 ready",
+  "api": "OpenAPI 3.1.1",
+  "release_policy": "SemVer + LTS + security releases"
+}

@@ -1,0 +1,10 @@
+{
+  "name": "vmmanager",
+  "type": "module",
+  "description": "VMmanager API connector module",
+  "version": "0.1.0",
+  "permissions": [
+    "connectors.vmmanager.read",
+    "connectors.vmmanager.action"
+  ]
+}

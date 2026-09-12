@@ -1,0 +1,6 @@
+{
+  "name": "CajeerServers",
+  "short_name": "CajeerServers",
+  "start_url": "/",
+  "display": "standalone"
+}

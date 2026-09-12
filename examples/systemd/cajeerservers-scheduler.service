@@ -1,0 +1,7 @@
+[Unit]
+Description=CajeerServers Scheduler
+
+[Service]
+WorkingDirectory=/var/www/cajeerservers
+ExecStart=/usr/bin/php bin/cajeer scheduler:run
+User=www-data

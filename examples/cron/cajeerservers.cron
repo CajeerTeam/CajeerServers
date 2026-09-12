@@ -1,0 +1,1 @@
+* * * * * www-data cd /var/www/cajeerservers && php bin/cajeer scheduler:run >> storage/logs/scheduler.log 2>&1

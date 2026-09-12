@@ -1,0 +1,13 @@
+{
+  "name": "cajeer/servers-php-sdk",
+  "type": "library",
+  "license": "Apache-2.0",
+  "autoload": {
+    "psr-4": {
+      "Cajeer\\ServersSdk\\": "src/"
+    }
+  },
+  "require": {
+    "php": ">=8.4"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "name": "graphql",
+  "type": "module",
+  "description": "GraphQL optional module",
+  "version": "0.1.0",
+  "permissions": [
+    "api.graphql"
+  ]
+}
