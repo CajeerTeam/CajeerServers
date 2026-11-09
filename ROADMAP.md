@@ -63,10 +63,23 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 - [x] Smoke tests и отдельный сценарий реальной PostgreSQL integration проверки.
 - [ ] Запуск integration test на PostgreSQL 17/18 в CI/CD; в среде разработки 0.1.4 отсутствует pdo_pgsql.
 
-## 0.1.5 — Authentication & API Tokens (следующий релиз)
+## 0.1.5 — Authentication & API Tokens (реализовано)
 
-- [ ] Логин/логаут, серверные сессии, Argon2id, безопасная смена пароля.
-- [ ] API token issuing, hashed storage, revocation и scope enforcement.
+- [x] Реальный вход/выход, PostgreSQL sessions, Argon2id, проверка активности пользователя.
+- [x] Безопасная смена пароля: отзыв всех сессий и bearer-токенов.
+- [x] API token issuing, SHA-256 storage, expiry, revocation и read-only scopes.
+- [x] Session-only protected mutations с CSRF и same-origin guard.
+- [x] Login throttling и audit событий аутентификации.
+- [x] Native auth smoke-тесты и отдельный PostgreSQL integration test.
+- [ ] Подтверждение PostgreSQL 17/18 и composer-backed E2E в CI/deployment environment.
+
+## 0.1.6 — RBAC, Security Middleware & Audit (следующий релиз)
+
+- [ ] Принудительное RBAC/permission-scopes на сервере, deny-by-default.
+- [ ] Настоящий 2FA TOTP для существующих пользователей и recovery codes.
+- [ ] Системный rate limiting, CSRF/security middleware для state-changing API.
+- [ ] Подписи/anti-replay webhooks, расширенный аудит и enforcement.
+
 
 
 ## 0.2.0 — Core Kernel

@@ -43,7 +43,7 @@ CFG);
     $runner = new MigrationRunner($manager, dirname(__DIR__) . '/migrations/pgsql');
     $first = $runner->run();
     $second = $runner->run();
-    if (!$runner->validate()['valid'] || $second['applied'] !== [] || count($runner->status()) !== 3) {
+    if (!$runner->validate()['valid'] || $second['applied'] !== [] || count($runner->status()) !== 4) {
         throw new RuntimeException('PostgreSQL migration journal is invalid or rerun is not idempotent.');
     }
     foreach (['users', 'roles', 'user_roles', 'role_permissions', 'api_tokens', 'inventory_assets', 'cajeer_schema_migrations', 'cajeer_installation'] as $table) {
@@ -57,7 +57,7 @@ CFG);
     foreach (glob(dirname(__DIR__) . '/migrations/pgsql/*.sql') as $file) {
         copy($file, $migrationDir . '/' . basename($file));
     }
-    file_put_contents($migrationDir . '/0004_rollback_probe.sql', "CREATE TABLE cajeer_test_rollback_probe(id integer);\nSELECT non_existing_function_probe();\n");
+    file_put_contents($migrationDir . '/0005_rollback_probe.sql', "CREATE TABLE cajeer_test_rollback_probe(id integer);\nSELECT non_existing_function_probe();\n");
     try {
         (new MigrationRunner($manager, $migrationDir))->run();
         throw new RuntimeException('Expected probe SQL to fail.');
@@ -65,7 +65,7 @@ CFG);
         // Expected PostgreSQL failure; the transaction must be rolled back.
     }
     $exists = $pdo->query("SELECT to_regclass('cajeer_test_rollback_probe')")?->fetchColumn();
-    $journal = $pdo->query("SELECT count(*) FROM cajeer_schema_migrations WHERE version='0004_rollback_probe'")?->fetchColumn();
+    $journal = $pdo->query("SELECT count(*) FROM cajeer_schema_migrations WHERE version='0005_rollback_probe'")?->fetchColumn();
     if ($exists !== null || (int) $journal !== 0) {
         throw new RuntimeException('Failed SQL was not rolled back atomically.');
     }

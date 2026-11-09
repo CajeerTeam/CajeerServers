@@ -2,6 +2,22 @@
 
 **CajeerServers** — русскоязычная self-hosted веб-оболочка для наблюдения и управления инфраструктурой. Это **не ОС**, не прошивка и не замена Proxmox/VMmanager. Для будущих версий предусмотрен сбор данных через API, собственные скрипты, webhooks, collectors и интеграции без обязательных системных агентов.
 
+## Версия 0.1.5 — Authentication & API Tokens
+
+Реализована **аутентификация через PostgreSQL и самоуправление учётными данными**:
+
+- `POST /api/v1/auth/login` — проверка Argon2id, ограничение попыток входа, 12-часовая серверная сессия с `HttpOnly`, `SameSite=Strict`, `Secure` для HTTPS. Авторизация сохраняется в PostgreSQL; session ID и 256-битный случайный секрет проверяются на каждом запросе.
+- `GET /api/v1/auth/me`, `/auth/csrf`, `/auth/sessions`, `/auth/tokens` — доступ к собственным сессиям, профилю и метаданным токенов; для bearer required explicit read-scope.
+- `POST /api/v1/auth/logout`, `/auth/password`, `/auth/tokens`; `DELETE /api/v1/auth/tokens/{id}`, `/auth/sessions/{id}` — реальные операции с проверкой авторизованной cookie-сессии и `X-CSRF-Token`.
+- API bearer tokens имеют формат `at1.<uuid>.<256-bit-secret>`; только SHA-256 полного токена хранится в PostgreSQL, сырой токен возвращается **однократно**, отзыв и expiry применяются при каждом запросе.
+- Минимальные scopes: `profile:read`, `sessions:read`, `tokens:read`. Bearer-токены **не могут** создавать/отзывать токены, менять пароль, закрывать сессии или выполнять инфраструктурные действия.
+- Смена пароля транзакционно отзывает **все** сессии и API-токены владельца. Пользователи с включённым 2FA намеренно не допускаются к password-only login до реализации полноценного 2FA (0.1.6), чтобы не обходить защиту.
+- PostgreSQL migration `0004_authentication.sql`: сессии, блокировки входа, `revoked_at` для API-токенов, деактивация пользователей и уникальность email без учёта регистра. Нужна перед первым входом.
+
+**Установка:** применить патч поверх 0.1.4 → `php bin/cajeer migrate` → открыть API login. Для существующей установки повторно запускать `install` нельзя. Подробный пример запросов и требования к Nginx: [wiki/Authentication.md](wiki/Authentication.md).
+
+**Релиз 0.1.5 не добавляет RBAC/2FA/инфраструктурные API.** Реальные PostgreSQL integration-тесты запускаются **отдельно** и не считаются подтверждёнными при отсутствии `pdo_pgsql` и PostgreSQL 17/18. Native smoke: `php tests/auth-smoke.php`; integration: `php tests/auth-postgres-integration.php` с явными переменными тестовой БД.
+
 ## Версия 0.1.4 — Installer & Initial Setup
 
 В 0.1.4 реализован **настоящий одноразовый установщик**, а не CLI-заглушка:

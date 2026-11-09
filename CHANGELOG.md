@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.1.5] — Authentication & API Tokens (2026-11-09)
+
+### Added
+- Сессионная аутентификация: Argon2id, PostgreSQL sessions, уникальные 256-битные секреты, HttpOnly/SameSite=Strict/Secure cookie, индивидуальное и массовое завершение сессий.
+- Работающее API: login, logout, me, CSRF, смена пароля, получение и отзыв собственных сессий/API-токенов.
+- API bearer tokens с хранением только SHA-256, expiration/revocation, read-only scopes; токен возвращается ровно один раз.
+- DB-based throttle неуспешных входов, защищённый Origin/CSRF, проверка активного пользователя, атомарное отозвание токенов и audit events.
+- PostgreSQL migration 0004, native authentication tests и отдельный PostgreSQL integration scenario; OpenAPI 3.1.1 актуализирован.
+
+### Security
+- Привилегированные инфраструктурные действия остаются отключены до RBAC; API-токены не могут выполнять password/session/token mutations.
+- Для учётных записей с `two_factor_enabled=true` password-only login заблокирован до реализации 2FA в 0.1.6.
+
+### Known limitations
+- В текущей среде нет pdo_pgsql/PostgreSQL, поэтому реальная интеграция с БД и полный E2E login не были проверены.
+- Полноценные RBAC/2FA, глобальный rate limiting и Admin UI запланированы отдельно.
+
 ## [0.1.4] — Installer & Initial Setup (2026-11-09)
 
 ### Added

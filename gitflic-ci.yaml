@@ -13,6 +13,7 @@ php84-runtime:
     - APP_ENV=local APP_DEBUG=false php tests/http-smoke.php
     - APP_ENV=local APP_DEBUG=false php tests/database-smoke.php
     - APP_ENV=local APP_DEBUG=false php tests/installer-smoke.php
+    - APP_ENV=local APP_DEBUG=false php tests/auth-smoke.php
     - APP_ENV=local APP_DEBUG=false php bin/cajeer self:test
 
 php85-runtime:
@@ -24,6 +25,7 @@ php85-runtime:
     - APP_ENV=local APP_DEBUG=false php tests/http-smoke.php
     - APP_ENV=local APP_DEBUG=false php tests/database-smoke.php
     - APP_ENV=local APP_DEBUG=false php tests/installer-smoke.php
+    - APP_ENV=local APP_DEBUG=false php tests/auth-smoke.php
     - APP_ENV=local APP_DEBUG=false php bin/cajeer self:test
 
 composer-and-unit-tests:

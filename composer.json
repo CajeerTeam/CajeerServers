@@ -33,7 +33,8 @@
     "doctor": "php bin/cajeer doctor",
     "runtime:test": "@php tests/runtime-smoke.php",
     "runtime:doctor": "@php bin/cajeer doctor",
-    "database:test": "@php tests/database-smoke.php"
+    "database:test": "@php tests/database-smoke.php",
+    "auth:test": "@php tests/auth-smoke.php"
   },
   "minimum-stability": "stable",
   "prefer-stable": true,

@@ -18,11 +18,14 @@ $check = static function (bool $ok, string $name) use (&$count): void {
     echo "[OK] $name\n";
 };
 
+// Verify HTTP behavior with a valid local runtime; production requires an installed APP_KEY.
+putenv('APP_ENV=local');
+putenv('APP_URL=http://127.0.0.1:8080');
 $app = (new Application(dirname(__DIR__)))->boot();
 try {
     $router = $app->container()->get(Router::class);
     $kernel = $app->container()->get(HttpKernel::class);
-    $check(count($router->routes()) === 5, 'real registered routes only');
+    $check(count($router->routes()) === 15, 'real registered routes only');
 
     foreach (['/', '/api/v1/health', '/api/v1/system'] as $path) {
         $response = $app->handle(new HttpRequest('GET', $path));

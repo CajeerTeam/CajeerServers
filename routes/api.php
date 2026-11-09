@@ -1,6 +1,7 @@
 <?php
 declare(strict_types=1);
 
+use Cajeer\Servers\Auth\AuthController;
 use Cajeer\Servers\Api\Controller\HealthController;
 use Cajeer\Servers\Installer\InstallService;
 use Cajeer\Servers\Installer\WebInstaller;
@@ -28,5 +29,30 @@ return static function (Router $router, ServiceContainer $container): void {
     $router->group('/api/v1', static function (Router $routes) use ($container): void {
         $routes->get('/health', static fn (HttpRequest $request): HttpResponse => ($container->get(HealthController::class))($request));
         $routes->get('/system', static fn (HttpRequest $request): HttpResponse => $container->get(SystemController::class)->index($request));
+        $routes->group('/auth', static function (Router $auth) use ($container): void {
+            $handler = static fn (): AuthController => $container->get(AuthController::class);
+            $auth->post('/login', static fn (HttpRequest $r): HttpResponse => $handler()->login($r), [
+                'required' => ['email', 'password'],
+                'properties' => ['email' => ['type' => 'string', 'minLength' => 3, 'maxLength' => 255], 'password' => ['type' => 'string', 'minLength' => 1, 'maxLength' => 1024]],
+                'additionalProperties' => false,
+            ]);
+            $auth->get('/me', static fn (HttpRequest $r): HttpResponse => $handler()->me($r));
+            $auth->get('/csrf', static fn (HttpRequest $r): HttpResponse => $handler()->csrf($r));
+            $auth->post('/logout', static fn (HttpRequest $r): HttpResponse => $handler()->logout($r));
+            $auth->post('/password', static fn (HttpRequest $r): HttpResponse => $handler()->changePassword($r), [
+                'required' => ['current_password', 'new_password'],
+                'properties' => ['current_password' => ['type' => 'string', 'minLength' => 1, 'maxLength' => 1024], 'new_password' => ['type' => 'string', 'minLength' => 14, 'maxLength' => 1024]],
+                'additionalProperties' => false,
+            ]);
+            $auth->get('/sessions', static fn (HttpRequest $r): HttpResponse => $handler()->sessions($r));
+            $auth->delete('/sessions/{id}', static fn (HttpRequest $r): HttpResponse => $handler()->revokeSession($r));
+            $auth->get('/tokens', static fn (HttpRequest $r): HttpResponse => $handler()->tokens($r));
+            $auth->post('/tokens', static fn (HttpRequest $r): HttpResponse => $handler()->createToken($r), [
+                'required' => ['name', 'scopes', 'expires_in'],
+                'properties' => ['name' => ['type' => 'string', 'minLength' => 1, 'maxLength' => 100], 'scopes' => ['type' => 'array'], 'expires_in' => ['type' => 'integer']],
+                'additionalProperties' => false,
+            ]);
+            $auth->delete('/tokens/{id}', static fn (HttpRequest $r): HttpResponse => $handler()->revokeToken($r));
+        });
     });
 };

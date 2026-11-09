@@ -96,6 +96,8 @@ try {
         $assert($rejected && !$state->isInstalled(), 'failed preflight cannot mark installed');
     }
 
+    // The installer intentionally permits plain HTTP only on loopback in local mode.
+    putenv('APP_ENV=local');
     $_SERVER['REMOTE_ADDR'] = '127.0.0.1';
     $_SERVER['HTTP_HOST'] = '127.0.0.1';
     $web = new WebInstaller($service);

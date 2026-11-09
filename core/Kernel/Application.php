@@ -3,6 +3,10 @@ declare(strict_types=1);
 
 namespace Cajeer\Servers\Kernel;
 
+use Cajeer\Servers\Auth\AuthenticationService;
+use Cajeer\Servers\Auth\AuthController;
+use Cajeer\Servers\Auth\SessionCookie;
+use Cajeer\Servers\Installer\InstallState;
 use Cajeer\Servers\Config\ConfigRepository;
 use Cajeer\Servers\Config\EnvironmentLoader;
 use Cajeer\Servers\Database\ConnectionFactory;
@@ -62,6 +66,13 @@ final class Application
             $container->get(DatabaseManager::class), $this->basePath('migrations/pgsql'),
         ));
         $this->services->singleton(JsonLogger::class, fn (ServiceContainer $container): JsonLogger => new JsonLogger($this->basePath('storage/logs')));
+        $this->services->singleton(InstallState::class, fn (ServiceContainer $container): InstallState => new InstallState($this->basePath()));
+        $this->services->singleton(SessionCookie::class, fn (ServiceContainer $container): SessionCookie => new SessionCookie($container->get(ConfigRepository::class)));
+        $this->services->singleton(AuthenticationService::class, fn (ServiceContainer $container): AuthenticationService => new AuthenticationService(
+            $container->get(DatabaseManager::class), $container->get(ConfigRepository::class),
+            $container->get(InstallState::class), $container->get(SessionCookie::class),
+        ));
+        $this->services->singleton(AuthController::class, fn (ServiceContainer $container): AuthController => new AuthController($container->get(AuthenticationService::class)));
         $this->services->singleton(RuntimeDiagnostics::class, fn (ServiceContainer $container): RuntimeDiagnostics => new RuntimeDiagnostics($this->basePath(), $container->get(ConfigRepository::class)));
         $this->services->singleton(Router::class, function (ServiceContainer $container): Router {
             $router = new Router();
