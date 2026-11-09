@@ -35,6 +35,8 @@ use Cajeer\Servers\Inventory\InventoryReadiness;
 use Cajeer\Servers\Inventory\InventoryRepository;
 use Cajeer\Servers\Inventory\InventoryService;
 use Cajeer\Servers\Inventory\InventoryController;
+use Cajeer\Servers\Inventory\IpamService;
+use Cajeer\Servers\Inventory\IpamController;
 use Cajeer\Servers\Workspace\WorkspaceService;
 use Cajeer\Servers\Workspace\WorkspaceController;
 use Cajeer\Servers\Logging\JsonLogger;
@@ -204,6 +206,10 @@ final class Application
             $c->get(DatabaseManager::class), $c->get(InventoryRepository::class), $c->get(AuditLogger::class)));
         $this->services->singleton(InventoryController::class, fn (ServiceContainer $c): InventoryController => new InventoryController(
             $c->get(AuthenticationService::class), $c->get(Rbac::class), $c->get(InventoryService::class)));
+        $this->services->singleton(IpamService::class, fn (ServiceContainer $c): IpamService => new IpamService(
+            $c->get(DatabaseManager::class), $c->get(InventoryRepository::class), $c->get(AuditLogger::class)));
+        $this->services->singleton(IpamController::class, fn (ServiceContainer $c): IpamController => new IpamController(
+            $c->get(AuthenticationService::class), $c->get(Rbac::class), $c->get(IpamService::class)));
         $this->services->singleton(WorkspaceService::class, fn (ServiceContainer $c): WorkspaceService => new WorkspaceService(
             $c->get(DatabaseManager::class), $c->get(AuditLogger::class)));
         $this->services->singleton(WorkspaceController::class, fn (ServiceContainer $c): WorkspaceController => new WorkspaceController(

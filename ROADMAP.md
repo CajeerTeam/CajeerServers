@@ -385,3 +385,14 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 - OpenAPI contract: versioned endpoints `/api/v1`.
 
 
+
+
+### 0.2.4 — Network Inventory & IPAM
+
+- [x] Реальные подсети IPv4/IPv6 (CIDR), интерфейсы (MAC), резервации и назначения IP (INET) с проверками PostgreSQL и workspace.
+- [x] 17 REST-операций с session-only auth, RBAC, CSRF, ETag/If-Match и аудитом.
+- [x] Nuxt `/ipam` с работающими формами и обработкой конфликтов.
+- [x] Native smoke / PostgreSQL integration сценарии, GitHub Actions, OpenAPI 3.1.1 и GitHub Docs.
+- [ ] Подтверждённый PostgreSQL 17/18 E2E на целевой платформе (требует запуска CI и инфраструктуры).
+
+Следующий этап: **0.2.5 Infrastructure Relationships & Topology**.

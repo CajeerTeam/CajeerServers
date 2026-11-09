@@ -297,3 +297,8 @@ Native smoke-tests выполняются без Composer. GitHub CI прове�
 - `tests/http-smoke.php` — native HTTP tests.
 
 Следующая версия **0.1.5 — Authentication & API Tokens**.
+
+
+### Network Inventory / IPAM (0.2.4)
+
+Новый раздел `/ipam`: сети IPv4/IPv6, интерфейсы и резервация адресов через PostgreSQL и REST API. Инструкция: [`docs/Network-Inventory-IPAM.md`](docs/Network-Inventory-IPAM.md). Приложение является веб-ресурсом и не изменяет сетевые настройки устройств напрямую.

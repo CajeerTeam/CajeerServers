@@ -177,3 +177,11 @@
 - Nuxt/Vue admin skeleton.
 - Inventory, connectors, collectors, scripts, sync engine и action dispatcher placeholders.
 - PostgreSQL/MySQL migration skeleton.
+
+## 0.2.4 — Network Inventory & IPAM
+
+- Добавлены реальные PostgreSQL CIDR/INET/IPAM таблицы и транзакционные операции управления подсетями, интерфейсами и IP-резервациями.
+- Введены workspace-scoped уникальность адресов, запрет перекрывающихся подсетей, FK, триггеры проверки диапазона IP и активного asset, ETag/If-Match и аудит.
+- REST API `/api/v1/ipam/*`, Nuxt страница `/ipam` и отдельные `inventory.network.read/manage` права.
+- Добавлены native и изолированный PostgreSQL integration tests, GitHub Actions и документация GitHub Docs.
+- Legacy `inventory_assets.ip_addresses` сохраняется и не переписывается автоматически.

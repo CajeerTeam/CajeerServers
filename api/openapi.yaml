@@ -1,8 +1,8 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.2.3
-  description: 'CajeerServers 0.2.3: real PostgreSQL Inventory CRUD, workspace scoped RBAC, session CSRF, ETag/If-Match
+  version: 0.2.4
+  description: 'CajeerServers 0.2.4: Network Inventory / IPAM (IPv4/IPv6, interfaces, reservations), plus Inventory CRUD, workspace scoped RBAC, session CSRF, ETag/If-Match
     and audit. Manual inventory only; external infrastructure control remains disabled. See docs/Inventory.md.'
 servers:
 - url: /api/v1
@@ -1830,6 +1830,931 @@ paths:
         '404': *id020
         '422': *id021
         '503': *id022
+  /ipam/networks:
+    get:
+      operationId: listIpamNetworks
+      summary: List workspace-scoped networks
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Workspace requiring active membership
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 50
+      - name: offset
+        in: query
+        schema:
+          type: integer
+          minimum: 0
+          maximum: 10000
+          default: 0
+      responses:
+        '200':
+          description: Resource or page returned
+          content:
+            application/json:
+              schema:
+                type: object
+        '401':
+          description: Authentication required
+        '403':
+          description: Scope or workspace role insufficient
+        '404':
+          description: Workspace or resource inaccessible
+        '422':
+          description: Invalid input
+        '503':
+          description: Application not installed or dependency unavailable
+    post:
+      operationId: createIpamNetwork
+      summary: Create network within selected workspace
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Workspace requiring active membership
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  maxLength: 120
+                cidr:
+                  type: string
+                  description: Canonical IPv4/IPv6 subnet e.g. 192.0.2.0/24
+                vlan_id:
+                  type:
+                  - integer
+                  - 'null'
+                  minimum: 1
+                  maximum: 4094
+                description:
+                  type: string
+                  maxLength: 1024
+              required:
+              - name
+              - cidr
+              additionalProperties: false
+      responses:
+        '201':
+          description: Resource created
+          content:
+            application/json:
+              schema:
+                type: object
+        '401':
+          description: Authentication required
+        '403':
+          description: Scope or workspace role insufficient
+        '404':
+          description: Workspace or resource inaccessible
+        '422':
+          description: Invalid input
+        '503':
+          description: Application not installed or dependency unavailable
+        '409':
+          description: 'Conflict: overlapping subnet, duplicate address/MAC, or referenced resource still used'
+  /ipam/networks/{id}:
+    get:
+      operationId: getIpamNetwork
+      summary: Get workspace-scoped network
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Workspace requiring active membership
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Resource or page returned
+          content:
+            application/json:
+              schema:
+                type: object
+        '401':
+          description: Authentication required
+        '403':
+          description: Scope or workspace role insufficient
+        '404':
+          description: Workspace or resource inaccessible
+        '422':
+          description: Invalid input
+        '503':
+          description: Application not installed or dependency unavailable
+    patch:
+      operationId: updateIpamNetwork
+      summary: Update mutable network fields
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Workspace requiring active membership
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      - name: If-Match
+        in: header
+        required: true
+        schema:
+          type: string
+        description: 'Strong ETag: "UUID:version"'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  maxLength: 120
+                vlan_id:
+                  type:
+                  - integer
+                  - 'null'
+                  minimum: 1
+                  maximum: 4094
+                description:
+                  type: string
+                  maxLength: 1024
+              required: []
+              additionalProperties: false
+      responses:
+        '200':
+          description: Resource or page returned
+          content:
+            application/json:
+              schema:
+                type: object
+        '401':
+          description: Authentication required
+        '403':
+          description: Scope or workspace role insufficient
+        '404':
+          description: Workspace or resource inaccessible
+        '422':
+          description: Invalid input
+        '503':
+          description: Application not installed or dependency unavailable
+        '428':
+          description: If-Match required
+        '412':
+          description: Resource version changed
+        '400':
+          description: Malformed ETag
+        '409':
+          description: 'Conflict: overlapping subnet, duplicate address/MAC, or referenced resource still used'
+    delete:
+      operationId: deleteIpamNetwork
+      summary: Delete network (referential integrity enforced)
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Workspace requiring active membership
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      - name: If-Match
+        in: header
+        required: true
+        schema:
+          type: string
+        description: 'Strong ETag: "UUID:version"'
+      responses:
+        '200':
+          description: 'Deleted: true'
+        '401':
+          description: Authentication required
+        '403':
+          description: Scope or workspace role insufficient
+        '404':
+          description: Workspace or resource inaccessible
+        '422':
+          description: Invalid input
+        '503':
+          description: Application not installed or dependency unavailable
+        '428':
+          description: If-Match required
+        '412':
+          description: Resource version changed
+        '400':
+          description: Malformed ETag
+        '409':
+          description: 'Conflict: overlapping subnet, duplicate address/MAC, or referenced resource still used'
+  /ipam/interfaces:
+    get:
+      operationId: listIpamInterfaces
+      summary: List workspace-scoped interfaces
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Workspace requiring active membership
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 50
+      - name: offset
+        in: query
+        schema:
+          type: integer
+          minimum: 0
+          maximum: 10000
+          default: 0
+      responses:
+        '200':
+          description: Resource or page returned
+          content:
+            application/json:
+              schema:
+                type: object
+        '401':
+          description: Authentication required
+        '403':
+          description: Scope or workspace role insufficient
+        '404':
+          description: Workspace or resource inaccessible
+        '422':
+          description: Invalid input
+        '503':
+          description: Application not installed or dependency unavailable
+    post:
+      operationId: createIpamInterface
+      summary: Create interface within selected workspace
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Workspace requiring active membership
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                asset_id:
+                  type: string
+                  format: uuid
+                name:
+                  type: string
+                  maxLength: 120
+                mac_address:
+                  type:
+                  - string
+                  - 'null'
+              required:
+              - asset_id
+              - name
+              additionalProperties: false
+      responses:
+        '201':
+          description: Resource created
+          content:
+            application/json:
+              schema:
+                type: object
+        '401':
+          description: Authentication required
+        '403':
+          description: Scope or workspace role insufficient
+        '404':
+          description: Workspace or resource inaccessible
+        '422':
+          description: Invalid input
+        '503':
+          description: Application not installed or dependency unavailable
+        '409':
+          description: 'Conflict: overlapping subnet, duplicate address/MAC, or referenced resource still used'
+  /ipam/interfaces/{id}:
+    get:
+      operationId: getIpamInterface
+      summary: Get workspace-scoped interface
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Workspace requiring active membership
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Resource or page returned
+          content:
+            application/json:
+              schema:
+                type: object
+        '401':
+          description: Authentication required
+        '403':
+          description: Scope or workspace role insufficient
+        '404':
+          description: Workspace or resource inaccessible
+        '422':
+          description: Invalid input
+        '503':
+          description: Application not installed or dependency unavailable
+    patch:
+      operationId: updateIpamInterface
+      summary: Update mutable interface fields
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Workspace requiring active membership
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      - name: If-Match
+        in: header
+        required: true
+        schema:
+          type: string
+        description: 'Strong ETag: "UUID:version"'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  maxLength: 120
+                mac_address:
+                  type:
+                  - string
+                  - 'null'
+              required: []
+              additionalProperties: false
+      responses:
+        '200':
+          description: Resource or page returned
+          content:
+            application/json:
+              schema:
+                type: object
+        '401':
+          description: Authentication required
+        '403':
+          description: Scope or workspace role insufficient
+        '404':
+          description: Workspace or resource inaccessible
+        '422':
+          description: Invalid input
+        '503':
+          description: Application not installed or dependency unavailable
+        '428':
+          description: If-Match required
+        '412':
+          description: Resource version changed
+        '400':
+          description: Malformed ETag
+        '409':
+          description: 'Conflict: overlapping subnet, duplicate address/MAC, or referenced resource still used'
+    delete:
+      operationId: deleteIpamInterface
+      summary: Delete interface (referential integrity enforced)
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Workspace requiring active membership
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      - name: If-Match
+        in: header
+        required: true
+        schema:
+          type: string
+        description: 'Strong ETag: "UUID:version"'
+      responses:
+        '200':
+          description: 'Deleted: true'
+        '401':
+          description: Authentication required
+        '403':
+          description: Scope or workspace role insufficient
+        '404':
+          description: Workspace or resource inaccessible
+        '422':
+          description: Invalid input
+        '503':
+          description: Application not installed or dependency unavailable
+        '428':
+          description: If-Match required
+        '412':
+          description: Resource version changed
+        '400':
+          description: Malformed ETag
+        '409':
+          description: 'Conflict: overlapping subnet, duplicate address/MAC, or referenced resource still used'
+  /ipam/addresses:
+    get:
+      operationId: listIpamAddresses
+      summary: List workspace-scoped addresses
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Workspace requiring active membership
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 50
+      - name: offset
+        in: query
+        schema:
+          type: integer
+          minimum: 0
+          maximum: 10000
+          default: 0
+      responses:
+        '200':
+          description: Resource or page returned
+          content:
+            application/json:
+              schema:
+                type: object
+        '401':
+          description: Authentication required
+        '403':
+          description: Scope or workspace role insufficient
+        '404':
+          description: Workspace or resource inaccessible
+        '422':
+          description: Invalid input
+        '503':
+          description: Application not installed or dependency unavailable
+    post:
+      operationId: createIpamAddress
+      summary: Create address within selected workspace
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Workspace requiring active membership
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                network_id:
+                  type: string
+                  format: uuid
+                address:
+                  type: string
+                  description: IPv4 or IPv6 host address
+                hostname:
+                  type:
+                  - string
+                  - 'null'
+                description:
+                  type: string
+                  maxLength: 1024
+              required:
+              - network_id
+              - address
+              additionalProperties: false
+      responses:
+        '201':
+          description: Resource created
+          content:
+            application/json:
+              schema:
+                type: object
+        '401':
+          description: Authentication required
+        '403':
+          description: Scope or workspace role insufficient
+        '404':
+          description: Workspace or resource inaccessible
+        '422':
+          description: Invalid input
+        '503':
+          description: Application not installed or dependency unavailable
+        '409':
+          description: 'Conflict: overlapping subnet, duplicate address/MAC, or referenced resource still used'
+  /ipam/addresses/{id}:
+    get:
+      operationId: getIpamAddress
+      summary: Get workspace-scoped address
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Workspace requiring active membership
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Resource or page returned
+          content:
+            application/json:
+              schema:
+                type: object
+        '401':
+          description: Authentication required
+        '403':
+          description: Scope or workspace role insufficient
+        '404':
+          description: Workspace or resource inaccessible
+        '422':
+          description: Invalid input
+        '503':
+          description: Application not installed or dependency unavailable
+    patch:
+      operationId: updateIpamAddress
+      summary: Update mutable address fields
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Workspace requiring active membership
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      - name: If-Match
+        in: header
+        required: true
+        schema:
+          type: string
+        description: 'Strong ETag: "UUID:version"'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                hostname:
+                  type:
+                  - string
+                  - 'null'
+                description:
+                  type: string
+                  maxLength: 1024
+              required: []
+              additionalProperties: false
+      responses:
+        '200':
+          description: Resource or page returned
+          content:
+            application/json:
+              schema:
+                type: object
+        '401':
+          description: Authentication required
+        '403':
+          description: Scope or workspace role insufficient
+        '404':
+          description: Workspace or resource inaccessible
+        '422':
+          description: Invalid input
+        '503':
+          description: Application not installed or dependency unavailable
+        '428':
+          description: If-Match required
+        '412':
+          description: Resource version changed
+        '400':
+          description: Malformed ETag
+        '409':
+          description: 'Conflict: overlapping subnet, duplicate address/MAC, or referenced resource still used'
+    delete:
+      operationId: deleteIpamAddress
+      summary: Delete address (referential integrity enforced)
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Workspace requiring active membership
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      - name: If-Match
+        in: header
+        required: true
+        schema:
+          type: string
+        description: 'Strong ETag: "UUID:version"'
+      responses:
+        '200':
+          description: 'Deleted: true'
+        '401':
+          description: Authentication required
+        '403':
+          description: Scope or workspace role insufficient
+        '404':
+          description: Workspace or resource inaccessible
+        '422':
+          description: Invalid input
+        '503':
+          description: Application not installed or dependency unavailable
+        '428':
+          description: If-Match required
+        '412':
+          description: Resource version changed
+        '400':
+          description: Malformed ETag
+        '409':
+          description: 'Conflict: overlapping subnet, duplicate address/MAC, or referenced resource still used'
+  /ipam/addresses/{id}/assign:
+    post:
+      operationId: assignIpamAddress
+      summary: Assign address to/from a workspace interface
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Workspace requiring active membership
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      - name: If-Match
+        in: header
+        required: true
+        schema:
+          type: string
+        description: 'Strong ETag: "UUID:version"'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                interface_id:
+                  type: string
+                  format: uuid
+              required:
+              - interface_id
+              additionalProperties: false
+      responses:
+        '200':
+          description: Resource or page returned
+          content:
+            application/json:
+              schema:
+                type: object
+        '401':
+          description: Authentication required
+        '403':
+          description: Scope or workspace role insufficient
+        '404':
+          description: Workspace or resource inaccessible
+        '422':
+          description: Invalid input
+        '503':
+          description: Application not installed or dependency unavailable
+        '428':
+          description: If-Match required
+        '412':
+          description: Resource version changed
+        '400':
+          description: Malformed ETag
+        '409':
+          description: 'Conflict: overlapping subnet, duplicate address/MAC, or referenced resource still used'
+  /ipam/addresses/{id}/unassign:
+    post:
+      operationId: unassignIpamAddress
+      summary: Unassign address to/from a workspace interface
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Workspace requiring active membership
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      - name: If-Match
+        in: header
+        required: true
+        schema:
+          type: string
+        description: 'Strong ETag: "UUID:version"'
+      responses:
+        '200':
+          description: Resource or page returned
+          content:
+            application/json:
+              schema:
+                type: object
+        '401':
+          description: Authentication required
+        '403':
+          description: Scope or workspace role insufficient
+        '404':
+          description: Workspace or resource inaccessible
+        '422':
+          description: Invalid input
+        '503':
+          description: Application not installed or dependency unavailable
+        '428':
+          description: If-Match required
+        '412':
+          description: Resource version changed
+        '400':
+          description: Malformed ETag
+        '409':
+          description: 'Conflict: overlapping subnet, duplicate address/MAC, or referenced resource still used'
+
 components:
   schemas:
     Health:

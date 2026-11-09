@@ -167,6 +167,43 @@ return static function (Router $router, ServiceContainer $container): void {
             $inventory->delete('/assets/{id}', static fn (HttpRequest $r): HttpResponse => $controller()->delete($r));
             $inventory->post('/assets/{id}/restore', static fn (HttpRequest $r): HttpResponse => $controller()->restore($r));
         });
+        // IPAM uses workspace membership + global RBAC and is not exposed to bearer tokens.
+        $routes->group('/ipam', static function (Router $ipam) use ($container): void {
+            $controller=static fn (): \Cajeer\Servers\Inventory\IpamController => $container->get(\Cajeer\Servers\Inventory\IpamController::class);
+            $schemas=[
+                'networks'=>[
+                    'create'=>['name'=>['type'=>'string'],'cidr'=>['type'=>'string'],'vlan_id'=>[],'description'=>['type'=>'string']],
+                    'patch'=>['name'=>['type'=>'string'],'vlan_id'=>[],'description'=>['type'=>'string']],
+                    'required'=>['name','cidr'], 'kind'=>'network',
+                ],
+                'interfaces'=>[
+                    'create'=>['asset_id'=>['type'=>'string','format'=>'uuid'],'name'=>['type'=>'string'],'mac_address'=>[]],
+                    'patch'=>['name'=>['type'=>'string'],'mac_address'=>[]],
+                    'required'=>['asset_id','name'], 'kind'=>'interface',
+                ],
+                'addresses'=>[
+                    'create'=>['network_id'=>['type'=>'string','format'=>'uuid'],'address'=>['type'=>'string'],'hostname'=>[],'description'=>['type'=>'string']],
+                    'patch'=>['hostname'=>[],'description'=>['type'=>'string']],
+                    'required'=>['network_id','address'], 'kind'=>'address',
+                ],
+            ];
+            foreach ($schemas as $prefix=>$config) {
+                $kind=$config['kind'];
+                $ipam->get('/'.$prefix, static fn (HttpRequest $r): HttpResponse => $controller()->index($r,$kind));
+                $ipam->post('/'.$prefix, static fn (HttpRequest $r): HttpResponse => $controller()->create($r,$kind),[
+                    'required'=>$config['required'],'properties'=>$config['create'],'additionalProperties'=>false,
+                ]);
+                $ipam->get('/'.$prefix.'/{id}', static fn (HttpRequest $r): HttpResponse => $controller()->show($r,$kind));
+                $ipam->patch('/'.$prefix.'/{id}', static fn (HttpRequest $r): HttpResponse => $controller()->update($r,$kind),[
+                    'properties'=>$config['patch'],'additionalProperties'=>false,
+                ]);
+                $ipam->delete('/'.$prefix.'/{id}', static fn (HttpRequest $r): HttpResponse => $controller()->delete($r,$kind));
+            }
+            $ipam->post('/addresses/{id}/assign', static fn (HttpRequest $r): HttpResponse => $controller()->assign($r),[
+                'required'=>['interface_id'], 'properties'=>['interface_id'=>['type'=>'string','format'=>'uuid']], 'additionalProperties'=>false,
+            ]);
+            $ipam->post('/addresses/{id}/unassign', static fn (HttpRequest $r): HttpResponse => $controller()->assign($r,true));
+        });
         // A verified webhook is persisted to the inbox; it is never executed as a script.
         $routes->post('/webhooks/{id}/events', static fn (HttpRequest $r): HttpResponse => $container->get(SecurityController::class)->ingestWebhook($r));
     });
