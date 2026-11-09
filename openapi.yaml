@@ -1,11 +1,11 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.1.6
-  description: 'CajeerServers 0.1.6: реальная PostgreSQL-аутентификация, scoped API tokens, RBAC с проверками на
+  version: 0.1.7
+  description: 'CajeerServers 0.1.7: реальная PostgreSQL-аутентификация, scoped API tokens, RBAC с проверками на
     сервере, TOTP MFA и одноразовые recovery codes, security audit (append-only), подписанный вебхук-входящий журнал
     с защитой от replay. HTTPS обязателен в production. Для state-changing security API нужны cookie-сессия и X-CSRF-Token.
-    Bearer-токены не дают доступа к security mutations. После обновления требуется миграция 0005; инфраструктурные
+    Bearer-токены не дают доступа к security mutations. Перед использованием очереди и планировщика нужна миграция 0006; инфраструктурные
     действия Proxmox/VMmanager ещё не опубликованы. Webhook events принимаются и сохраняются, но не исполняются.'
 servers:
 - url: /api/v1

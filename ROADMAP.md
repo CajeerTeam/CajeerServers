@@ -84,15 +84,31 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 - [x] Native security smoke, документация, OpenAPI 3.1.1 и отдельный PostgreSQL integration test.
 - [ ] Реальный прогон PostgreSQL 17/18 integration test и production TLS verification в CI — не выполнялся в текущей среде.
 
-## 0.1.7 — Cache, Queue, Scheduler & Storage (планируется)
+## 0.1.7 — Cache, Queue, Scheduler & Storage (реализовано, требует реальной интеграционной проверки)
 
-- [ ] Redis cache с TTL и namespace.
-- [ ] Redis/PostgreSQL queue workers с retries и дедупликацией.
-- [ ] Scheduler с блокировкой конкурирующих запусков.
-- [ ] Local + S3-compatible storage adapters.
-- [ ] Фоновое обслуживание истёкших security rate-limit и webhook inbox записей согласно policy.
+- [x] Redis RESP2 client без обязательного ext-redis, ACL/TLS, namespace и TTL cache.
+- [x] Redis Lua queue и PostgreSQL SKIP LOCKED queue: persistent status/result, lease fencing, retries, DLQ, redrive, cleanup по сроку хранения.
+- [x] Worker с конкретными разрешёнными обработчиками runtime.diagnostics, storage.probe, queue.prune; никаких произвольных команд.
+- [x] PostgreSQL scheduler с timezone-aware cron, SKIP LOCKED и transactional outbox; idempotent job IDs при восстановлении отправки.
+- [x] Local storage: atomic write, защита от traversal/symlinks, ограничение объектов; S3 HTTPS + AWS SigV4 GET/PUT/HEAD/DELETE.
+- [x] Реальные CLI-команды, migration `0006_queue_scheduler.sql`, автономные smoke-тесты и проверка S3 SigV4 через HTTP fixture.
+- [ ] Подтвердить очередь и scheduler на PostgreSQL 17/18 и Redis server в CI; интеграционные тесты доступны отдельно.
+- [ ] Политика retention для security rate limits и webhook inbox (отдельное обслуживание; 0.1.8).
+- [ ] RabbitMQ driver и multipart/streaming S3 для больших объектов — отложены.
 
-## 0.2.0 — Core Kernel
+## 0.1.8 — Observability & Operational CLI (следующий релиз)
+
+- [ ] Достоверные liveness/readiness PostgreSQL, Redis, storage и queue.
+- [ ] Prometheus metrics и OpenTelemetry spans для HTTP и фоновых jobs.
+- [ ] `doctor`, `system:report`, `queue:stats`, structured logs, alerts, cleanup security/webhooks.
+- [ ] Единая диагностика и проверка production-конфигурации.
+
+## 0.1.9 — Admin UI & End-to-End Integration (планируется)
+
+- [ ] Реальные Nuxt страницы для auth/сессий/токенов/ролей, диагностики и queue status.
+- [ ] E2E install → auth → schedule → worker → job result → audit.
+
+## 0.2.0 — Production-oriented Core (планируется)
 
 Цель: рабочее ядро приложения, маршрутизация, конфигурация и базовая безопасность.
 

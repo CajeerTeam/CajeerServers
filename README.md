@@ -2,6 +2,14 @@
 
 **CajeerServers** — русскоязычная self-hosted веб-оболочка для наблюдения и управления инфраструктурой. Это **не ОС**, не прошивка и не замена Proxmox/VMmanager. Для будущих версий предусмотрен сбор данных через API, собственные скрипты, webhooks, collectors и интеграции без обязательных системных агентов.
 
+## Версия 0.1.7 — Cache, Queue, Scheduler & Storage
+
+Рабочие драйверы Redis cache (RESP2/TLS/ACL), очередей Redis (атомарный Lua) и PostgreSQL (SKIP LOCKED/lease fencing), worker с allowlist типов задач, планировщик PostgreSQL с cron/таймзонами/transactional outbox, локальное атомарное и S3-compatible SigV4 хранилище. Не запускает произвольные PHP/shell-команды из заданий. Доступ только через локальный CLI; инфраструктурные HTTP API не публикуются.
+
+**Патч:** поверх 0.1.6; сделать backup PostgreSQL и выполнить `php bin/cajeer migrate`, затем `php tests/infrastructure-smoke.php`. Описание конфигурации, команд и эксплуатации: [wiki/Queue.md](wiki/Queue.md), [wiki/Scheduler.md](wiki/Scheduler.md), [wiki/Storage.md](wiki/Storage.md).
+
+**Проверено:** native tests, локальный HTTP mock S3 с независимой проверкой SigV4, RESP2 transport fixture, LocalDisk и cron/DST. **Не проверено в текущей среде:** реальный Redis server и PostgreSQL 17/18 — интеграционные тесты предусмотрены, но серверов/`pdo_pgsql` нет. Это не означает полной production-сертификации.
+
 ## Версия 0.1.6 — RBAC, Security & Audit
 
 Добавлена **исполняемая реализация** PostgreSQL RBAC (7 разрешений, пользователи/роли/назначение/отзыв), server-side CSRF, общего лимитирования входа, TOTP 2FA с одноразовыми recovery codes, XChaCha20-Poly1305 шифрования секретов, HMAC-подписанных webhooks с persisted inbox и replay protection, транзакционного append-only security audit, а также дополнительных защитных HTTP-заголовков. На новых операциях не возвращаются фиктивные результаты: действие либо записано и проверено в PostgreSQL, либо завершается ошибкой. Деструктивные операции Proxmox/VMmanager по-прежнему не опубликованы.
@@ -17,7 +25,7 @@
 - `POST /api/v1/auth/logout`, `/auth/password`, `/auth/tokens`; `DELETE /api/v1/auth/tokens/{id}`, `/auth/sessions/{id}` — реальные операции с проверкой авторизованной cookie-сессии и `X-CSRF-Token`.
 - API bearer tokens имеют формат `at1.<uuid>.<256-bit-secret>`; только SHA-256 полного токена хранится в PostgreSQL, сырой токен возвращается **однократно**, отзыв и expiry применяются при каждом запросе.
 - Минимальные scopes: `profile:read`, `sessions:read`, `tokens:read`. Bearer-токены **не могут** создавать/отзывать токены, менять пароль, закрывать сессии или выполнять инфраструктурные действия.
-- Смена пароля транзакционно отзывает **все** сессии и API-токены владельца. Пользователи с включённым 2FA намеренно не допускаются к password-only login до реализации полноценного 2FA (0.1.6), чтобы не обходить защиту.
+- Смена пароля транзакционно отзывает **все** сессии и API-токены владельца. Для пользователей с включённым 2FA дополнительно требуется действующий TOTP или одноразовый recovery code (с 0.1.6).
 - PostgreSQL migration `0004_authentication.sql`: сессии, блокировки входа, `revoked_at` для API-токенов, деактивация пользователей и уникальность email без учёта регистра. Нужна перед первым входом.
 
 **Установка:** применить патч поверх 0.1.4 → `php bin/cajeer migrate` → открыть API login. Для существующей установки повторно запускать `install` нельзя. Подробный пример запросов и требования к Nginx: [wiki/Authentication.md](wiki/Authentication.md).

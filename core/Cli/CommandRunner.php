@@ -46,7 +46,11 @@ final class CommandRunner
                 'migrate:status' => $this->migrationStatus(in_array('--json', $argv, true)),
                 'migrate:pending' => $this->migrationPending(in_array('--json', $argv, true)),
                 'migrate:validate', 'schema:check' => $this->migrationValidate(in_array('--json', $argv, true)),
-                'queue:work', 'scheduler:run', 'connector:sync', 'scripts:run',
+                'cache:check', 'cache:get', 'cache:put', 'cache:delete',
+                'queue:push', 'queue:work', 'queue:status', 'queue:failed', 'queue:retry', 'queue:prune',
+                'scheduler:add', 'scheduler:list', 'scheduler:run', 'scheduler:enable', 'scheduler:disable',
+                'storage:check', 'storage:put', 'storage:get', 'storage:exists', 'storage:delete' => (new InfrastructureCommands($this->app))->run($command, $argv),
+                'connector:sync', 'scripts:run',
                 'system:report', 'openapi:lint', 'update:check' => $this->unavailable($command),
                 default => $this->unknown($command),
             };
@@ -59,7 +63,7 @@ final class CommandRunner
     private function help(): int
     {
         fwrite(STDOUT, <<<'TEXT'
-CajeerServers CLI 0.1.4
+CajeerServers CLI 0.1.7
 
 Рабочие команды:
   help                 Список доступных команд
@@ -84,8 +88,28 @@ CajeerServers CLI 0.1.4
   migrate:status       Статус каждой миграции (--json)
   migrate:pending      Список ожидающих миграций (--json)
   migrate:validate     Проверить SQL и checksum журнал (--json)
+  cache:check          Проверить Redis PING
+  cache:put            --key=... --value=... [--ttl=300]
+  cache:get            --key=...
+  cache:delete         --key=...
+  queue:push           --type=runtime.diagnostics|storage.probe [--queue=default] [--payload-file=...]
+  queue:work           [--once] или --max-jobs=N / --max-seconds=N [--queue=default]
+  queue:status         --id=UUID
+  queue:failed         [--queue=default] [--limit=50]
+  queue:retry          --id=UUID
+  queue:prune          [--queue=default] [--days=7] [--limit=500]
+  scheduler:add        --name=... --cron='*/5 * * * *' --type=runtime.diagnostics [--run-now]
+  scheduler:list       Просмотреть задания PostgreSQL
+  scheduler:run        Планировать due jobs и отправлять outbox в выбранную очередь
+  scheduler:enable     --name=...
+  scheduler:disable    --name=...
+  storage:check        Реальная проверка write/read/delete
+  storage:put          --key=... --file=/path/to/local/file
+  storage:get          --key=... --output=/path/to/new/file
+  storage:exists       --key=...
+  storage:delete       --key=...
 
-Команды будущих релизов (queue:work и др.) возвращают ошибку.
+Нереализованные инфраструктурные команды возвращают ошибку.
 TEXT
         );
         fwrite(STDOUT, "\n");

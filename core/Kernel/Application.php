@@ -3,6 +3,17 @@ declare(strict_types=1);
 
 namespace Cajeer\Servers\Kernel;
 
+use Cajeer\Servers\Cache\RedisClient;
+use Cajeer\Servers\Cache\RedisCacheStore;
+use Cajeer\Servers\Queue\QueueDriverInterface;
+use Cajeer\Servers\Queue\RedisQueueDriver;
+use Cajeer\Servers\Queue\PostgresQueueDriver;
+use Cajeer\Servers\Queue\JobWorker;
+use Cajeer\Servers\Queue\JobProcessor;
+use Cajeer\Servers\Scheduler\Scheduler;
+use Cajeer\Servers\Storage\StorageDiskInterface;
+use Cajeer\Servers\Storage\LocalDisk;
+use Cajeer\Servers\Storage\S3CompatibleDisk;
 use Cajeer\Servers\Auth\AuthenticationService;
 use Cajeer\Servers\Auth\AuthController;
 use Cajeer\Servers\Auth\SessionCookie;
@@ -46,6 +57,15 @@ final class Application
         }
     }
 
+    private function localStorageRoot(string $configured): string
+    {
+        if ($configured === '') return $this->basePath('storage/files');
+        if (!str_starts_with($configured, '/') || str_contains($configured, "\0")) {
+            throw new RuntimeException('STORAGE_LOCAL_ROOT must be an absolute filesystem path.');
+        }
+        return $configured;
+    }
+
     public function basePath(string $path = ''): string
     {
         return rtrim($this->root, '/') . ($path === '' ? '' : '/' . ltrim($path, '/'));
@@ -73,6 +93,45 @@ final class Application
             $container->get(DatabaseManager::class), $this->basePath('migrations/pgsql'),
         ));
         $this->services->singleton(JsonLogger::class, fn (ServiceContainer $container): JsonLogger => new JsonLogger($this->basePath('storage/logs')));
+        $this->services->singleton(RedisClient::class, function (ServiceContainer $c): RedisClient {
+            $r = $c->get(ConfigRepository::class)->get('cache.redis', []);
+            $host = (string) ($r['host'] ?? '127.0.0.1');
+            $tls = $r['tls'] ?? false;
+            if ($c->get(ConfigRepository::class)->get('app.env') === 'production' && !$tls
+                && !in_array($host, ['localhost', '127.0.0.1', '::1'], true)) {
+                throw new RuntimeException('Non-loopback Redis requires TLS in production.');
+            }
+            return new RedisClient($host, (int)($r['port']??6379), (string)($r['username']??''),
+                (string)($r['password']??''), (int)($r['database']??0), (float)($r['timeout']??3),
+                $tls === true, ($r['ca_file']??'') === '' ? null : (string)$r['ca_file']);
+        });
+        $this->services->singleton(RedisCacheStore::class, fn (ServiceContainer $c): RedisCacheStore => new RedisCacheStore(
+            $c->get(RedisClient::class), (string)$c->get(ConfigRepository::class)->get('cache.redis.prefix','cajeer:cache:')));
+        $this->services->singleton(QueueDriverInterface::class, function (ServiceContainer $c): QueueDriverInterface {
+            return match ($c->get(ConfigRepository::class)->get('queue.default', 'redis')) {
+                'redis' => new RedisQueueDriver($c->get(RedisClient::class), (string)$c->get(ConfigRepository::class)->get('queue.redis_prefix','cajeer:queue:')),
+                'pgsql' => new PostgresQueueDriver($c->get(DatabaseManager::class)),
+                default => throw new RuntimeException('Unsupported queue driver. Supported: redis, pgsql.'),
+            };
+        });
+        $this->services->singleton(StorageDiskInterface::class, function (ServiceContainer $c): StorageDiskInterface {
+            $cfg = $c->get(ConfigRepository::class);
+            return match ($cfg->get('storage.default','local')) {
+                'local' => new LocalDisk($this->localStorageRoot((string)$cfg->get('storage.local.root',''))),
+                's3' => new S3CompatibleDisk((string)$cfg->get('storage.s3.endpoint',''),(string)$cfg->get('storage.s3.bucket',''),
+                    (string)$cfg->get('storage.s3.region','us-east-1'),(string)$cfg->get('storage.s3.access_key',''),
+                    (string)$cfg->get('storage.s3.secret_key',''),(string)$cfg->get('storage.s3.session_token',''),
+                    $cfg->get('storage.s3.allow_local_http',false)===true,(int)$cfg->get('storage.s3.timeout',10)),
+                default => throw new RuntimeException('Unsupported storage disk. Supported: local, s3.'),
+            };
+        });
+        $this->services->singleton(JobProcessor::class, fn (ServiceContainer $c): JobProcessor => new JobProcessor(
+            $c->get(RuntimeDiagnostics::class),$c->get(StorageDiskInterface::class),$c->get(QueueDriverInterface::class)));
+        $this->services->singleton(JobWorker::class, fn (ServiceContainer $c): JobWorker => new JobWorker(
+            $c->get(QueueDriverInterface::class),$c->get(JobProcessor::class),$c->get(JsonLogger::class)));
+        $this->services->singleton(Scheduler::class, fn (ServiceContainer $c): Scheduler => new Scheduler(
+            $c->get(DatabaseManager::class),$c->get(QueueDriverInterface::class),$c->get(JobProcessor::class)));
+
         $this->services->singleton(InstallState::class, fn (ServiceContainer $container): InstallState => new InstallState($this->basePath()));
         $this->services->singleton(SecretBox::class, fn (ServiceContainer $container): SecretBox => new SecretBox());
         $this->services->singleton(RateLimiter::class, fn (ServiceContainer $container): RateLimiter => new RateLimiter($container->get(SecretBox::class)));

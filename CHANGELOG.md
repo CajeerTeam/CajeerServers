@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.1.7] — Cache, Queue, Scheduler & Storage (2026-11-09)
+
+- Реальный Redis client (RESP2, AUTH/ACL, TLS, binary safety), TTL cache с атомарным INCRBY.
+- Реальные Redis (Lua atomic claims) и PostgreSQL (SKIP LOCKED) queues: idempotent enqueue, lease token fencing, retries, failed/retry, stored results, retention prune.
+- Allowlisted JobWorker: `runtime.diagnostics`, `storage.probe`, `queue.prune`; отказ от исполнения пользовательских команд и кода.
+- PostgreSQL scheduler с 5-field cron, DST/timezone handling, SKIP LOCKED, транзакционным outbox и устойчивой повторной отправкой.
+- LocalDisk с атомарной записью, symlink/traversal guards; S3-compatible SigV4 HTTPS GET/PUT/HEAD/DELETE, 16 MiB limit.
+- CLI для cache, queue, scheduler и storage; `0006_queue_scheduler.sql`, environment options, Wiki и native infrastructure smoke.
+- Автоматизированно проверены LocalDisk, cron, Redis RESP2 fixture, S3 SigV4 HTTP mock, worker allowlist; **не** подтверждён реальный Redis/PG интеграционный прогон (сервисы отсутствуют в среде).
+- Не заявлены: RabbitMQ, S3 multipart upload, произвольное выполнение shell задач, production-ready deployment.
+
 ## [0.1.6] — RBAC, Security & Audit (2026-11-09)
 
 - PostgreSQL migration `0005_security_audit.sql`: актуальные permission grants для administrator, MFA/recovery/limiter/webhook tables, append-only audit trigger.
