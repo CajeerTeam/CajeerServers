@@ -142,16 +142,7 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 
 Исполняемая реализация и локальные smoke не означают подтверждённый production rollout.
 Код внешних коннекторов, inventory и автоматизации остаётся за следующими версиями.
-См. `wiki/Production-Core.md`.
-
-## 0.2.2 — Organizations, Workspaces & Ownership (код реализован)
-
-- [x] PostgreSQL organizations/workspaces/workspace_members с изоляцией и переназначением существующих asset UUID.
-- [x] PHP сервис с реальными транзакциями create/read/update, owner roles, membership, last-owner protection.
-- [x] Scoped read существующих Inventory-объектов, assignment и перенос внутри организации, аудит и trigger.
-- [x] REST API, RBAC + CSRF, Nuxt workspace UI и OpenAPI 3.1.1.
-- [x] Native smoke и отдельный PostgreSQL integration test.
-- [ ] Подтверждение реального PostgreSQL 17/18, Composer/npm lock, Nuxt build и Playwright E2E в release окружении.
+См. `docs/Production-Core.md`.
 
 ## 0.2.1 — Core Stabilization & Inventory Readiness (исполняемые проверки)
 
@@ -165,7 +156,28 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 - [ ] Выполнить PostgreSQL/Redis integration, Nuxt build/Typecheck, PHPUnit и Playwright E2E на стенде; локально они пока не подтверждены.
 - [ ] Подтвердить backup/restore, Nginx/TLS и строгий release-gate перед производственным развёртыванием.
 
-Этот этап не включает Inventory CRUD, workspace, IPAM или управление внешней инфраструктурой. См. `wiki/Inventory-Readiness.md`.
+Этот этап не включает Inventory CRUD, workspace, IPAM или управление внешней инфраструктурой. См. `docs/Inventory-Readiness.md`.
+
+## 0.2.2 — Organizations, Workspaces & Ownership (код реализован)
+
+- [x] PostgreSQL organizations/workspaces/workspace_members с изоляцией и переназначением существующих asset UUID.
+- [x] PHP сервис с реальными транзакциями create/read/update, owner roles, membership, last-owner protection.
+- [x] Scoped read существующих Inventory-объектов, assignment и перенос внутри организации, аудит и trigger.
+- [x] REST API, RBAC + CSRF, Nuxt workspace UI и OpenAPI 3.1.1.
+- [x] Native smoke и отдельный PostgreSQL integration test.
+- [ ] Подтверждение реального PostgreSQL 17/18, Composer/npm lock, Nuxt build и Playwright E2E в release окружении.
+
+## 0.2.3 — Inventory Assets & CRUD Engine (рабочая реализация)
+
+- [x] PostgreSQL-backed CRUD для ручных инфраструктурных ресурсов, фильтрация и пагинация.
+- [x] Global RBAC + workspace isolation; чтение для members, изменения для owner/manager с CSRF.
+- [x] Конкурентная защита ETag/If-Match и версия под SQL-триггером для всех источников изменений.
+- [x] Soft-delete/restore, транзакционный аудит, ограничение ввода и защита source от подмены.
+- [x] Nuxt Inventory Admin UI, OpenAPI 3.1.1, новая миграция 0010.
+- [x] Локальные native smoke; подготовлен isolated PostgreSQL CRUD integration test.
+- [ ] Подтвердить PostgreSQL 17/18, Nuxt build и Playwright E2E в CI/staging на реальных сервисах.
+- [ ] Получить настоящие `composer.lock` / `admin/package-lock.json` из доверенных регистров.
+
 
 ## 0.3.0 — Inventory / CMDB
 
@@ -371,3 +383,5 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 - Security-релизы: отдельные patch-релизы с changelog и advisory.
 - Breaking changes: только major-релизы.
 - OpenAPI contract: versioned endpoints `/api/v1`.
+
+

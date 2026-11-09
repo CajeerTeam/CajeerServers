@@ -1,9 +1,9 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.2.2
-  description: 'CajeerServers 0.2.2: PostgreSQL-backed organizations, workspaces, memberships and scoped asset ownership; full Inventory CRUD follows in 0.2.3. Release verification and Nuxt Admin UI, PHP session authentication, RBAC, CSRF, real diagnostic jobs and read-only
-    operational views. External infrastructure control remains disabled. See wiki/Admin-UI.md.'
+  version: 0.2.3
+  description: 'CajeerServers 0.2.3: real PostgreSQL Inventory CRUD, workspace scoped RBAC, session CSRF, ETag/If-Match
+    and audit. Manual inventory only; external infrastructure control remains disabled. See docs/Inventory.md.'
 servers:
 - url: /api/v1
 security: []
@@ -103,9 +103,10 @@ paths:
     get:
       operationId: prometheusScrape
       summary: Защищённый Prometheus exposition format
-      description: Отключён по умолчанию. Требует PROMETHEUS_ENABLED=true и PROMETHEUS_SCRAPE_TOKEN длиной не менее 32 символов.
-        Bearer-token проверяется по constant-time comparison; в production необходим HTTPS. Счётчики HTTP/queue сохраняются
-        локально на инстансе, метки ограничены; gauge dependency_up получает фактический результат проверки зависимостей.
+      description: Отключён по умолчанию. Требует PROMETHEUS_ENABLED=true и PROMETHEUS_SCRAPE_TOKEN длиной не менее 32
+        символов. Bearer-token проверяется по constant-time comparison; в production необходим HTTPS. Счётчики HTTP/queue
+        сохраняются локально на инстансе, метки ограничены; gauge dependency_up получает фактический результат проверки
+        зависимостей.
       security:
       - metricsBearer: []
       responses:
@@ -1594,6 +1595,241 @@ paths:
         schema:
           type: string
           format: uuid
+  /inventory/assets:
+    get:
+      operationId: listInventoryAssets
+      summary: Список объектов только выбранного доступного workspace
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: workspace_id
+        in: query
+        required: true
+        schema: &id023
+          type: string
+          format: uuid
+        description: Доступное рабочее пространство
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 50
+      - name: offset
+        in: query
+        schema:
+          type: integer
+          minimum: 0
+          maximum: 10000
+          default: 0
+      - name: type
+        in: query
+        schema: &id029
+          type: string
+          enum:
+          - server
+          - hypervisor_node
+          - cluster
+          - virtual_machine
+          - container
+          - router
+          - workstation
+          - other
+      - name: status
+        in: query
+        schema: &id030
+          type: string
+          enum:
+          - unknown
+          - online
+          - offline
+          - maintenance
+          - provisioning
+          - decommissioned
+      - name: search
+        in: query
+        schema:
+          type: string
+          maxLength: 100
+      - name: include_deleted
+        in: query
+        schema:
+          type: string
+          enum:
+          - '0'
+          - '1'
+          default: '0'
+      responses:
+        '200':
+          description: Scoped inventory page
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InventoryAssetsResponse'
+        '401': &id018
+          description: Требуется сессия
+        '403': &id019
+          description: Нет глобального разрешения или недостаточная роль workspace
+        '404': &id020
+          description: Не найден либо находится в недоступном workspace
+        '422': &id021
+          description: Неверные поля или параметры
+        '503': &id022
+          description: Приложение не установлено либо сервис недоступен
+    post:
+      operationId: createInventoryAsset
+      summary: Создать ручной объект CMDB
+      description: Session + CSRF + inventory.assets.create + workspace owner/manager
+      security:
+      - sessionAuth: []
+      parameters:
+      - &id027
+        name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+        description: Current browser session CSRF token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateInventoryAsset'
+      responses:
+        '201':
+          description: Создано
+          content: &id024
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InventoryAssetResponse'
+          headers: &id025
+            ETag:
+              description: Current version
+              schema:
+                type: string
+        '409':
+          description: Конфликт идентичности
+        '401': *id018
+        '403': *id019
+        '404': *id020
+        '422': *id021
+        '503': *id022
+  /inventory/assets/{id}:
+    get:
+      operationId: getInventoryAsset
+      summary: Карточка объекта
+      security:
+      - sessionAuth: []
+      parameters:
+      - &id026
+        name: id
+        in: path
+        required: true
+        schema: *id023
+      - name: include_deleted
+        in: query
+        schema:
+          type: string
+          enum:
+          - '0'
+          - '1'
+          default: '0'
+      responses:
+        '200':
+          description: Объект
+          content: *id024
+          headers: *id025
+        '401': *id018
+        '403': *id019
+        '404': *id020
+        '422': *id021
+        '503': *id022
+    patch:
+      operationId: updateInventoryAsset
+      summary: Сохранить изменения с проверкой версии
+      security:
+      - sessionAuth: []
+      parameters:
+      - *id026
+      - &id028
+        name: If-Match
+        in: header
+        required: true
+        schema:
+          type: string
+        description: Strong ETag from GET ("<uuid>:<version>")
+      - *id027
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateInventoryAsset'
+      responses:
+        '200':
+          description: Изменено
+          content: *id024
+          headers: *id025
+        '412':
+          description: Версия устарела
+        '428':
+          description: Требуется If-Match
+        '401': *id018
+        '403': *id019
+        '404': *id020
+        '422': *id021
+        '503': *id022
+    delete:
+      operationId: deleteInventoryAsset
+      summary: Мягко удалить объект с проверкой версии
+      security:
+      - sessionAuth: []
+      parameters:
+      - *id026
+      - *id028
+      - *id027
+      responses:
+        '200':
+          description: Удалено
+          content: *id024
+          headers: *id025
+        '412':
+          description: Версия устарела
+        '428':
+          description: Требуется If-Match
+        '401': *id018
+        '403': *id019
+        '404': *id020
+        '422': *id021
+        '503': *id022
+  /inventory/assets/{id}/restore:
+    post:
+      operationId: restoreInventoryAsset
+      summary: Восстановить мягко удалённый объект
+      security:
+      - sessionAuth: []
+      parameters:
+      - *id026
+      - *id028
+      - *id027
+      responses:
+        '200':
+          description: Восстановлено
+          content: *id024
+          headers: *id025
+        '409':
+          description: Объект не удалён
+        '412':
+          description: Версия устарела
+        '428':
+          description: Требуется If-Match
+        '401': *id018
+        '403': *id019
+        '404': *id020
+        '422': *id021
+        '503': *id022
 components:
   schemas:
     Health:
@@ -1837,6 +2073,151 @@ components:
         status:
           type: string
           const: received
+    InventoryAsset:
+      type: object
+      required:
+      - id
+      - workspace_id
+      - type
+      - source
+      - name
+      - status
+      - version
+      - etag
+      properties:
+        id: *id023
+        workspace_id: *id023
+        owner_user_id:
+          anyOf:
+          - *id023
+          - type: 'null'
+        type: *id029
+        source:
+          type: string
+        external_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+        name:
+          type: string
+          maxLength: 255
+        status:
+          type: string
+        os_family:
+          anyOf:
+          - type: string
+          - type: 'null'
+        ip_addresses:
+          type: array
+          items:
+            type: string
+        tags:
+          type: array
+          items:
+            type: string
+        attributes:
+          type: object
+          additionalProperties: true
+        version:
+          type: integer
+          minimum: 1
+        etag:
+          type: string
+        created_at:
+          type: string
+        updated_at:
+          type: string
+        deleted_at:
+          anyOf:
+          - type: string
+          - type: 'null'
+    CreateInventoryAsset:
+      type: object
+      required:
+      - workspace_id
+      - type
+      - name
+      additionalProperties: false
+      properties:
+        workspace_id: *id023
+        type: *id029
+        name: &id031
+          type: string
+          minLength: 1
+          maxLength: 255
+        status: *id030
+        os_family: &id032
+          anyOf:
+          - type: string
+            enum:
+            - windows
+            - debian
+            - ubuntu
+            - linux
+            - other
+          - type: 'null'
+        ip_addresses: &id033
+          type: array
+          maxItems: 64
+          items:
+            type: string
+            maxLength: 45
+        tags: &id034
+          type: array
+          maxItems: 50
+          items:
+            type: string
+        attributes: &id035
+          type: object
+        owner_user_id: &id036
+          anyOf:
+          - *id023
+          - type: 'null'
+    UpdateInventoryAsset:
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      properties:
+        name: *id031
+        status: *id030
+        os_family: *id032
+        ip_addresses: *id033
+        tags: *id034
+        attributes: *id035
+        owner_user_id: *id036
+    InventoryAssetResponse:
+      type: object
+      required:
+      - data
+      properties:
+        data:
+          $ref: '#/components/schemas/InventoryAsset'
+    InventoryAssetsResponse:
+      type: object
+      required:
+      - data
+      - total
+      - pagination
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/InventoryAsset'
+        total:
+          type: integer
+        pagination:
+          type: object
+          required:
+          - limit
+          - offset
+          - total
+          properties:
+            limit:
+              type: integer
+            offset:
+              type: integer
+            total:
+              type: integer
   responses:
     NotAcceptable:
       description: The Accept header does not permit JSON
@@ -1893,5 +2274,5 @@ components:
       type: apiKey
       in: header
       name: X-Cajeer-Signature
-      description: sha256=<hex64> HMAC-SHA256 от v1.<unix_timestamp>.<raw_body>; отдельно X-Cajeer-Timestamp, дрейф не более
-        300 секунд.
+      description: sha256=<hex64> HMAC-SHA256 от v1.<unix_timestamp>.<raw_body>; отдельно X-Cajeer-Timestamp, дрейф не
+        более 300 секунд.

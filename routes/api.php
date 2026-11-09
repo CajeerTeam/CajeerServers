@@ -144,6 +144,29 @@ return static function (Router $router, ServiceContainer $container): void {
                 'required'=>['destination_workspace_id'],'properties'=>['destination_workspace_id'=>['type'=>'string','format'=>'uuid']],'additionalProperties'=>false,
             ]);
         });
+        $routes->group('/inventory', static function (Router $inventory) use ($container): void {
+            $controller = static fn (): \Cajeer\Servers\Inventory\InventoryController => $container->get(\Cajeer\Servers\Inventory\InventoryController::class);
+            $createFields = [
+                'workspace_id'=>['type'=>'string','format'=>'uuid'],
+                'type'=>['type'=>'string','enum'=>\Cajeer\Servers\Inventory\InfrastructureAsset::TYPES],
+                'name'=>['type'=>'string','minLength'=>1,'maxLength'=>255],
+                'status'=>['type'=>'string','enum'=>\Cajeer\Servers\Inventory\InfrastructureAsset::STATUSES],
+                'os_family'=>[], 'owner_user_id'=>[], 'tags'=>['type'=>'array'],
+                'ip_addresses'=>['type'=>'array'], 'attributes'=>['type'=>'object'],
+            ];
+            $patchFields = $createFields;
+            unset($patchFields['workspace_id'], $patchFields['type']);
+            $inventory->get('/assets', static fn (HttpRequest $r): HttpResponse => $controller()->index($r));
+            $inventory->post('/assets', static fn (HttpRequest $r): HttpResponse => $controller()->create($r), [
+                'required'=>['workspace_id','type','name'], 'properties'=>$createFields,'additionalProperties'=>false,
+            ]);
+            $inventory->get('/assets/{id}', static fn (HttpRequest $r): HttpResponse => $controller()->show($r));
+            $inventory->patch('/assets/{id}', static fn (HttpRequest $r): HttpResponse => $controller()->update($r), [
+                'properties'=>$patchFields,'additionalProperties'=>false,
+            ]);
+            $inventory->delete('/assets/{id}', static fn (HttpRequest $r): HttpResponse => $controller()->delete($r));
+            $inventory->post('/assets/{id}/restore', static fn (HttpRequest $r): HttpResponse => $controller()->restore($r));
+        });
         // A verified webhook is persisted to the inbox; it is never executed as a script.
         $routes->post('/webhooks/{id}/events', static fn (HttpRequest $r): HttpResponse => $container->get(SecurityController::class)->ingestWebhook($r));
     });

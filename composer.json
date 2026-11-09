@@ -44,7 +44,9 @@
     "admin:test": "@php tests/admin-smoke.php",
     "admin:postgres:test": "@php tests/admin-postgres-integration.php",
     "inventory:readiness:test": "@php tests/inventory-readiness-smoke.php",
-    "inventory:postgres:test": "@php tests/inventory-postgres-integration.php"
+    "inventory:postgres:test": "@php tests/inventory-postgres-integration.php",
+    "inventory:crud:test": "@php tests/inventory-smoke.php",
+    "inventory:crud:postgres:test": "@php tests/inventory-crud-postgres-integration.php"
   },
   "minimum-stability": "stable",
   "prefer-stable": true,

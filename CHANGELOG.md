@@ -1,3 +1,11 @@
+## [0.2.3] — 2026-11-09
+
+- Реальные PostgreSQL create/read/update/delete/restore Inventory с tenant authorization и атомарным audit.
+- ETag/If-Match, триггер версии, нормализованная валидация пользовательских полей.
+- Реальный Nuxt Inventory UI, OpenAPI 3.1.1 и миграция `0010_inventory_assets_crud.sql`.
+- GitHub Actions CI и документация GitHub Docs (`docs/`).
+- Native и подготовленный изолированный PostgreSQL интеграционный тест (его успешное выполнение требует работающей БД).
+
 # Changelog
 
 ## [0.2.2] — Organizations, Workspaces & Ownership (2026-11-09)

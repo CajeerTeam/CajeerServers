@@ -25,7 +25,7 @@ $app = (new Application(dirname(__DIR__)))->boot();
 try {
     $router = $app->container()->get(Router::class);
     $kernel = $app->container()->get(HttpKernel::class);
-    $check(count($router->routes()) === 54, 'real registered routes only');
+    $check(count($router->routes()) === 60, 'real registered routes only');
 
     foreach (['/', '/api/v1/health', '/api/v1/system'] as $path) {
         $response = $app->handle(new HttpRequest('GET', $path));
@@ -39,10 +39,11 @@ try {
     $check(json_decode($app->handle(new HttpRequest('GET', '/api/v1/system'))->body, true)['version'] === $app->version(), 'live version endpoint');
     $check(json_decode($app->handle(new HttpRequest('GET', '/api/v1/health'))->body, true)['scope'] === 'runtime', 'readiness scope accurately labeled');
 
-    foreach (['/api/v1/actions','/api/v1/inventory/assets','/api/v1/connectors','/api/v1/webhooks/proxmox','/api/v1/scripts'] as $path) {
+    foreach (['/api/v1/actions','/api/v1/connectors','/api/v1/webhooks/proxmox','/api/v1/scripts'] as $path) {
         $check($app->handle(new HttpRequest('GET', $path))->status === 404, "unfinished $path remains unavailable");
     }
-    $post = $app->handle(new HttpRequest('POST', '/'));
+    $check(in_array($app->handle(new HttpRequest('GET', '/api/v1/inventory/assets'))->status, [401,503],true), 'protected inventory endpoint denies guest');
+    $post = $app->handle(new HttpRequest('POST', '/')); 
     $check($post->status === 405 && $post->headers['Allow'] === 'GET, HEAD', '405 with accurate Allow');
     $check(str_contains($post->headers['Content-Type'], 'problem+json'), 'RFC 9457 error content-type');
     $check(json_decode($post->body, true)['code'] === 'method_not_allowed', 'structured method error');

@@ -70,7 +70,7 @@ try {
     $check($app->handle($request('/api/v1/auth/tokens', '{"name":"test","scopes":["profile:read"],"expires_in":3600}'))->status === 503, 'token creation fails closed without installation');
     $check($app->handle(new HttpRequest('POST', '/api/v1/auth/logout'))->status === 503, 'logout fails closed without installation');
     $check($app->handle(new HttpRequest('POST', '/api/v1/auth/password', ['Content-Type' => 'application/json'], '{"current_password":"a","new_password":"short"}'))->status === 422, 'password minimum enforced');
-    $check($app->handle(new HttpRequest('GET', '/api/v1/inventory/assets'))->status === 404, 'unfinished infrastructure API still unavailable');
+    $check(in_array($app->handle(new HttpRequest('GET', '/api/v1/inventory/assets'))->status, [401,503], true), 'protected inventory API still denies guests');
     echo "PASS: {$count} authentication smoke checks (PostgreSQL integration separate).\n";
 } catch (Throwable $error) {
     fwrite(STDERR, '[FAIL] ' . $error->getMessage() . "\n");

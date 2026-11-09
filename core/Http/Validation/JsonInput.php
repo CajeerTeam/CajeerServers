@@ -55,7 +55,7 @@ final class JsonInput
                 'number' => is_int($value) || is_float($value),
                 'boolean' => is_bool($value),
                 'array' => is_array($value) && array_is_list($value),
-                'object' => is_array($value) && !array_is_list($value),
+                'object' => property_exists($decoded, $field) && $decoded->{$field} instanceof \stdClass,
                 'null' => $value === null,
                 default => true,
             };

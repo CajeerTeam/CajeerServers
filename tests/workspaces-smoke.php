@@ -67,7 +67,8 @@ try {
     $assert($res->status===422,'unknown workspace role rejected');
     $res=$app->handle(new HttpRequest('PATCH','/api/v1/workspaces/00000000-0000-4000-8000-000000000011/assets/00000000-0000-4000-8000-000000000033/owner',['Content-Type'=>'application/json'],'{"owner_user_id":{}}'));
     $assert($res->status===503,'uninstalled owner route denies request');
-    $assert($app->handle(new HttpRequest('GET','/api/v1/inventory/assets'))->status===404,'unimplemented inventory CRUD stays unavailable');
+    
+    $assert(in_array($app->handle(new HttpRequest('GET','/api/v1/inventory/assets'))->status,[401,503],true),'inventory CRUD denies unauthenticated requests');
     echo "PASS: $count Workspace native smoke checks (PostgreSQL integration separate).\n";
 } finally {
     $app?->terminate();

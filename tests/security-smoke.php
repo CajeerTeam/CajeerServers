@@ -51,7 +51,7 @@ try {
     $throws(static fn () => SignedPayload::verify($body, $signSecret, (string)($ts-301), $signature, $ts), 'expired webhook rejected');
     $throws(static fn () => SignedPayload::verify($body, $signSecret, 'x', $signature, $ts), 'invalid timestamp rejected');
     $throws(static fn () => SignedPayload::verify($body, $signSecret, (string)$ts, 'sha256=zz', $ts), 'invalid digest rejected');
-    $check(count(Rbac::PERMISSIONS) === 16, 'sixteen active RBAC permissions');
+    $check(count(Rbac::PERMISSIONS) === 20, 'twenty active RBAC permissions');
     $check(ApiToken::validateScopes(['profile:read']) === ['profile:read'], 'valid API scopes accepted');
     $throws(static fn () => ApiToken::validateScopes(['profile:read','profile:read']), 'duplicate API scope rejected');
     $throws(static fn () => ApiToken::validateScopes(['security.roles.manage']), 'privileged token scope rejected');
@@ -77,7 +77,7 @@ try {
     $payload = json_encode(['name'=>'ops'], JSON_THROW_ON_ERROR);
     $post = $app->handle(new HttpRequest('POST','/api/v1/security/roles',['Content-Type'=>'application/json'],$payload));
     $check($post->status === 422, 'RBAC route validates required fields');
-    $check($app->handle(new HttpRequest('GET','/api/v1/inventory/assets'))->status === 404, 'unfinished infra route disabled');
+    $check(in_array($app->handle(new HttpRequest('GET','/api/v1/inventory/assets'))->status, [401,503], true), 'protected inventory route denies guests');
     echo "PASS: {$count} security smoke assertions (PostgreSQL integration separate).\n";
 } catch (Throwable $error) {
     fwrite(STDERR, '[FAIL] ' . $error::class . ': ' . $error->getMessage() . "\n");

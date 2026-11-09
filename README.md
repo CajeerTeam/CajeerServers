@@ -2,6 +2,26 @@
 
 **CajeerServers** — русскоязычная self-hosted веб-оболочка для наблюдения и управления инфраструктурой. Это **не ОС**, не прошивка и не замена Proxmox/VMmanager. Для будущих версий предусмотрен сбор данных через API, собственные скрипты, webhooks, collectors и интеграции без обязательных системных агентов.
 
+## Версия 0.2.3 — Inventory Assets & CRUD Engine
+
+Реальный PostgreSQL Inventory CRUD: типизированные ручные объекты (servers, clusters, VMs,
+containers, routers, workstations), фильтрация/пагинация, workspace-aware RBAC,
+CSRF, атомарный audit, versioned ETag/If-Match, мягкое удаление и восстановление.
+Рабочий Nuxt `/inventory` получает и сохраняет данные исключительно через PHP API.
+Изменения источников Proxmox/VMmanager вручную заблокированы.
+
+```bash
+php bin/cajeer migrate
+php bin/cajeer migrate:validate
+php tests/inventory-smoke.php
+# Только отдельная PostgreSQL БД cajeer_test_*, не production:
+CAJEER_PG_TEST=1 CAJEER_PG_TEST_DATABASE=cajeer_test_inventory \
+    php tests/inventory-crud-postgres-integration.php
+```
+
+Подробности: [docs/Inventory.md](docs/Inventory.md). Старые миграции не изменялись.
+Реальные PostgreSQL/Redis, Nuxt build и E2E требуют проверки в целевой среде.
+
 ## Версия 0.2.2 — Organizations, Workspaces & Ownership
 
 Рабочая PostgreSQL-модель организаций, рабочих пространств и участников (owner/manager/viewer),
@@ -17,7 +37,7 @@ php bin/cajeer migrate:validate
 php tests/workspaces-smoke.php
 ```
 
-Подробности: [wiki/Organizations-and-Workspaces.md](wiki/Organizations-and-Workspaces.md).
+Подробности: [docs/Organizations-and-Workspaces.md](docs/Organizations-and-Workspaces.md).
 
 **Полный Inventory CRUD пока не реализован** (целевая 0.2.3). PostgreSQL integration, Nuxt build,
 Composer/npm lock-файлы и browser E2E требуют проверки на целевой инфраструктуре.
@@ -40,7 +60,7 @@ php tests/inventory-readiness-smoke.php
 Операции `inventory:constraints --apply` и `migrate` меняют SQL-схему — использовать
 с запланированным окном обслуживания и резервной копией. Доступ к Inventory CRUD не
 открыт (запланирован на 0.2.3); пользовательские данные не переписываются.
-Подробно: [wiki/Inventory-Readiness.md](wiki/Inventory-Readiness.md).
+Подробно: [docs/Inventory-Readiness.md](docs/Inventory-Readiness.md).
 
 **Локальная проверка:** регрессионные native smoke; реальный PostgreSQL/Redis,
 Nuxt build, браузерный E2E и воспроизводимые lock-файлы остаются непроверенными,
@@ -68,7 +88,7 @@ CAJEER_SMOKE_URL=https://staging.example.com php scripts/smoke-http.php
 Настоящие `composer.lock`, `admin/package-lock.json`, Nuxt build и browser E2E здесь
 не получены. `--strict` **не будет** сообщать об успешном production-допуске до их появления.
 Это сознательная защита от фиктивной готовности. Инструкция и все команды —
-[wiki/Production-Core.md](wiki/Production-Core.md).
+[docs/Production-Core.md](docs/Production-Core.md).
 
 Архитектура остаётся веб-ресурсом — не ОС и не заменой Proxmox/VMmanager.
 До последующих версий коннекторы внешних инфраструктурных систем остаются недоступны.
@@ -77,7 +97,7 @@ CAJEER_SMOKE_URL=https://staging.example.com php scripts/smoke-http.php
 
 Nuxt 3 SSR Admin UI с реальными PHP API: вход с TOTP, управление пользователями и ролями, sessions/API tokens, 2FA, журнал аудита, системный dashboard и диагностические задания через queue. Сервер проверяет RBAC, CSRF и cookie-сессию для каждой операции; API-токены не обладают правами Admin UI.
 
-**Патч:** поверх 0.1.8. Перед миграцией сохраните backup PostgreSQL, затем `php bin/cajeer migrate`; новая миграция `0007_admin_ui_permissions.sql` назначает 4 новых разрешения только administrator. Сборка UI: `cd admin && npm install && npm run build`. Для Nginx используйте схему same-origin из `examples/nginx/cajeerservers-tls.conf`. Подробности: [wiki/Admin-UI.md](wiki/Admin-UI.md).
+**Патч:** поверх 0.1.8. Перед миграцией сохраните backup PostgreSQL, затем `php bin/cajeer migrate`; новая миграция `0007_admin_ui_permissions.sql` назначает 4 новых разрешения только administrator. Сборка UI: `cd admin && npm install && npm run build`. Для Nginx используйте схему same-origin из `examples/nginx/cajeerservers-tls.conf`. Подробности: [docs/Admin-UI.md](docs/Admin-UI.md).
 
 **Проверки:** `php tests/admin-smoke.php`, `node admin/tests/static-check.mjs`; PostgreSQL интеграция и Playwright E2E требуют отдельного изолированного стенда. В данной среде отсутствие PostgreSQL и npm-зависимостей не позволяет заявить полный E2E-прогон или подтвердить Nuxt production build. Proxmox/VMmanager и Inventory API не объявлены работающими.
 
@@ -88,7 +108,7 @@ Nuxt 3 SSR Admin UI с реальными PHP API: вход с TOTP, управ�
 scrape endpoint и эксплуатационные команды, включая system-report, stats и bounded retention.
 Используйте `php bin/cajeer health:live`, `php bin/cajeer health:ready`,
 `php bin/cajeer doctor:deep`, `php bin/cajeer metrics:render` и
-`php tests/observability-smoke.php`. Полные настройки — [wiki/Observability.md](wiki/Observability.md).
+`php tests/observability-smoke.php`. Полные настройки — [docs/Observability.md](docs/Observability.md).
 
 **Patch:** поверх 0.1.7. Metrics endpoint по умолчанию закрыт и включается только
 с отдельным scrape token. Нет открытых инфраструктурных mutation API. Реальные Redis/PostgreSQL/S3
@@ -98,7 +118,7 @@ scrape endpoint и эксплуатационные команды, включа
 
 Рабочие драйверы Redis cache (RESP2/TLS/ACL), очередей Redis (атомарный Lua) и PostgreSQL (SKIP LOCKED/lease fencing), worker с allowlist типов задач, планировщик PostgreSQL с cron/таймзонами/transactional outbox, локальное атомарное и S3-compatible SigV4 хранилище. Не запускает произвольные PHP/shell-команды из заданий. Доступ только через локальный CLI; инфраструктурные HTTP API не публикуются.
 
-**Патч:** поверх 0.1.6; сделать backup PostgreSQL и выполнить `php bin/cajeer migrate`, затем `php tests/infrastructure-smoke.php`. Описание конфигурации, команд и эксплуатации: [wiki/Queue.md](wiki/Queue.md), [wiki/Scheduler.md](wiki/Scheduler.md), [wiki/Storage.md](wiki/Storage.md).
+**Патч:** поверх 0.1.6; сделать backup PostgreSQL и выполнить `php bin/cajeer migrate`, затем `php tests/infrastructure-smoke.php`. Описание конфигурации, команд и эксплуатации: [docs/Queue.md](docs/Queue.md), [docs/Scheduler.md](docs/Scheduler.md), [docs/Storage.md](docs/Storage.md).
 
 **Проверено:** native tests, локальный HTTP mock S3 с независимой проверкой SigV4, RESP2 transport fixture, LocalDisk и cron/DST. **Не проверено в текущей среде:** реальный Redis server и PostgreSQL 17/18 — интеграционные тесты предусмотрены, но серверов/`pdo_pgsql` нет. Это не означает полной production-сертификации.
 
@@ -106,7 +126,7 @@ scrape endpoint и эксплуатационные команды, включа
 
 Добавлена **исполняемая реализация** PostgreSQL RBAC (7 разрешений релиза 0.1.6, пользователи/роли/назначение/отзыв), server-side CSRF, общего лимитирования входа, TOTP 2FA с одноразовыми recovery codes, XChaCha20-Poly1305 шифрования секретов, HMAC-подписанных webhooks с persisted inbox и replay protection, транзакционного append-only security audit, а также дополнительных защитных HTTP-заголовков. На новых операциях не возвращаются фиктивные результаты: действие либо записано и проверено в PostgreSQL, либо завершается ошибкой. Деструктивные операции Proxmox/VMmanager по-прежнему не опубликованы.
 
-**Обновление:** 0.1.5 → 0.1.6, резервная копия PostgreSQL, `php bin/cajeer migrate`, `php bin/cajeer migrate:validate`. Прямое применение поверх более старых версий не проверялось. Рабочие маршруты, права и правила MFA: [wiki/Security.md](wiki/Security.md). Native smoke: `php tests/security-smoke.php`; интеграционный тест на изолированной PostgreSQL: `php tests/security-postgres-integration.php`. В текущей среде PostgreSQL и `pdo_pgsql` недоступны, реальная БД не проверена: эксплуатационную готовность необходимо подтвердить перед публичным развёртыванием.
+**Обновление:** 0.1.5 → 0.1.6, резервная копия PostgreSQL, `php bin/cajeer migrate`, `php bin/cajeer migrate:validate`. Прямое применение поверх более старых версий не проверялось. Рабочие маршруты, права и правила MFA: [docs/Security.md](docs/Security.md). Native smoke: `php tests/security-smoke.php`; интеграционный тест на изолированной PostgreSQL: `php tests/security-postgres-integration.php`. В текущей среде PostgreSQL и `pdo_pgsql` недоступны, реальная БД не проверена: эксплуатационную готовность необходимо подтвердить перед публичным развёртыванием.
 
 ## Версия 0.1.5 — Authentication & API Tokens
 
@@ -120,7 +140,7 @@ scrape endpoint и эксплуатационные команды, включа
 - Смена пароля транзакционно отзывает **все** сессии и API-токены владельца. Для пользователей с включённым 2FA дополнительно требуется действующий TOTP или одноразовый recovery code (с 0.1.6).
 - PostgreSQL migration `0004_authentication.sql`: сессии, блокировки входа, `revoked_at` для API-токенов, деактивация пользователей и уникальность email без учёта регистра. Нужна перед первым входом.
 
-**Установка:** применить патч поверх 0.1.4 → `php bin/cajeer migrate` → открыть API login. Для существующей установки повторно запускать `install` нельзя. Подробный пример запросов и требования к Nginx: [wiki/Authentication.md](wiki/Authentication.md).
+**Установка:** применить патч поверх 0.1.4 → `php bin/cajeer migrate` → открыть API login. Для существующей установки повторно запускать `install` нельзя. Подробный пример запросов и требования к Nginx: [docs/Authentication.md](docs/Authentication.md).
 
 **Релиз 0.1.5 не добавляет RBAC/2FA/инфраструктурные API.** Реальные PostgreSQL integration-тесты запускаются **отдельно** и не считаются подтверждёнными при отсутствии `pdo_pgsql` и PostgreSQL 17/18. Native smoke: `php tests/auth-smoke.php`; integration: `php tests/auth-postgres-integration.php` с явными переменными тестовой БД.
 
@@ -135,7 +155,7 @@ scrape endpoint и эксплуатационные команды, включа
 - `.env` записывается атомарно с правами 0600 и случайным APP_KEY; `storage/app/installed.json` записывается только после DB commit; специальная команда восстановления marker.
 - Native smoke-тесты установщика и отдельный интеграционный тест на **пустой одноразовой PostgreSQL**.
 
-Полная инструкция: [wiki/Installation.md](wiki/Installation.md). Установка не открывает доступ к серверным действиям: login, RBAC enforcement и управление инфраструктурой появятся в следующих релизах.
+Полная инструкция: [docs/Installation.md](docs/Installation.md). Установка не открывает доступ к серверным действиям: login, RBAC enforcement и управление инфраструктурой появятся в следующих релизах.
 
 **Для установки требуются PostgreSQL 17+, PHP ext-pdo_pgsql и права на миграции.** Никаких результатов с реальной БД нельзя считать подтверждёнными без запуска `tests/installer-postgres-integration.php` в соответствующем окружении.
 

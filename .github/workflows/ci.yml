@@ -1,0 +1,83 @@
+name: CajeerServers PHP + Nuxt CI
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  php-smoke:
+    name: PHP ${{ matrix.php }} / Smoke
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['8.4', '8.5']
+    steps:
+      - uses: actions/checkout@v4
+      - name: PHP setup
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: pdo_pgsql, sodium, mbstring, intl, openssl
+          tools: composer:v2
+          coverage: none
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Native PHP + Admin static verification
+        run: php scripts/verify-release.php
+      - name: Verify dependency lockfiles are present
+        run: |
+          test -s composer.lock
+          test -s admin/package-lock.json
+      - name: Install Composer dependencies reproducibly
+        run: composer install --no-interaction --no-progress --prefer-dist --no-dev --optimize-autoloader
+      - name: Install Nuxt dependencies and compile
+        working-directory: admin
+        run: |
+          npm ci --no-audit --no-fund
+          npm run typecheck
+          npm run build
+  postgres-integration:
+    name: PostgreSQL 18 / Inventory CRUD
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: cajeer
+          POSTGRES_PASSWORD: ci-integration-only
+          POSTGRES_DB: cajeer_test_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd 'pg_isready -U cajeer -d cajeer_test_ci'
+          --health-interval 5s --health-timeout 5s --health-retries 15
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd 'redis-cli ping'
+          --health-interval 5s --health-timeout 5s --health-retries 15
+    env:
+      CAJEER_PG_TEST: '1'
+      CAJEER_PG_TEST_DATABASE: cajeer_test_ci
+      CAJEER_PG_TEST_HOST: 127.0.0.1
+      CAJEER_PG_TEST_PORT: '5432'
+      CAJEER_PG_TEST_USERNAME: cajeer
+      CAJEER_PG_TEST_PASSWORD: ci-integration-only
+      CAJEER_PG_TEST_SSLMODE: disable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: pdo_pgsql, sodium, mbstring, intl, openssl
+          coverage: none
+      - name: PostgreSQL workspace and Inventory CRUD integration
+        run: |
+          php tests/workspaces-postgres-integration.php
+          php tests/inventory-crud-postgres-integration.php

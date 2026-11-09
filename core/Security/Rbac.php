@@ -15,7 +15,7 @@ final class Rbac
         'security.roles.read', 'security.roles.manage', 'security.roles.grant_administrator',
         'security.audit.read', 'security.webhooks.manage',
         'admin.dashboard.read', 'admin.jobs.read', 'admin.jobs.execute', 'admin.scheduler.read',
-        'organizations.manage', 'workspaces.read', 'workspaces.manage', 'workspaces.members.manage', 'inventory.ownership.manage',
+        'organizations.manage', 'workspaces.read', 'workspaces.manage', 'workspaces.members.manage', 'inventory.ownership.manage', 'inventory.assets.read', 'inventory.assets.create', 'inventory.assets.update', 'inventory.assets.delete',
     ];
 
     public function __construct(private readonly DatabaseManager $database, private readonly AuditLogger $audit) {}

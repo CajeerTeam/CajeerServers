@@ -142,7 +142,7 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 
 Исполняемая реализация и локальные smoke не означают подтверждённый production rollout.
 Код внешних коннекторов, inventory и автоматизации остаётся за следующими версиями.
-См. `wiki/Production-Core.md`.
+См. `docs/Production-Core.md`.
 
 ## 0.2.1 — Core Stabilization & Inventory Readiness (исполняемые проверки)
 
@@ -156,7 +156,7 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 - [ ] Выполнить PostgreSQL/Redis integration, Nuxt build/Typecheck, PHPUnit и Playwright E2E на стенде; локально они пока не подтверждены.
 - [ ] Подтвердить backup/restore, Nginx/TLS и строгий release-gate перед производственным развёртыванием.
 
-Этот этап не включает Inventory CRUD, workspace, IPAM или управление внешней инфраструктурой. См. `wiki/Inventory-Readiness.md`.
+Этот этап не включает Inventory CRUD, workspace, IPAM или управление внешней инфраструктурой. См. `docs/Inventory-Readiness.md`.
 
 ## 0.3.0 — Inventory / CMDB
 
@@ -362,3 +362,7 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 - Security-релизы: отдельные patch-релизы с changelog и advisory.
 - Breaking changes: только major-релизы.
 - OpenAPI contract: versioned endpoints `/api/v1`.
+
+
+## 0.2.3 — Inventory Assets & CRUD Engine
+Реальный ручной CRUD, workspace RBAC, audit, ETag/If-Match, soft delete и Nuxt UI. См. [Inventory](Inventory.md).

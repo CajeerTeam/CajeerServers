@@ -227,7 +227,7 @@ SQL)->execute(['ws'=>$workspaceId,'user'=>$userId,'role'=>$role]);
         $pdo=$this->db->connection();$this->readMembership($pdo,$workspaceId,$actor);
         $stmt=$pdo->prepare(<<<'SQL'
 SELECT id::text,type,source,name,status,owner_user_id::text,created_at::text
-FROM inventory_assets WHERE workspace_id=:ws ORDER BY created_at DESC,id DESC LIMIT :limit OFFSET :offset
+FROM inventory_assets WHERE workspace_id=:ws AND deleted_at IS NULL ORDER BY created_at DESC,id DESC LIMIT :limit OFFSET :offset
 SQL);
         $stmt->bindValue(':ws',$workspaceId);$stmt->bindValue(':limit',$limit,PDO::PARAM_INT);$stmt->bindValue(':offset',$offset,PDO::PARAM_INT);$stmt->execute();
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -240,7 +240,7 @@ SQL);
             $this->workspaceLock($pdo,$workspaceId);
             $this->requireRole($pdo,$workspaceId,$actor,['owner','manager']);
             if($owner!==null) $this->readMembership($pdo,$workspaceId,$owner);
-            $stmt=$pdo->prepare('UPDATE inventory_assets SET owner_user_id=CAST(:owner AS uuid),updated_at=now() WHERE id=:asset AND workspace_id=:ws RETURNING id::text,workspace_id::text,owner_user_id::text');
+            $stmt=$pdo->prepare('UPDATE inventory_assets SET owner_user_id=CAST(:owner AS uuid),updated_at=now() WHERE id=:asset AND workspace_id=:ws AND deleted_at IS NULL RETURNING id::text,workspace_id::text,owner_user_id::text');
             $stmt->execute(['owner'=>$owner,'asset'=>$assetId,'ws'=>$workspaceId]);
             $row=$stmt->fetch(PDO::FETCH_ASSOC);
             if (!is_array($row)) throw new HttpException(404,'Asset not found.','not_found');
@@ -260,7 +260,7 @@ SQL);
             if ($locks[$sourceId]['organization_id']!==$locks[$destinationId]['organization_id']) throw new HttpException(403,'Cross-organization transfer prohibited.','permission_denied');
             $this->requireRole($pdo,$sourceId,$actor,['owner']);
             $this->requireRole($pdo,$destinationId,$actor,['owner','manager']);
-            $stmt=$pdo->prepare('UPDATE inventory_assets SET workspace_id=:dest,owner_user_id=NULL,updated_at=now() WHERE workspace_id=:src AND id=:asset RETURNING id::text,workspace_id::text,owner_user_id::text');
+            $stmt=$pdo->prepare('UPDATE inventory_assets SET workspace_id=:dest,owner_user_id=NULL,updated_at=now() WHERE workspace_id=:src AND id=:asset AND deleted_at IS NULL RETURNING id::text,workspace_id::text,owner_user_id::text');
             try {$stmt->execute(['dest'=>$destinationId,'src'=>$sourceId,'asset'=>$assetId]);}
             catch(\PDOException $e) {if($e->getCode()==='23505')throw new HttpException(409,'Source identity conflicts in destination.','conflict');throw $e;}
             $row=$stmt->fetch(PDO::FETCH_ASSOC);

@@ -19,8 +19,8 @@ export function useApi() {
       credentials: 'include', cache: 'no-store', headers: { Accept: 'application/json' },
     }) as T
   }
-  async function write<T>(method: 'POST' | 'PUT' | 'PATCH' | 'DELETE', path: string, body?: unknown, csrf = true): Promise<T> {
-    const headers: Record<string, string> = { Accept: 'application/json' }
+  async function write<T>(method: 'POST' | 'PUT' | 'PATCH' | 'DELETE', path: string, body?: unknown, csrf = true, extraHeaders: Record<string,string> = {}): Promise<T> {
+    const headers: Record<string, string> = { Accept: 'application/json', ...extraHeaders }
     if (csrf) {
       // Rotating CSRF per operation means reloads never need to persist a token.
       const response = await get<{ csrf_token: string }>('/auth/csrf')
