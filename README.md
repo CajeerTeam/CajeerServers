@@ -302,3 +302,7 @@ Native smoke-tests выполняются без Composer. GitHub CI прове�
 ### Network Inventory / IPAM (0.2.4)
 
 Новый раздел `/ipam`: сети IPv4/IPv6, интерфейсы и резервация адресов через PostgreSQL и REST API. Инструкция: [`docs/Network-Inventory-IPAM.md`](docs/Network-Inventory-IPAM.md). Приложение является веб-ресурсом и не изменяет сетевые настройки устройств напрямую.
+
+### Infrastructure Relationships & Topology (0.2.5)
+
+Новый раздел `/topology` показывает хранимые в PostgreSQL связи инфраструктурных объектов и read-only связи IPAM. CRUD отношений защищён RBAC, workspace, CSRF и ETag; PostgreSQL блокирует циклы, неподходящие пары и перенос/soft-delete связанных объектов. Полное описание: [Infrastructure Relationships & Topology](docs/Infrastructure-Relationships-Topology.md). Действия на реальном оборудовании не выполняются.

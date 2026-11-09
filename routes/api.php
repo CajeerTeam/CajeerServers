@@ -167,6 +167,25 @@ return static function (Router $router, ServiceContainer $container): void {
             $inventory->delete('/assets/{id}', static fn (HttpRequest $r): HttpResponse => $controller()->delete($r));
             $inventory->post('/assets/{id}/restore', static fn (HttpRequest $r): HttpResponse => $controller()->restore($r));
         });
+        // Inventory topology and typed asset relationships. PostgreSQL owns integrity and cycle detection.
+        $routes->group('/inventory', static function (Router $graph) use ($container): void {
+            $controller=static fn (): \Cajeer\Servers\Inventory\RelationshipController => $container->get(\Cajeer\Servers\Inventory\RelationshipController::class);
+            $types=\Cajeer\Servers\Inventory\RelationshipService::KINDS;
+            $graph->get('/relationships',static fn(HttpRequest $r):HttpResponse => $controller()->index($r));
+            $graph->post('/relationships',static fn(HttpRequest $r):HttpResponse => $controller()->create($r),[
+                'required'=>['workspace_id','source_asset_id','target_asset_id','kind'],
+                'properties'=>['workspace_id'=>['type'=>'string','format'=>'uuid'],
+                    'source_asset_id'=>['type'=>'string','format'=>'uuid'],
+                    'target_asset_id'=>['type'=>'string','format'=>'uuid'],
+                    'kind'=>['type'=>'string','enum'=>$types]],'additionalProperties'=>false,
+            ]);
+            $graph->get('/relationships/{id}',static fn(HttpRequest $r):HttpResponse => $controller()->show($r));
+            $graph->patch('/relationships/{id}',static fn(HttpRequest $r):HttpResponse => $controller()->update($r),[
+                'required'=>['kind'],'properties'=>['kind'=>['type'=>'string','enum'=>$types]],'additionalProperties'=>false,
+            ]);
+            $graph->delete('/relationships/{id}',static fn(HttpRequest $r):HttpResponse => $controller()->delete($r));
+            $graph->get('/topology',static fn(HttpRequest $r):HttpResponse => $controller()->topology($r));
+        });
         // IPAM uses workspace membership + global RBAC and is not exposed to bearer tokens.
         $routes->group('/ipam', static function (Router $ipam) use ($container): void {
             $controller=static fn (): \Cajeer\Servers\Inventory\IpamController => $container->get(\Cajeer\Servers\Inventory\IpamController::class);

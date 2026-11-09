@@ -23,4 +23,8 @@ ok(read('pages/inventory.vue').includes('/inventory/assets') && read('pages/inve
 ok(read('composables/useApi.ts').includes('extraHeaders'), 'write requests forward ETag to backend')
 ok(existsSync(new URL('tests/e2e/ipam.spec.ts',root)), 'IPAM browser E2E scenario exists')
 ok(read('pages/ipam.vue').includes('/ipam/networks') && read('pages/ipam.vue').includes('/ipam/interfaces') && read('pages/ipam.vue').includes('/ipam/addresses') && read('pages/ipam.vue').includes('If-Match'), 'IPAM UI uses real API and ETag')
+
+ok(existsSync(new URL('pages/topology.vue',root)), 'topology page exists')
+ok(read('pages/topology.vue').includes('/inventory/relationships') && read('pages/topology.vue').includes('/inventory/topology'), 'topology consumes live APIs')
+ok(read('pages/topology.vue').includes('If-Match') && read('layouts/default.vue').includes('/topology'), 'topology optimistic editing and navigation')
 console.log(`Admin static checks: ${passed} PASS`)

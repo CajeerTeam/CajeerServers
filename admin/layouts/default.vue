@@ -5,6 +5,7 @@ const links = computed(() => [
   { to: '/workspaces', label: 'Организации и пространства', permission: 'workspaces.read' },
   { to: '/inventory', label: 'Инвентаризация', permission: 'inventory.assets.read' },
   { to: '/ipam', label: 'Сети и IPAM', permission: 'inventory.network.read' },
+  { to: '/topology', label: 'Связи и топология', permission: 'inventory.relationships.read' },
   { to: '/tasks', label: 'Очередь и задачи', permission: 'admin.jobs.read' },
   { to: '/scheduler', label: 'Планировщик', permission: 'admin.scheduler.read' },
   { to: '/users', label: 'Пользователи', permission: 'security.users.read' },
@@ -12,7 +13,7 @@ const links = computed(() => [
   { to: '/audit', label: 'Аудит', permission: 'security.audit.read' },
   { to: '/system', label: 'Диагностика', permission: 'admin.dashboard.read' },
   { to: '/settings', label: 'Профиль и безопасность', permission: '' },
-].filter(item => !item.permission || auth.can(item.permission)))
+].filter(item => (!item.permission || auth.can(item.permission)) && (item.to !== '/topology' || (auth.can('inventory.assets.read') && auth.can('inventory.network.read')))))
 const loggingOut = ref(false)
 const error = ref('')
 async function logout() {

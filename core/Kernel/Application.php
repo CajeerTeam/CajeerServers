@@ -37,6 +37,9 @@ use Cajeer\Servers\Inventory\InventoryService;
 use Cajeer\Servers\Inventory\InventoryController;
 use Cajeer\Servers\Inventory\IpamService;
 use Cajeer\Servers\Inventory\IpamController;
+use Cajeer\Servers\Inventory\RelationshipService;
+use Cajeer\Servers\Inventory\TopologyService;
+use Cajeer\Servers\Inventory\RelationshipController;
 use Cajeer\Servers\Workspace\WorkspaceService;
 use Cajeer\Servers\Workspace\WorkspaceController;
 use Cajeer\Servers\Logging\JsonLogger;
@@ -210,6 +213,12 @@ final class Application
             $c->get(DatabaseManager::class), $c->get(InventoryRepository::class), $c->get(AuditLogger::class)));
         $this->services->singleton(IpamController::class, fn (ServiceContainer $c): IpamController => new IpamController(
             $c->get(AuthenticationService::class), $c->get(Rbac::class), $c->get(IpamService::class)));
+        $this->services->singleton(RelationshipService::class, fn (ServiceContainer $c): RelationshipService => new RelationshipService(
+            $c->get(DatabaseManager::class),$c->get(InventoryRepository::class),$c->get(AuditLogger::class)));
+        $this->services->singleton(TopologyService::class, fn (ServiceContainer $c): TopologyService => new TopologyService(
+            $c->get(DatabaseManager::class),$c->get(InventoryRepository::class)));
+        $this->services->singleton(RelationshipController::class, fn (ServiceContainer $c): RelationshipController => new RelationshipController(
+            $c->get(AuthenticationService::class),$c->get(Rbac::class),$c->get(RelationshipService::class),$c->get(TopologyService::class)));
         $this->services->singleton(WorkspaceService::class, fn (ServiceContainer $c): WorkspaceService => new WorkspaceService(
             $c->get(DatabaseManager::class), $c->get(AuditLogger::class)));
         $this->services->singleton(WorkspaceController::class, fn (ServiceContainer $c): WorkspaceController => new WorkspaceController(

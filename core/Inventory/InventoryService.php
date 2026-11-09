@@ -101,7 +101,14 @@ final class InventoryService
             if ($operation==='update') {
                 if (array_key_exists('owner_user_id',$patch)) $this->repo->assertOwner($pdo,$workspace,$patch['owner_user_id']);
                 $this->repo->update($pdo,$id,$patch);
-            } else $this->repo->setDeleted($pdo,$id,$operation==='delete');
+            } else {
+                try {$this->repo->setDeleted($pdo,$id,$operation==='delete');}
+                catch (\PDOException $e) {
+                    if (in_array((string)($e->errorInfo[0]??$e->getCode()),['23503','23514'],true))
+                        throw new HttpException(409,'Detach inventory relationships and IPAM references before deleting this asset.','conflict');
+                    throw $e;
+                }
+            }
             $updated=$this->repo->find($pdo,$actor,$id,true);
             if ($updated===null) throw new \RuntimeException('Updated asset is missing.');
             $this->audit->record($pdo,$actor,'inventory.asset.'.$operation.'d','success','inventory_asset',$id,['source'=>'manual'],$requestId);

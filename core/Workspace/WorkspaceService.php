@@ -262,7 +262,7 @@ SQL);
             $this->requireRole($pdo,$destinationId,$actor,['owner','manager']);
             $stmt=$pdo->prepare('UPDATE inventory_assets SET workspace_id=:dest,owner_user_id=NULL,updated_at=now() WHERE workspace_id=:src AND id=:asset AND deleted_at IS NULL RETURNING id::text,workspace_id::text,owner_user_id::text');
             try {$stmt->execute(['dest'=>$destinationId,'src'=>$sourceId,'asset'=>$assetId]);}
-            catch(\PDOException $e) {if($e->getCode()==='23505')throw new HttpException(409,'Source identity conflicts in destination.','conflict');throw $e;}
+            catch(\PDOException $e) {if(in_array((string)($e->errorInfo[0]??$e->getCode()),['23505','23503','23514'],true))throw new HttpException(409,'Detach relationships and network interfaces before transferring this asset.','conflict');throw $e;}
             $row=$stmt->fetch(PDO::FETCH_ASSOC);
             if(!is_array($row))throw new HttpException(404,'Asset not found.','not_found');
             $this->audit->record($pdo,$actor,'inventory.asset.transferred','success','inventory_asset',$assetId,['reason'=>'workspace_transfer'], $requestId);

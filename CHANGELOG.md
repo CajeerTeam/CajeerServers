@@ -1,3 +1,12 @@
+## [0.2.5] — 2026-11-09 — Infrastructure Relationships & Topology
+
+- Рабочие PostgreSQL CMDB-отношения `cluster_contains`, `hosts`, `depends_on`, `connected_to`: транзакции, workspace-scoped FKs, циклы и structural ownership constraints.
+- REST CRUD `/api/v1/inventory/relationships` с RBAC, CSRF, ETag/If-Match и атомарным аудитом.
+- GET `/api/v1/inventory/topology` собирает реальный граф из Assets/Relations и IPAM; bounded output и `truncated`.
+- Nuxt `/topology` для просмотра, создания, изменения и удаления отношений; GitHub Actions и PostgreSQL integration сценарий.
+- Доступ к soft-delete или cross-workspace transfer связанных активов теперь возвращает корректный 409 вместо PDO-ошибки.
+- Отсутствие `pdo_pgsql`/сервера PostgreSQL и Nuxt dependencies в локальной среде не позволяет подтвердить полный интеграционный прогон.
+
 ## [0.2.3] — 2026-11-09
 
 - Реальные PostgreSQL create/read/update/delete/restore Inventory с tenant authorization и атомарным audit.

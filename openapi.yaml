@@ -1,9 +1,8 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.2.4
-  description: 'CajeerServers 0.2.4: Network Inventory / IPAM (IPv4/IPv6, interfaces, reservations), plus Inventory CRUD, workspace scoped RBAC, session CSRF, ETag/If-Match
-    and audit. Manual inventory only; external infrastructure control remains disabled. See docs/Inventory.md.'
+  version: 0.2.5
+  description: 'CajeerServers 0.2.5: typed infrastructure relationships, workspace-scoped topology, plus IPv4/IPv6 IPAM, Inventory CRUD, RBAC, session CSRF, ETag and audit. Manual inventory only; external infrastructure control remains disabled. See docs/Inventory.md.'
 servers:
 - url: /api/v1
 security: []
@@ -2755,8 +2754,242 @@ paths:
         '409':
           description: 'Conflict: overlapping subnet, duplicate address/MAC, or referenced resource still used'
 
+  /inventory/relationships:
+    get:
+      operationId: listInfrastructureRelationships
+      summary: Список явных CMDB-связей в доступном workspace
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: workspace_id
+        in: query
+        required: true
+        schema: {type: string, format: uuid}
+      - name: kind
+        in: query
+        schema: {type: string, enum: [cluster_contains, hosts, depends_on, connected_to]}
+      - name: asset_id
+        in: query
+        schema: {type: string, format: uuid}
+      - name: limit
+        in: query
+        schema: {type: integer, minimum: 1, maximum: 100, default: 50}
+      - name: offset
+        in: query
+        schema: {type: integer, minimum: 0, maximum: 10000, default: 0}
+      responses:
+        '200':
+          description: Связи и реальное количество записей с пагинацией
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: {type: array, items: {$ref: '#/components/schemas/InventoryRelationship'}}
+                  pagination:
+                    type: object
+                    properties:
+                      total: {type: integer}
+                      limit: {type: integer}
+                      offset: {type: integer}
+        '401': {description: Не авторизован}
+        '403': {description: Нет глобального разрешения inventory.relationships.read}
+        '404': {description: Workspace отсутствует или недоступен пользователю}
+        '422': {description: Неверные параметры запроса}
+    post:
+      operationId: createInfrastructureRelationship
+      summary: Создать типизированную связь между активными asset того же workspace
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [workspace_id, source_asset_id, target_asset_id, kind]
+              properties:
+                workspace_id: {type: string, format: uuid}
+                source_asset_id: {type: string, format: uuid}
+                target_asset_id: {type: string, format: uuid}
+                kind: {type: string, enum: [cluster_contains, hosts, depends_on, connected_to]}
+      responses:
+        '201':
+          description: Созданная связь, ETag и версия
+          headers:
+            ETag: {schema: {type: string}}
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: {$ref: '#/components/schemas/InventoryRelationship'}
+        '401': {description: Не авторизован}
+        '403': {description: Недостаточно разрешений, CSRF или роли workspace}
+        '409': {description: Конфликт типа, цикличность, другая структурная связь или дубликат}
+        '422': {description: Некорректный JSON или поля}
+  /inventory/relationships/{id}:
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    - name: workspace_id
+      in: query
+      required: true
+      schema: {type: string, format: uuid}
+    get:
+      operationId: getInfrastructureRelationship
+      summary: Получить связь в доступном workspace
+      security:
+      - sessionAuth: []
+      responses:
+        '200':
+          description: Найденная связь и ETag
+          headers:
+            ETag: {schema: {type: string}}
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: {$ref: '#/components/schemas/InventoryRelationship'}
+        '401': {description: Не авторизован}
+        '403': {description: Нет разрешения на чтение}
+        '404': {description: Связь либо workspace не доступны}
+    patch:
+      operationId: updateInfrastructureRelationship
+      summary: Изменить тип связи с блокировкой по ETag
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: If-Match
+        in: header
+        required: true
+        schema: {type: string}
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [kind]
+              properties:
+                kind: {type: string, enum: [cluster_contains, hosts, depends_on, connected_to]}
+      responses:
+        '200':
+          description: Обновлённая версия связи
+          headers:
+            ETag: {schema: {type: string}}
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: {$ref: '#/components/schemas/InventoryRelationship'}
+        '403': {description: Нет разрешения, роли или CSRF}
+        '404': {description: Связь не найдена}
+        '409': {description: Новая связь конфликтует с графом или не меняет тип}
+        '412': {description: Объект изменился; требуется новая версия}
+        '428': {description: Отсутствует If-Match}
+    delete:
+      operationId: deleteInfrastructureRelationship
+      summary: Удалить связь с проверкой ETag и аудитом
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: If-Match
+        in: header
+        required: true
+        schema: {type: string}
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema: {type: string}
+      responses:
+        '204': {description: Связь удалена, тела ответа нет}
+        '403': {description: Нет разрешения, роли или CSRF}
+        '404': {description: Связь не найдена}
+        '412': {description: Конфликт версии}
+        '428': {description: Отсутствует If-Match}
+  /inventory/topology:
+    get:
+      operationId: inventoryTopologyGraph
+      summary: Граф реальных объектов CMDB и фактических связей IPAM (требуются три read scopes)
+      description: Граф ограничен числом узлов, возвращает флаг truncated и лимиты. Пунктирные связи формируются из внешних ключей IPAM и не редактируются как отношения.
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: workspace_id
+        in: query
+        required: true
+        schema: {type: string, format: uuid}
+      - name: limit
+        in: query
+        schema: {type: integer, minimum: 1, maximum: 200, default: 100}
+      responses:
+        '200':
+          description: Узлы, ориентированные рёбра и информация об усечении графа
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      nodes:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id: {type: string}
+                            entity_id: {type: string, format: uuid}
+                            kind: {type: string, enum: [asset, network, interface, address]}
+                            subtype: {type: string}
+                            label: {type: string}
+                      edges:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id: {type: string}
+                            source: {type: string}
+                            target: {type: string}
+                            kind: {type: string}
+                            derived: {type: boolean}
+                      truncated: {type: boolean}
+                      limits: {type: object, additionalProperties: {type: integer}}
+        '401': {description: Не авторизован}
+        '403': {description: Нет глобального разрешения}
+        '404': {description: Workspace недоступен}
+        '422': {description: Неверный запрос}
 components:
   schemas:
+  InventoryRelationship:
+    type: object
+    required: [id, workspace_id, source_asset_id, target_asset_id, kind, version, etag]
+    properties:
+      id: {type: string, format: uuid}
+      workspace_id: {type: string, format: uuid}
+      source_asset_id: {type: string, format: uuid}
+      target_asset_id: {type: string, format: uuid}
+      kind: {type: string, enum: [cluster_contains, hosts, depends_on, connected_to]}
+      version: {type: integer, minimum: 1}
+      etag: {type: string}
+      created_at: {type: string, format: date-time}
+      updated_at: {type: string, format: date-time}
     Health:
       type: object
       additionalProperties: false

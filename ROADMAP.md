@@ -396,3 +396,14 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 - [ ] Подтверждённый PostgreSQL 17/18 E2E на целевой платформе (требует запуска CI и инфраструктуры).
 
 Следующий этап: **0.2.5 Infrastructure Relationships & Topology**.
+
+### 0.2.5 — Infrastructure Relationships & Topology
+
+- [x] Типизированные PostgreSQL-отношения между существующими Inventory asset с FK, аудитом и ETag.
+- [x] Проверка принадлежности workspace и допустимых пар типов, защита от циклов и повторных структурных родителей.
+- [x] Препятствие soft-delete, retype и переносу assets с активными связями.
+- [x] Workspace-scoped REST CRUD и read-only topology из действительных данных Inventory/IPAM.
+- [x] Nuxt `/topology`, GitHub Docs и автоматизированные native / PostgreSQL test suites.
+- [ ] Полный PostgreSQL 17/18 integration, Nuxt production build и browser E2E на целевом стенде.
+
+Следующая версия: **0.2.6 — Tags, Groups, Search & Filtering**.

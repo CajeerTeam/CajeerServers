@@ -41,7 +41,7 @@ jobs:
           npm run typecheck
           npm run build
   postgres-integration:
-    name: PostgreSQL 18 / Inventory CRUD + IPAM
+    name: PostgreSQL 18 / Inventory CRUD + IPAM + Topology
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -77,8 +77,9 @@ jobs:
           php-version: '8.4'
           extensions: pdo_pgsql, sodium, mbstring, intl, openssl
           coverage: none
-      - name: PostgreSQL workspace, Inventory CRUD and IPAM integration
+      - name: PostgreSQL workspace, Inventory CRUD, IPAM and Topology integration
         run: |
           php tests/workspaces-postgres-integration.php
           php tests/inventory-crud-postgres-integration.php
           php tests/ipam-postgres-integration.php
+          php tests/topology-postgres-integration.php
