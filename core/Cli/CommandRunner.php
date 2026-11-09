@@ -12,6 +12,7 @@ use Cajeer\Servers\Logging\JsonLogger;
 use Throwable;
 use Cajeer\Servers\Installer\InstallService;
 use Cajeer\Servers\Installer\InstallCommand;
+use Cajeer\Servers\Release\DeploymentVerifier;
 
 /** CLI functionality shipped in 0.1.1; future commands fail, not fake success. */
 final class CommandRunner
@@ -36,6 +37,7 @@ final class CommandRunner
                 'config:get' => $this->getConfig($argv[2] ?? ''),
                 'config:check', 'env:check', 'doctor' => $this->doctor(in_array('--json', $argv, true)),
                 'self:test' => $this->selfTest(),
+                'release:check' => $this->releaseCheck($argv),
                 'install' => (new InstallCommand(new InstallService($this->app->basePath())))->run($argv),
                 'install:web-token' => $this->webInstallToken(),
                 'install:status' => $this->installStatus(in_array('--json', $argv, true)),
@@ -63,7 +65,7 @@ final class CommandRunner
     private function help(): int
     {
         fwrite(STDOUT, <<<'TEXT'
-CajeerServers CLI 0.1.8
+CajeerServers CLI 0.2.0
 
 Рабочие команды:
   help                 Список доступных команд
@@ -82,6 +84,8 @@ CajeerServers CLI 0.1.8
                       --url=https://... --db-host=... --db-database=... --db-username=...
                       --db-password-file=/private/file (не передавать пароль в аргументах)
   self:test            Самопроверка bootstrap, DI и конфигурации
+  release:check        Проверить метаданные, runtime и обязательные части релиза
+  release:check --strict [--json]  Проверить production DB, миграции, Redis, Nuxt build и lockfiles
   database:check       Проверить реальное подключение к БД
   migrate              Выполнить неприменённые PostgreSQL миграции
   migrate --dry-run    Показать план без изменения БД
@@ -124,6 +128,27 @@ TEXT
         );
         fwrite(STDOUT, "\n");
         return 0;
+    }
+
+    /** Real deployment gate; does not turn unavailable dependencies into a successful status. */
+    private function releaseCheck(array $argv): int
+    {
+        foreach (array_slice($argv, 2) as $option) {
+            if (!in_array($option, ['--strict', '--json'], true)) {
+                fwrite(STDERR, "Usage: cajeer release:check [--strict] [--json]\n");
+                return 2;
+            }
+        }
+        $report = (new DeploymentVerifier($this->app))->verify(in_array('--strict', $argv, true));
+        if (in_array('--json', $argv, true)) {
+            fwrite(STDOUT, json_encode(JsonLogger::redact($report), JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) . "\n");
+        } else {
+            foreach ($report['checks'] as $item) {
+                fwrite(STDOUT, sprintf("[%s] %s%s\n", $item['ok'] ? 'OK' : 'FAIL', $item['name'], $item['ok'] ? '' : ': ' . $item['detail']));
+            }
+            fwrite(STDOUT, $report['ok'] ? "RELEASE CHECK PASSED\n" : "RELEASE CHECK FAILED\n");
+        }
+        return $report['ok'] ? 0 : 1;
     }
 
     private function version(): int
@@ -283,7 +308,7 @@ TEXT
 
     private function unavailable(string $command): int
     {
-        fwrite(STDERR, sprintf("Command '%s' is not implemented in 0.1.3. No operation was performed.\n", $command));
+        fwrite(STDERR, sprintf("Command '%s' is not implemented in 0.2.0. No operation was performed.\n", $command));
         return 3;
     }
 

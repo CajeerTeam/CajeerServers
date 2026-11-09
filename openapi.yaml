@@ -1,8 +1,8 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.1.9
-  description: 'CajeerServers 0.1.9: Nuxt Admin UI, PHP session authentication, RBAC, CSRF, real diagnostic jobs and read-only
+  version: 0.2.0
+  description: 'CajeerServers 0.2.0: hardened operational core, release verification and Nuxt Admin UI, PHP session authentication, RBAC, CSRF, real diagnostic jobs and read-only
     operational views. External infrastructure control remains disabled. See wiki/Admin-UI.md.'
 servers:
 - url: /api/v1

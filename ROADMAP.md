@@ -118,27 +118,32 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 - [ ] Подтвердить полную последовательность install → auth → scheduler → worker → job result → audit на staging.
 - [ ] Зафиксировать `admin/package-lock.json` и `composer.lock` после проверки реальной установки зависимостей.
 
-## 0.2.0 — Production-oriented Core (планируется)
+## 0.2.0 — Production-oriented Core (исполняемый код, внешняя проверка обязательна)
 
-Цель: рабочее ядро приложения, маршрутизация, конфигурация и базовая безопасность.
+Цель: убрать ложноположительные результаты release-проверок, зафиксировать единый SemVer,
+сделать воспроизводимую матрицу smoke/integration/E2E и эксплуатационную проверку живого deployment.
 
-- [ ] Service container.
-- [ ] HTTP router.
-- [ ] JSON response layer.
-- [ ] Config repository.
-- [ ] Database connection factory.
-- [ ] Migration runner.
-- [ ] Redis cache adapter.
-- [ ] Queue abstraction.
-- [ ] Scheduler abstraction.
-- [ ] Local/S3 storage abstraction.
-- [ ] Base auth flow.
-- [ ] RBAC skeleton.
-- [ ] API token scopes.
-- [ ] CSRF protection.
-- [ ] Security headers middleware.
-- [ ] Rate limiter.
-- [ ] Audit logger.
+- [x] Единая версия в VERSION, release.json, Nuxt package и двух OpenAPI 3.1.1 файлах.
+- [x] Исполняемая проверка `release:check` и `release:check --strict --json`:
+      конфигурация, права `.env`, DB/version/migrations, состояние установки, Redis,
+      queue/scheduler/storage, TLS-политики, vendor, Nuxt SSR build и lockfiles.
+- [x] `scripts/verify-release.php`: PHP lint, все native smoke, Nuxt static;
+      строгий режим запускает PostgreSQL/Redis integration, PHPUnit, Nuxt build и Playwright E2E.
+- [x] `scripts/smoke-http.php`: реальные HTTP проверки liveness/readiness, 401/404,
+      security headers, отсутствие выдачи cookie гостям и обязательный TLS удалённого сайта.
+- [x] Исправлена устаревшая PostgreSQL integration rollback-проба после миграции 0007.
+- [x] Выделен отдельный пустой PostgreSQL database для destructive installer integration.
+- [x] GitFlic CI stages для PHP 8.4/8.5, зависимостей Nuxt и disposable PostgreSQL/Redis integration.
+- [x] Маркер установки фиксирует версию из VERSION; старые уже установленные marker не переписываются.
+- [ ] **Гейт к публичному production:** сгенерировать и зафиксировать настоящие composer.lock и admin/package-lock.json.
+- [ ] **Гейт к публичному production:** выполнить Composer-install, Nuxt build/typecheck, PHPunit,
+      PostgreSQL 17/18 + Redis integration и Playwright E2E на отдельном staging.
+- [ ] **Гейт к публичному production:** проверить Nginx, TLS, disaster recovery, доступность сервисов и
+      `php bin/cajeer release:check --strict` + remote HTTP smoke.
+
+Исполняемая реализация и локальные smoke не означают подтверждённый production rollout.
+Код внешних коннекторов, inventory и автоматизации остаётся за следующими версиями.
+См. `wiki/Production-Core.md`.
 
 ## 0.3.0 — Inventory / CMDB
 

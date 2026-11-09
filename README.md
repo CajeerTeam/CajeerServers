@@ -2,6 +2,32 @@
 
 **CajeerServers** — русскоязычная self-hosted веб-оболочка для наблюдения и управления инфраструктурой. Это **не ОС**, не прошивка и не замена Proxmox/VMmanager. Для будущих версий предусмотрен сбор данных через API, собственные скрипты, webhooks, collectors и интеграции без обязательных системных агентов.
 
+## Версия 0.2.0 — Production-oriented Core
+
+Этот релиз включает **рабочую проверку готовности к развёртыванию** и исполняемые
+регрессионные сценарии поверх функционала 0.1.1–0.1.9: единая версия релиза,
+`release:check`, production gate по PostgreSQL/Redis/queue/scheduler/storage/миграциям,
+согласованность marker установки с БД, проверка SSL/TLS и изоляции файлов,
+проверки настоящих lockfiles и Nuxt SSR build. Добавлены авто-проверки внешнего HTTP
+и отдельные интеграционные тесты для PostgreSQL 17+/Redis.
+
+```bash
+php bin/cajeer release:check --json
+php scripts/verify-release.php
+# После установки всех зависимостей, настройки isolated staging и проверки deployment:
+php bin/cajeer release:check --strict --json
+CAJEER_SMOKE_URL=https://staging.example.com php scripts/smoke-http.php
+```
+
+**Ограничение проверки:** в среде сборки недоступны PostgreSQL, pdo_pgsql и npm registry.
+Настоящие `composer.lock`, `admin/package-lock.json`, Nuxt build и browser E2E здесь
+не получены. `--strict` **не будет** сообщать об успешном production-допуске до их появления.
+Это сознательная защита от фиктивной готовности. Инструкция и все команды —
+[wiki/Production-Core.md](wiki/Production-Core.md).
+
+Архитектура остаётся веб-ресурсом — не ОС и не заменой Proxmox/VMmanager.
+До последующих версий коннекторы внешних инфраструктурных систем остаются недоступны.
+
 ## Версия 0.1.9 — Admin UI & End-to-End Integration
 
 Nuxt 3 SSR Admin UI с реальными PHP API: вход с TOTP, управление пользователями и ролями, sessions/API tokens, 2FA, журнал аудита, системный dashboard и диагностические задания через queue. Сервер проверяет RBAC, CSRF и cookie-сессию для каждой операции; API-токены не обладают правами Admin UI.

@@ -4,7 +4,7 @@ declare(strict_types=1);
 /**
  * Run ONLY on an empty, disposable PostgreSQL 17/18 database created for this test.
  * Example:
- * CAJEER_INSTALL_PG_TEST=1 CAJEER_PG_TEST_DATABASE=cajeer_installer_test \
+ * CAJEER_INSTALL_PG_TEST=1 CAJEER_PG_TEST_DATABASE=cajeer_test_installer_test \
  * CAJEER_PG_TEST_USERNAME=... CAJEER_PG_TEST_PASSWORD=... php tests/installer-postgres-integration.php
  */
 if (getenv('CAJEER_INSTALL_PG_TEST') !== '1') {
@@ -21,8 +21,8 @@ use Cajeer\Servers\Installer\InstallService;
 use Cajeer\Servers\Config\EnvironmentLoader;
 
 $dbName = EnvironmentLoader::getString('CAJEER_PG_TEST_DATABASE');
-if (!preg_match('/^[a-z0-9_]{1,63}_test$/D', $dbName)) {
-    fwrite(STDERR, "Database name must end with _test; never run on a production DB.\n");
+if (!preg_match('/^cajeer_test_[a-z0-9_]+_test$/D', $dbName)) {
+    fwrite(STDERR, "Installer database must be named cajeer_test_*_test; never use production data.\n");
     exit(2);
 }
 $host = EnvironmentLoader::getString('CAJEER_PG_TEST_HOST','127.0.0.1');

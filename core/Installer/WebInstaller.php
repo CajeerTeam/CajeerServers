@@ -71,7 +71,7 @@ final class WebInstaller
             $result = $this->installer->install($input);
             unset($_SESSION['cajeer_install_csrf']);
             session_regenerate_id(true);
-            return $this->page('Installation completed', '<h1>Установка завершена</h1><p>Администратор создан: ' . self::h($result['admin_email']) . '</p><p>Следующий шаг: реализация входа в версии 0.1.5.</p>');
+            return $this->page('Installation completed', '<h1>Установка завершена</h1><p>Администратор создан: ' . self::h($result['admin_email']) . '</p><p>Вход в панель доступен по адресу /login после настройки Nuxt.</p>');
         } catch (Throwable $error) {
             // Do not send driver exception chains, credentials or DSNs to the browser.
             error_log('CajeerServers installer failed (' . $error::class . ').');

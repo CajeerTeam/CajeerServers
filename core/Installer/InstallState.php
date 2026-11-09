@@ -50,7 +50,7 @@ final class InstallState
         $this->atomic('installed.json', json_encode([
             'installation_id' => $installationId,
             'installed_at' => $installedAt,
-            'version' => '0.1.4',
+            'version' => trim((string) @file_get_contents($this->root . '/VERSION')) ?: 'unknown',
         ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES) . "\n");
         $token = $this->directory() . '/web-install-token.sha256';
         if (is_file($token) && !is_link($token)) @unlink($token);

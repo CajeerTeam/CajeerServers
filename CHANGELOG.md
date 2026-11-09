@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.2.0] — Production-oriented Core (2026-11-09)
+
+- Единая SemVer 0.2.0 в ядре, release.json, Nuxt и OpenAPI; исправлен устаревший installer marker.
+- Рабочий `release:check` со строгой проверкой runtime, приватной `.env`, версий,
+  миграций/checksums, installed database marker, PostgreSQL 17+, Redis, queue, storage,
+  TLS remote database и повторяемых зависимостей.
+- `scripts/verify-release.php` исполняет native regression suites и в strict-режиме
+  интеграцию PostgreSQL/Redis, PHPUnit, Nuxt typecheck/build и браузерный Playwright E2E.
+- `scripts/smoke-http.php` проверяет настоящий удалённый HTTPS без выполнения изменений.
+- Исправлена интеграционная PostgreSQL rollback-проба 0008 после 0007,
+  тест установщика использует отдельную пустую тестовую базу.
+- Добавлены GitFlic CI integration job и script генерации настоящих dependency lockfiles.
+- Локально проверены native smoke, PHP lint и Nuxt static. **Не проверены локально:**
+  установка npm/composer зависимостей, Nuxt production build, живые PostgreSQL/Redis,
+  внешний Nginx deployment и E2E. Строгий production gate без них не проходит.
+
 ## [0.1.9] — Admin UI & End-to-End Integration (2026-11-09)
 
 - Настоящие страницы Nuxt 3: login/TOTP, operational dashboard, users/roles, sessions/API tokens, MFA, audit, diagnostics, jobs и scheduler.

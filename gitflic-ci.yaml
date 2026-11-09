@@ -1,6 +1,7 @@
 stages:
   - verify
   - test
+  - integration
 
 php84-runtime:
   stage: verify
@@ -18,6 +19,7 @@ php84-runtime:
     - APP_ENV=local APP_DEBUG=false php tests/infrastructure-smoke.php
     - APP_ENV=local APP_DEBUG=false php tests/observability-smoke.php
     - APP_ENV=local APP_DEBUG=false php tests/admin-smoke.php
+    - APP_ENV=local APP_DEBUG=false php tests/release-smoke.php
     - APP_ENV=local APP_DEBUG=false php bin/cajeer self:test
 
 php85-runtime:
@@ -34,6 +36,7 @@ php85-runtime:
     - APP_ENV=local APP_DEBUG=false php tests/infrastructure-smoke.php
     - APP_ENV=local APP_DEBUG=false php tests/observability-smoke.php
     - APP_ENV=local APP_DEBUG=false php tests/admin-smoke.php
+    - APP_ENV=local APP_DEBUG=false php tests/release-smoke.php
     - APP_ENV=local APP_DEBUG=false php bin/cajeer self:test
 
 composer-and-unit-tests:
@@ -41,7 +44,8 @@ composer-and-unit-tests:
   image: composer:2
   script:
     - composer validate --strict
-    - composer install --no-interaction --prefer-dist
+    - test -f composer.lock
+    - composer install --no-interaction --prefer-dist --no-progress
     - APP_ENV=local APP_DEBUG=false vendor/bin/phpunit
 
 nuxt-admin-build:
@@ -49,8 +53,48 @@ nuxt-admin-build:
   image: node:22
   script:
     - cd admin
-    - npm install --no-audit --no-fund
+    - test -f package-lock.json
+    - npm ci --no-audit --no-fund
     - npm run test:static
     - npm run typecheck
     - npm run build
 # Browser E2E additionally requires a separately deployed, isolated PostgreSQL/Redis staging stack.
+
+# This job uses *real* isolated PostgreSQL and Redis. Never point it at production.
+postgres-redis-integration:
+  stage: integration
+  image: php:8.4-cli-bookworm
+  services:
+    - name: postgres:17
+      alias: postgres
+    - name: redis:7
+      alias: redis
+  variables:
+    POSTGRES_USER: cajeer_ci
+    POSTGRES_PASSWORD: isolated_test_only
+    POSTGRES_DB: cajeer_test_core
+    CAJEER_PG_TEST: "1"
+    CAJEER_PG_TEST_HOST: postgres
+    CAJEER_PG_TEST_DATABASE: cajeer_test_core
+    CAJEER_PG_TEST_USERNAME: cajeer_ci
+    CAJEER_PG_TEST_PASSWORD: isolated_test_only
+    CAJEER_REDIS_TEST: "1"
+    CAJEER_REDIS_HOST: redis
+    CAJEER_INSTALL_PG_TEST: "1"
+    CAJEER_INSTALL_PG_TEST_DATABASE: cajeer_test_installer_test
+  script:
+    - apt-get update -qq
+    - apt-get install -y -qq libpq-dev postgresql-client >/dev/null
+    - docker-php-ext-install -j2 pdo_pgsql >/dev/null
+    - php -m | grep -q pdo_pgsql
+    - for i in $(seq 1 30); do PGPASSWORD="$POSTGRES_PASSWORD" pg_isready -h postgres -U "$POSTGRES_USER" -d "$POSTGRES_DB" && break; sleep 1; done
+    - PGPASSWORD="$POSTGRES_PASSWORD" psql -h postgres -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c 'CREATE DATABASE cajeer_test_installer_test'
+    - php tests/database-postgres-integration.php
+    - php tests/auth-postgres-integration.php
+    - php tests/security-postgres-integration.php
+    - php tests/infrastructure-postgres-integration.php
+    - php tests/admin-postgres-integration.php
+    - CAJEER_PG_TEST_DATABASE="$CAJEER_INSTALL_PG_TEST_DATABASE" php tests/installer-postgres-integration.php
+    - php tests/infrastructure-redis-integration.php
+# Full --strict additionally requires built Nuxt, private .env, live HTTPS deployment,
+# browser E2E credentials and application dependencies. See wiki/Production-Core.md.

@@ -150,7 +150,7 @@ final class MigrationRunner
     private function postgres(): PDO
     {
         if ($this->database->driver() !== 'pgsql') {
-            throw new RuntimeException('PostgreSQL migration engine requires DB_CONNECTION=pgsql. MySQL migrations are not supported in 0.1.3.');
+            throw new RuntimeException('PostgreSQL migration engine requires DB_CONNECTION=pgsql. MySQL migrations are not supported by the current PostgreSQL-first core.');
         }
         return $this->database->connection();
     }

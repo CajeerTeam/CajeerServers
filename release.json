@@ -1,7 +1,7 @@
 {
   "name": "CajeerServers",
-  "version": "0.1.5",
-  "channel": "dev",
+  "version": "0.2.0",
+  "channel": "development",
   "language": "ru",
   "php": ">=8.4",
   "compatibility_target": "PHP 8.5 ready",
