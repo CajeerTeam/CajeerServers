@@ -2,6 +2,7 @@
 const auth = useAuth()
 const links = computed(() => [
   { to: '/', label: 'Обзор', permission: 'admin.dashboard.read' },
+  { to: '/workspaces', label: 'Организации и пространства', permission: 'workspaces.read' },
   { to: '/tasks', label: 'Очередь и задачи', permission: 'admin.jobs.read' },
   { to: '/scheduler', label: 'Планировщик', permission: 'admin.scheduler.read' },
   { to: '/users', label: 'Пользователи', permission: 'security.users.read' },

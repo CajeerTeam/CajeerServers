@@ -74,6 +74,13 @@ try {
         || password_get_info((string) $row['password_hash'])['algoName'] !== 'argon2id') {
         throw new RuntimeException('Administrator provisioning failed.');
     }
+    $workspaceOwner = $pdo->query(<<<'SQL'
+SELECT count(*) FROM workspace_members wm
+JOIN workspaces w ON w.id=wm.workspace_id JOIN organizations o ON o.id=w.organization_id
+JOIN users u ON u.id=wm.user_id
+WHERE o.slug='default' AND w.slug='default' AND wm.role='owner' AND u.email='installer-test@example.invalid'
+SQL)->fetchColumn();
+    if ((int)$workspaceOwner !== 1) throw new RuntimeException('First admin was not provisioned as default workspace owner.');
     $record = $pdo->query('SELECT count(*) FROM cajeer_installation')->fetchColumn();
     if ((int) $record !== 1) throw new RuntimeException('Installation marker missing from PostgreSQL.');
     $rejected = false;

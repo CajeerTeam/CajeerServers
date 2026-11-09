@@ -13,6 +13,7 @@ ok(read('composables/useAuth.ts').includes('/admin/session'), 'server-side sessi
 ok(!read('composables/useApi.ts').includes('localStorage.'), 'no persistent client credentials')
 ok(read('pages/login.vue').includes('signIn('), 'live login form')
 ok(read('pages/users.vue').includes('/security/users'), 'live users')
+ok(read('pages/workspaces.vue').includes('/workspaces/') && read('pages/workspaces.vue').includes('/organizations'), 'live workspace management')
 ok(read('pages/tasks.vue').includes('/admin/jobs'), 'live jobs')
 ok(read('pages/system.vue').includes('/admin/diagnostics'), 'live diagnostics')
 ok(read('pages/settings.vue').includes('/auth/tokens'), 'real API token management')

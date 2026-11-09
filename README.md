@@ -2,6 +2,26 @@
 
 **CajeerServers** — русскоязычная self-hosted веб-оболочка для наблюдения и управления инфраструктурой. Это **не ОС**, не прошивка и не замена Proxmox/VMmanager. Для будущих версий предусмотрен сбор данных через API, собственные скрипты, webhooks, collectors и интеграции без обязательных системных агентов.
 
+## Версия 0.2.2 — Organizations, Workspaces & Ownership
+
+Рабочая PostgreSQL-модель организаций, рабочих пространств и участников (owner/manager/viewer),
+изолированные списки существующих CMDB-объектов, назначение владельцев, перенос между
+пространствами одной организации с обязательными RBAC/CSRF и атомарным аудитом.
+Миграция `0009_organizations_workspaces.sql` сохраняет UUID и содержимое старых Inventory-записей,
+а новым администраторам инсталлятор назначает владельца default workspace.
+Admin UI: `/workspaces`; REST API: `/api/v1/organizations`, `/api/v1/workspaces`.
+
+```bash
+php bin/cajeer migrate
+php bin/cajeer migrate:validate
+php tests/workspaces-smoke.php
+```
+
+Подробности: [wiki/Organizations-and-Workspaces.md](wiki/Organizations-and-Workspaces.md).
+
+**Полный Inventory CRUD пока не реализован** (целевая 0.2.3). PostgreSQL integration, Nuxt build,
+Composer/npm lock-файлы и browser E2E требуют проверки на целевой инфраструктуре.
+
 ## Версия 0.2.1 — Core Stabilization & Inventory Readiness
 
 Добавлен **работающий PostgreSQL-предпроверяющий механизм** `InventoryReadiness`: проверяет существующую

@@ -110,6 +110,8 @@ final class InstallService
                 if (!is_string($userId) || $userId === '') throw new RuntimeException('Could not create administrator.');
                 $link = $pdo->prepare('INSERT INTO user_roles (user_id, role_id) VALUES (:user_id, :role_id)');
                 $link->execute(['user_id' => $userId, 'role_id' => $roleId]);
+                // Migration 0009 creates the default workspace before the first administrator exists.
+                $pdo->prepare("INSERT INTO workspace_members (workspace_id,user_id,role) SELECT w.id,:user,'owner' FROM workspaces w JOIN organizations o ON o.id=w.organization_id WHERE o.slug='default' AND w.slug='default' ON CONFLICT DO NOTHING")->execute(['user'=>$userId]);
                 $row = $pdo->prepare('INSERT INTO cajeer_installation (admin_user_id) VALUES (:user_id) RETURNING installation_id::text, installed_at::text');
                 $row->execute(['user_id' => $userId]);
                 $installed = $row->fetch(PDO::FETCH_NUM);

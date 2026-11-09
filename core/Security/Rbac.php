@@ -15,6 +15,7 @@ final class Rbac
         'security.roles.read', 'security.roles.manage', 'security.roles.grant_administrator',
         'security.audit.read', 'security.webhooks.manage',
         'admin.dashboard.read', 'admin.jobs.read', 'admin.jobs.execute', 'admin.scheduler.read',
+        'organizations.manage', 'workspaces.read', 'workspaces.manage', 'workspaces.members.manage', 'inventory.ownership.manage',
     ];
 
     public function __construct(private readonly DatabaseManager $database, private readonly AuditLogger $audit) {}
@@ -131,6 +132,25 @@ SQL);
             $this->requirePermission($principal, 'security.users.manage', $pdo);
             if ($userId === $principal['user']['id'] && !$active) throw new HttpException(409, 'Cannot disable your own account.', 'conflict');
             if (!$active) {
+                // Never disable an active sole workspace owner or a user whose assets remain assigned.
+                // Serialize membership changes by locking workspace rows before counting owners.
+                $locks=$pdo->prepare(<<<'SQL'
+SELECT w.id::text FROM workspaces w JOIN workspace_members wm ON wm.workspace_id=w.id
+WHERE wm.user_id=:user AND wm.role='owner' ORDER BY w.id FOR UPDATE OF w
+SQL);
+                $locks->execute(['user'=>$userId]);
+                $spaces=$locks->fetchAll(PDO::FETCH_COLUMN);
+                foreach ($spaces as $workspaceId) {
+                    $count=$pdo->prepare(<<<'SQL'
+SELECT count(*) FROM workspace_members wm JOIN users u ON u.id=wm.user_id
+WHERE wm.workspace_id=:workspace AND wm.role='owner' AND u.is_active=true
+SQL);
+                    $count->execute(['workspace'=>$workspaceId]);
+                    if ((int)$count->fetchColumn()<=1) throw new HttpException(409,'Cannot disable the last workspace owner.','conflict');
+                }
+                $owned=$pdo->prepare('SELECT 1 FROM inventory_assets WHERE owner_user_id=:user LIMIT 1');
+                $owned->execute(['user'=>$userId]);
+                if ($owned->fetchColumn()) throw new HttpException(409,'Reassign owned assets before disabling user.','conflict');
                 $role = $pdo->query("SELECT id::text FROM roles WHERE slug='administrator' FOR UPDATE")->fetchColumn();
                 if (is_string($role)) {
                     $membership = $pdo->prepare('SELECT 1 FROM user_roles WHERE user_id=:id AND role_id=:role');
@@ -214,6 +234,20 @@ SQL);
                 $count = $pdo->prepare('SELECT count(*) FROM user_roles ur JOIN users u ON u.id=ur.user_id WHERE ur.role_id=:role AND u.is_active=true');
                 $count->execute(['role' => $roleId]);
                 if ((int) $count->fetchColumn() <= 1) throw new HttpException(409, 'At least one administrator is required.', 'conflict');
+                // A sole owner must not lose the only built-in role granting workspace management.
+                $locks=$pdo->prepare(<<<'SQL'
+SELECT w.id::text FROM workspaces w JOIN workspace_members wm ON wm.workspace_id=w.id
+WHERE wm.user_id=:user AND wm.role='owner' ORDER BY w.id FOR UPDATE OF w
+SQL);
+                $locks->execute(['user'=>$userId]);
+                foreach($locks->fetchAll(PDO::FETCH_COLUMN) as $workspaceId) {
+                    $owners=$pdo->prepare(<<<'SQL'
+SELECT count(*) FROM workspace_members wm JOIN users u ON u.id=wm.user_id
+WHERE wm.workspace_id=:workspace AND wm.role='owner' AND u.is_active=true
+SQL);
+                    $owners->execute(['workspace'=>$workspaceId]);
+                    if((int)$owners->fetchColumn()<=1) throw new HttpException(409,'Transfer workspace ownership before revoking administrator.','conflict');
+                }
             }
             if ($grant) {
                 $write = $pdo->prepare('INSERT INTO user_roles (user_id,role_id) VALUES (:user,:role) ON CONFLICT DO NOTHING');

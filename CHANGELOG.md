@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.2.2] — Organizations, Workspaces & Ownership (2026-11-09)
+
+- PostgreSQL миграция `0009`: organizations, workspaces, workspace_members, workspace/owner FK в inventory_assets; upgrade-safe перенос старых ресурсов в default workspace.
+- Транзакционные `WorkspaceService` и `WorkspaceController`: CRUD метаданных организаций/пространств, membership, просмотр объектов, назначение владельца и межпространственный перенос в пределах организации.
+- RBAC + membership isolation, CSRF, last-owner guard, owner-membership trigger, аудит. Пользователи без membership не получают доступ к чужим данным.
+- Инсталлятор назначает первому администратору ownership default workspace, а существующим активным администраторам upgrade выдаёт membership.
+- Nuxt `/workspaces`, новая навигация, OpenAPI 3.1.1, 49 native smoke assertions и изолированный PostgreSQL integration scenario.
+- **Не подтверждено локально:** PostgreSQL/Redis integration, npm/Composer зависимости, Nuxt production build, browser E2E. Строгий production-gate не объявляется пройденным.
+
+
 ## [0.2.1] — Core Stabilization & Inventory Readiness (2026-11-09)
 
 - Рабочий `InventoryReadiness`: real PostgreSQL audit колонок и агрегированных данных, нет выдачи hostname/IP/attributes в CLI.

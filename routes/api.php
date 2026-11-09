@@ -112,6 +112,38 @@ return static function (Router $router, ServiceContainer $container): void {
             ]);
             $admin->get('/scheduler', static fn (HttpRequest $r): HttpResponse => $controller()->scheduler($r));
         });
+        $routes->group('/organizations', static function (Router $org) use ($container): void {
+            $controller = static fn (): \Cajeer\Servers\Workspace\WorkspaceController => $container->get(\Cajeer\Servers\Workspace\WorkspaceController::class);
+            $nameSchema = ['required'=>['name'],'properties'=>['name'=>['type'=>'string','minLength'=>1,'maxLength'=>255]],'additionalProperties'=>false];
+            $org->get('/', static fn (HttpRequest $r): HttpResponse => $controller()->organizations($r));
+            $org->post('/', static fn (HttpRequest $r): HttpResponse => $controller()->createOrganization($r), [
+                'required'=>['slug','name'], 'properties'=>['slug'=>['type'=>'string','minLength'=>3,'maxLength'=>64], 'name'=>['type'=>'string','minLength'=>1,'maxLength'=>255]],'additionalProperties'=>false,
+            ]);
+            $org->patch('/{orgId}', static fn (HttpRequest $r): HttpResponse => $controller()->renameOrganization($r), $nameSchema);
+        });
+        $routes->group('/workspaces', static function (Router $ws) use ($container): void {
+            $controller = static fn (): \Cajeer\Servers\Workspace\WorkspaceController => $container->get(\Cajeer\Servers\Workspace\WorkspaceController::class);
+            $nameSchema = ['required'=>['name'],'properties'=>['name'=>['type'=>'string','minLength'=>1,'maxLength'=>255]],'additionalProperties'=>false];
+            $ws->get('/', static fn (HttpRequest $r): HttpResponse => $controller()->workspaces($r));
+            $ws->post('/', static fn (HttpRequest $r): HttpResponse => $controller()->createWorkspace($r), [
+                'required'=>['organization_id','slug','name'], 'properties'=>[
+                    'organization_id'=>['type'=>'string','format'=>'uuid'],'slug'=>['type'=>'string','minLength'=>3,'maxLength'=>64],
+                    'name'=>['type'=>'string','minLength'=>1,'maxLength'=>255]],'additionalProperties'=>false,
+            ]);
+            $ws->patch('/{workspaceId}', static fn (HttpRequest $r): HttpResponse => $controller()->renameWorkspace($r), $nameSchema);
+            $ws->get('/{workspaceId}/members', static fn (HttpRequest $r): HttpResponse => $controller()->members($r));
+            $ws->put('/{workspaceId}/members/{userId}', static fn (HttpRequest $r): HttpResponse => $controller()->setMember($r), [
+                'required'=>['role'],'properties'=>['role'=>['type'=>'string','enum'=>['owner','manager','viewer']]],'additionalProperties'=>false,
+            ]);
+            $ws->delete('/{workspaceId}/members/{userId}', static fn (HttpRequest $r): HttpResponse => $controller()->removeMember($r));
+            $ws->get('/{workspaceId}/assets', static fn (HttpRequest $r): HttpResponse => $controller()->assets($r));
+            $ws->patch('/{workspaceId}/assets/{assetId}/owner', static fn (HttpRequest $r): HttpResponse => $controller()->assignOwner($r), [
+                'required'=>['owner_user_id'], 'properties'=>['owner_user_id'=>[]], 'additionalProperties'=>false,
+            ]);
+            $ws->post('/{workspaceId}/assets/{assetId}/transfer', static fn (HttpRequest $r): HttpResponse => $controller()->transferAsset($r), [
+                'required'=>['destination_workspace_id'],'properties'=>['destination_workspace_id'=>['type'=>'string','format'=>'uuid']],'additionalProperties'=>false,
+            ]);
+        });
         // A verified webhook is persisted to the inbox; it is never executed as a script.
         $routes->post('/webhooks/{id}/events', static fn (HttpRequest $r): HttpResponse => $container->get(SecurityController::class)->ingestWebhook($r));
     });

@@ -42,3 +42,25 @@ test('end-to-end authentication, dashboard, audit and diagnostic job', async ({ 
   await page.goto('/system')
   await expect(page).toHaveURL(/\/login(?:\?|$)/)
 })
+
+
+test('workspace administration: create organization and workspace via secured UI', async ({ page }) => {
+  test.skip(!email || !password, 'Requires isolated installed 0.2.2 backend and admin test account.')
+  await page.goto('/login')
+  await page.getByLabel('Email').fill(email)
+  await page.getByLabel('Пароль').fill(password)
+  if (process.env.E2E_ADMIN_MFA) await page.getByLabel(/Код TOTP/).fill(process.env.E2E_ADMIN_MFA)
+  await page.getByRole('button', { name: 'Войти', exact: true }).click()
+  await page.getByRole('link', { name: 'Организации и пространства' }).click()
+  await expect(page.getByRole('heading', { name: 'Организации и рабочие пространства' })).toBeVisible()
+  const slug = `e2e-${Date.now()}`
+  await page.getByLabel('Slug').first().fill(slug)
+  await page.getByLabel('Название').first().fill('E2E Organization')
+  await page.getByRole('button', { name: 'Создать организацию' }).click()
+  await expect(page.getByText('Организация и её пространство созданы.')).toBeVisible()
+  await expect(page.getByRole('option', { name: 'E2E Organization' })).toHaveCount(1)
+  await page.getByLabel('Slug').last().fill('e2e-zone')
+  await page.getByLabel('Название').last().fill('E2E workspace')
+  await page.getByRole('button', { name: 'Создать', exact: true }).click()
+  await expect(page.getByRole('button', { name: /E2E workspace \(owner\)/ })).toBeVisible()
+})

@@ -79,9 +79,32 @@ final class DeploymentVerifier
                 $migration = $this->app->container()->get(MigrationRunner::class);
                 $validation = $migration->validate();
                 $rows = $validation['rows'];
-                return $validation['valid'] && count($rows) >= 8 && count(array_filter(
+                return $validation['valid'] && count($rows) >= 9 && count(array_filter(
                     $rows, static fn (array $row): bool => $row['status'] !== 'applied')) === 0;
             }, 'Every shipped PostgreSQL migration must be applied with valid checksum.');
+            $this->probe($checks, 'workspace_integrity', function (): bool {
+                $pdo = $this->app->container()->get(DatabaseManager::class)->connection();
+                $tables = $pdo->query(<<<'SQL'
+SELECT to_regclass('organizations') IS NOT NULL AND to_regclass('workspaces') IS NOT NULL
+ AND to_regclass('workspace_members') IS NOT NULL
+SQL)->fetchColumn();
+                if (!in_array($tables,[true,'t','1',1],true)) return false;
+                $orphans = $pdo->query(<<<'SQL'
+SELECT count(*) FROM inventory_assets a
+LEFT JOIN workspaces w ON w.id=a.workspace_id
+LEFT JOIN workspace_members wm ON wm.workspace_id=a.workspace_id AND wm.user_id=a.owner_user_id
+LEFT JOIN users u ON u.id=wm.user_id AND u.is_active=true
+WHERE w.id IS NULL OR (a.owner_user_id IS NOT NULL AND u.id IS NULL)
+SQL)->fetchColumn();
+                if ((int)$orphans !== 0) return false;
+                $ownerless = $pdo->query(<<<'SQL'
+SELECT count(*) FROM workspaces w WHERE NOT EXISTS (
+ SELECT 1 FROM workspace_members wm JOIN users u ON u.id=wm.user_id
+ WHERE wm.workspace_id=w.id AND wm.role='owner' AND u.is_active=true
+)
+SQL)->fetchColumn();
+                return (int)$ownerless === 0;
+            }, 'Workspace membership, asset ownership or active owners are inconsistent.');
             $this->probe($checks, 'inventory_readiness', fn (): bool => $this->app->container()
                 ->get(InventoryReadiness::class)->inspect(true)['ok'] === true,
                 'Inventory contains invalid legacy data or upgrade constraints are unvalidated.');

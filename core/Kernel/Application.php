@@ -32,6 +32,8 @@ use Cajeer\Servers\Database\ConnectionFactoryInterface;
 use Cajeer\Servers\Database\DatabaseManager;
 use Cajeer\Servers\Database\MigrationRunner;
 use Cajeer\Servers\Inventory\InventoryReadiness;
+use Cajeer\Servers\Workspace\WorkspaceService;
+use Cajeer\Servers\Workspace\WorkspaceController;
 use Cajeer\Servers\Logging\JsonLogger;
 use Cajeer\Servers\Http\HttpKernel;
 use Cajeer\Servers\Http\Router;
@@ -194,6 +196,10 @@ final class Application
             $c->get(QueueDriverInterface::class), $c->get(JobProcessor::class), $c->get(OperationalStats::class),
             $c->get(Scheduler::class), $c->get(Diagnostics::class), $c->get(AuditLogger::class),
         ));
+        $this->services->singleton(WorkspaceService::class, fn (ServiceContainer $c): WorkspaceService => new WorkspaceService(
+            $c->get(DatabaseManager::class), $c->get(AuditLogger::class)));
+        $this->services->singleton(WorkspaceController::class, fn (ServiceContainer $c): WorkspaceController => new WorkspaceController(
+            $c->get(AuthenticationService::class), $c->get(Rbac::class), $c->get(WorkspaceService::class)));
         $this->services->singleton(Router::class, function (ServiceContainer $container): Router {
             $router = new Router();
             $register = require $this->basePath('routes/api.php');

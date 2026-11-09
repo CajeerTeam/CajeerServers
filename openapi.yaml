@@ -1,8 +1,8 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.2.1
-  description: 'CajeerServers 0.2.1: operational core with Inventory readiness and explicit upgrade validation; no Inventory CRUD. Release verification and Nuxt Admin UI, PHP session authentication, RBAC, CSRF, real diagnostic jobs and read-only
+  version: 0.2.2
+  description: 'CajeerServers 0.2.2: PostgreSQL-backed organizations, workspaces, memberships and scoped asset ownership; full Inventory CRUD follows in 0.2.3. Release verification and Nuxt Admin UI, PHP session authentication, RBAC, CSRF, real diagnostic jobs and read-only
     operational views. External infrastructure control remains disabled. See wiki/Admin-UI.md.'
 servers:
 - url: /api/v1
@@ -1114,6 +1114,486 @@ paths:
           description: Неавторизованный пользователь
         '403':
           description: Недостаточно прав
+  /organizations:
+    get:
+      operationId: listOrganizations
+      summary: List accessible organizations
+      security:
+      - sessionAuth: []
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                type: object
+        '401':
+          description: Authentication required
+        '403':
+          description: Permission denied
+        '404':
+          description: Not found or outside workspace
+        '409':
+          description: Conflict or protected last owner
+        '422':
+          description: Invalid data
+    post:
+      operationId: createOrganization
+      summary: Create organization and initial owner workspace
+      security:
+      - sessionAuth: []
+      responses:
+        '201':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                type: object
+        '401':
+          description: Authentication required
+        '403':
+          description: Permission denied
+        '404':
+          description: Not found or outside workspace
+        '409':
+          description: Conflict or protected last owner
+        '422':
+          description: Invalid data
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - slug
+              - name
+              properties:
+                slug:
+                  type: string
+                  pattern: ^[a-z][a-z0-9-]{2,63}$
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 255
+              additionalProperties: false
+  /organizations/{orgId}:
+    patch:
+      operationId: renameOrganization
+      summary: Rename owned organization
+      security:
+      - sessionAuth: []
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                type: object
+        '401':
+          description: Authentication required
+        '403':
+          description: Permission denied
+        '404':
+          description: Not found or outside workspace
+        '409':
+          description: Conflict or protected last owner
+        '422':
+          description: Invalid data
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - name
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 255
+              additionalProperties: false
+      parameters:
+      - name: orgId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+  /workspaces:
+    get:
+      operationId: listWorkspaces
+      summary: List only workspaces of which current user is a member
+      security:
+      - sessionAuth: []
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                type: object
+        '401':
+          description: Authentication required
+        '403':
+          description: Permission denied
+        '404':
+          description: Not found or outside workspace
+        '409':
+          description: Conflict or protected last owner
+        '422':
+          description: Invalid data
+      parameters:
+      - name: organization_id
+        in: query
+        required: false
+        schema:
+          type: string
+          format: uuid
+    post:
+      operationId: createWorkspace
+      summary: Create workspace inside an owned organization
+      security:
+      - sessionAuth: []
+      responses:
+        '201':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                type: object
+        '401':
+          description: Authentication required
+        '403':
+          description: Permission denied
+        '404':
+          description: Not found or outside workspace
+        '409':
+          description: Conflict or protected last owner
+        '422':
+          description: Invalid data
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - organization_id
+              - slug
+              - name
+              properties:
+                organization_id:
+                  type: string
+                  format: uuid
+                slug:
+                  type: string
+                  pattern: ^[a-z][a-z0-9-]{2,63}$
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 255
+              additionalProperties: false
+  /workspaces/{workspaceId}:
+    patch:
+      operationId: renameWorkspace
+      summary: Rename accessible workspace
+      security:
+      - sessionAuth: []
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                type: object
+        '401':
+          description: Authentication required
+        '403':
+          description: Permission denied
+        '404':
+          description: Not found or outside workspace
+        '409':
+          description: Conflict or protected last owner
+        '422':
+          description: Invalid data
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - name
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 255
+              additionalProperties: false
+      parameters:
+      - name: workspaceId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+  /workspaces/{workspaceId}/members:
+    get:
+      operationId: listWorkspaceMembers
+      summary: List members of accessible workspace
+      security:
+      - sessionAuth: []
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                type: object
+        '401':
+          description: Authentication required
+        '403':
+          description: Permission denied
+        '404':
+          description: Not found or outside workspace
+        '409':
+          description: Conflict or protected last owner
+        '422':
+          description: Invalid data
+      parameters:
+      - name: workspaceId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+  /workspaces/{workspaceId}/members/{userId}:
+    put:
+      operationId: setWorkspaceMember
+      summary: Assign owner manager or viewer to an active user
+      security:
+      - sessionAuth: []
+      responses:
+        '204':
+          description: Successful operation
+        '401':
+          description: Authentication required
+        '403':
+          description: Permission denied
+        '404':
+          description: Not found or outside workspace
+        '409':
+          description: Conflict or protected last owner
+        '422':
+          description: Invalid data
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - role
+              properties:
+                role:
+                  type: string
+                  enum:
+                  - owner
+                  - manager
+                  - viewer
+              additionalProperties: false
+      parameters:
+      - name: workspaceId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: userId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    delete:
+      operationId: removeWorkspaceMember
+      summary: Remove member unless sole owner or asset owner
+      security:
+      - sessionAuth: []
+      responses:
+        '204':
+          description: Successful operation
+        '401':
+          description: Authentication required
+        '403':
+          description: Permission denied
+        '404':
+          description: Not found or outside workspace
+        '409':
+          description: Conflict or protected last owner
+        '422':
+          description: Invalid data
+      parameters:
+      - name: workspaceId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: userId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+  /workspaces/{workspaceId}/assets:
+    get:
+      operationId: listWorkspaceAssets
+      summary: Read scoped assets without sensitive metadata
+      security:
+      - sessionAuth: []
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                type: object
+        '401':
+          description: Authentication required
+        '403':
+          description: Permission denied
+        '404':
+          description: Not found or outside workspace
+        '409':
+          description: Conflict or protected last owner
+        '422':
+          description: Invalid data
+      parameters:
+      - name: workspaceId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 50
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          maximum: 10000
+          default: 0
+  /workspaces/{workspaceId}/assets/{assetId}/owner:
+    patch:
+      operationId: assignAssetOwner
+      summary: Assign active workspace member as owner or clear ownership
+      security:
+      - sessionAuth: []
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                type: object
+        '401':
+          description: Authentication required
+        '403':
+          description: Permission denied
+        '404':
+          description: Not found or outside workspace
+        '409':
+          description: Conflict or protected last owner
+        '422':
+          description: Invalid data
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - owner_user_id
+              properties:
+                owner_user_id:
+                  anyOf:
+                  - type: string
+                    format: uuid
+                  - type: 'null'
+              additionalProperties: false
+      parameters:
+      - name: workspaceId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: assetId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+  /workspaces/{workspaceId}/assets/{assetId}/transfer:
+    post:
+      operationId: transferWorkspaceAsset
+      summary: Transfer existing asset within same organization and clear owner
+      security:
+      - sessionAuth: []
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                type: object
+        '401':
+          description: Authentication required
+        '403':
+          description: Permission denied
+        '404':
+          description: Not found or outside workspace
+        '409':
+          description: Conflict or protected last owner
+        '422':
+          description: Invalid data
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - destination_workspace_id
+              properties:
+                destination_workspace_id:
+                  type: string
+                  format: uuid
+              additionalProperties: false
+      parameters:
+      - name: workspaceId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: assetId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
 components:
   schemas:
     Health:

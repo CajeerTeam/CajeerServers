@@ -51,7 +51,7 @@ try {
     $throws(static fn () => SignedPayload::verify($body, $signSecret, (string)($ts-301), $signature, $ts), 'expired webhook rejected');
     $throws(static fn () => SignedPayload::verify($body, $signSecret, 'x', $signature, $ts), 'invalid timestamp rejected');
     $throws(static fn () => SignedPayload::verify($body, $signSecret, (string)$ts, 'sha256=zz', $ts), 'invalid digest rejected');
-    $check(count(Rbac::PERMISSIONS) === 11, 'eleven active RBAC permissions');
+    $check(count(Rbac::PERMISSIONS) === 16, 'sixteen active RBAC permissions');
     $check(ApiToken::validateScopes(['profile:read']) === ['profile:read'], 'valid API scopes accepted');
     $throws(static fn () => ApiToken::validateScopes(['profile:read','profile:read']), 'duplicate API scope rejected');
     $throws(static fn () => ApiToken::validateScopes(['security.roles.manage']), 'privileged token scope rejected');

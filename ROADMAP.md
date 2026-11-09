@@ -144,6 +144,15 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 Код внешних коннекторов, inventory и автоматизации остаётся за следующими версиями.
 См. `wiki/Production-Core.md`.
 
+## 0.2.2 — Organizations, Workspaces & Ownership (код реализован)
+
+- [x] PostgreSQL organizations/workspaces/workspace_members с изоляцией и переназначением существующих asset UUID.
+- [x] PHP сервис с реальными транзакциями create/read/update, owner roles, membership, last-owner protection.
+- [x] Scoped read существующих Inventory-объектов, assignment и перенос внутри организации, аудит и trigger.
+- [x] REST API, RBAC + CSRF, Nuxt workspace UI и OpenAPI 3.1.1.
+- [x] Native smoke и отдельный PostgreSQL integration test.
+- [ ] Подтверждение реального PostgreSQL 17/18, Composer/npm lock, Nuxt build и Playwright E2E в release окружении.
+
 ## 0.2.1 — Core Stabilization & Inventory Readiness (исполняемые проверки)
 
 - [x] Read-only `inventory:preflight`: реальная проверка текущей PostgreSQL Inventory-схемы и данных, безопасные агрегированные результаты без IP/имен/атрибутов.
