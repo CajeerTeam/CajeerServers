@@ -1,3 +1,17 @@
 #!/usr/bin/env php
 <?php
-echo "CajeerServers schema-check: placeholder\n";
+declare(strict_types=1);
+
+use Cajeer\Servers\Cli\CommandRunner;
+
+$app = null;
+$code = 1;
+try {
+    $app = require dirname(__DIR__) . '/core/bootstrap.php';
+    $code = (new CommandRunner($app))->run(['cajeer', 'migrate:validate', ...array_slice($argv, 1)]);
+} catch (Throwable $error) {
+    fwrite(STDERR, "Schema validation bootstrap failed; check configuration and logs.\n");
+} finally {
+    $app?->terminate();
+}
+exit($code);

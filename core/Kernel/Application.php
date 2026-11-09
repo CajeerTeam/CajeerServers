@@ -5,6 +5,10 @@ namespace Cajeer\Servers\Kernel;
 
 use Cajeer\Servers\Config\ConfigRepository;
 use Cajeer\Servers\Config\EnvironmentLoader;
+use Cajeer\Servers\Database\ConnectionFactory;
+use Cajeer\Servers\Database\ConnectionFactoryInterface;
+use Cajeer\Servers\Database\DatabaseManager;
+use Cajeer\Servers\Database\MigrationRunner;
 use Cajeer\Servers\Logging\JsonLogger;
 use Cajeer\Servers\Http\HttpKernel;
 use Cajeer\Servers\Http\Router;
@@ -50,6 +54,13 @@ final class Application
         $this->services->instance(self::class, $this);
         $this->services->instance(ServiceContainer::class, $this->services);
         $this->services->instance(ConfigRepository::class, $this->configuration);
+        $this->services->singleton(ConnectionFactoryInterface::class, fn (ServiceContainer $container): ConnectionFactoryInterface => new ConnectionFactory());
+        $this->services->singleton(DatabaseManager::class, fn (ServiceContainer $container): DatabaseManager => new DatabaseManager(
+            $container->get(ConfigRepository::class), $container->get(ConnectionFactoryInterface::class),
+        ));
+        $this->services->singleton(MigrationRunner::class, fn (ServiceContainer $container): MigrationRunner => new MigrationRunner(
+            $container->get(DatabaseManager::class), $this->basePath('migrations/pgsql'),
+        ));
         $this->services->singleton(JsonLogger::class, fn (ServiceContainer $container): JsonLogger => new JsonLogger($this->basePath('storage/logs')));
         $this->services->singleton(RuntimeDiagnostics::class, fn (ServiceContainer $container): RuntimeDiagnostics => new RuntimeDiagnostics($this->basePath(), $container->get(ConfigRepository::class)));
         $this->services->singleton(Router::class, function (ServiceContainer $container): Router {

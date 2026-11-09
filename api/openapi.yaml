@@ -1,9 +1,10 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.1.2
+  version: 0.1.3
   description: |
-    Реально доступные публичные HTTP операции версии 0.1.2.
+    Реально доступные публичные HTTP операции версии 0.1.3.
+    PostgreSQL migrations и database diagnostics доступны только в CLI.
     API inventory, connectors, scripts, sync, actions и webhooks не опубликованы:
     они появятся после реализации persistence, аутентификации и проверки прав.
 servers:

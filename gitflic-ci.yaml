@@ -11,8 +11,8 @@ php84-runtime:
     - test ! -s /tmp/lint-errors.txt
     - APP_ENV=local APP_DEBUG=false php tests/runtime-smoke.php
     - APP_ENV=local APP_DEBUG=false php tests/http-smoke.php
+    - APP_ENV=local APP_DEBUG=false php tests/database-smoke.php
     - APP_ENV=local APP_DEBUG=false php bin/cajeer self:test
-    - '! php bin/cajeer migrate'
 
 php85-runtime:
   stage: verify
@@ -21,6 +21,7 @@ php85-runtime:
     - php -v
     - APP_ENV=local APP_DEBUG=false php tests/runtime-smoke.php
     - APP_ENV=local APP_DEBUG=false php tests/http-smoke.php
+    - APP_ENV=local APP_DEBUG=false php tests/database-smoke.php
     - APP_ENV=local APP_DEBUG=false php bin/cajeer self:test
 
 composer-and-unit-tests:

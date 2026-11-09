@@ -58,6 +58,19 @@ final class EnvironmentLoader
         return $this->loaded;
     }
 
+    /** Returns literal text for secrets and database identifiers without boolean/number coercion. */
+    public static function getString(string $key, string $default = ''): string
+    {
+        $value = getenv($key);
+        if ($value === false) {
+            $value = $_ENV[$key] ?? $default;
+        }
+        if (!is_string($value)) {
+            throw new RuntimeException('Environment variable must be a string: ' . $key);
+        }
+        return $value;
+    }
+
     public static function get(string $key, mixed $default = null): mixed
     {
         $value = getenv($key);

@@ -4,6 +4,8 @@ declare(strict_types=1);
 namespace Cajeer\Servers\Cli;
 
 use Cajeer\Servers\Kernel\Application;
+use Cajeer\Servers\Database\DatabaseManager;
+use Cajeer\Servers\Database\MigrationRunner;
 use Cajeer\Servers\Kernel\ServiceContainer;
 use Cajeer\Servers\Runtime\RuntimeDiagnostics;
 use Cajeer\Servers\Logging\JsonLogger;
@@ -32,7 +34,12 @@ final class CommandRunner
                 'config:get' => $this->getConfig($argv[2] ?? ''),
                 'config:check', 'env:check', 'doctor', 'install:check' => $this->doctor(in_array('--json', $argv, true)),
                 'self:test' => $this->selfTest(),
-                'migrate', 'queue:work', 'scheduler:run', 'connector:sync', 'scripts:run',
+                'database:check', 'db:check' => $this->databaseCheck(in_array('--json', $argv, true)),
+                'migrate' => $this->migrate($argv),
+                'migrate:status' => $this->migrationStatus(in_array('--json', $argv, true)),
+                'migrate:pending' => $this->migrationPending(in_array('--json', $argv, true)),
+                'migrate:validate', 'schema:check' => $this->migrationValidate(in_array('--json', $argv, true)),
+                'queue:work', 'scheduler:run', 'connector:sync', 'scripts:run',
                 'system:report', 'openapi:lint', 'update:check' => $this->unavailable($command),
                 default => $this->unknown($command),
             };
@@ -45,7 +52,7 @@ final class CommandRunner
     private function help(): int
     {
         fwrite(STDOUT, <<<'TEXT'
-CajeerServers CLI 0.1.2
+CajeerServers CLI 0.1.3
 
 Рабочие команды:
   help                 Список доступных команд
@@ -57,8 +64,14 @@ CajeerServers CLI 0.1.2
   doctor [--json]      Проверить PHP, расширения, storage и конфигурацию
   install:check        Предварительная проверка runtime (не установщик)
   self:test            Самопроверка bootstrap, DI и конфигурации
+  database:check       Проверить реальное подключение к БД
+  migrate              Выполнить неприменённые PostgreSQL миграции
+  migrate --dry-run    Показать план без изменения БД
+  migrate:status       Статус каждой миграции (--json)
+  migrate:pending      Список ожидающих миграций (--json)
+  migrate:validate     Проверить SQL и checksum журнал (--json)
 
-Команды будущих релизов (migrate, queue:work и др.) возвращают ошибку.
+Команды будущих релизов (queue:work и др.) возвращают ошибку.
 TEXT
         );
         fwrite(STDOUT, "\n");
@@ -129,9 +142,71 @@ TEXT
         return in_array(false, $checks, true) ? 1 : 0;
     }
 
+    private function databaseCheck(bool $json): int
+    {
+        $result = $this->app->container()->get(DatabaseManager::class)->ping();
+        $this->output($result, $json, sprintf("Database connection OK (%s %s).\n", $result['driver'], $result['version']));
+        return 0;
+    }
+
+    private function migrate(array $argv): int
+    {
+        foreach (array_slice($argv, 2) as $argument) {
+            if (!in_array($argument, ['--dry-run', '--json'], true)) {
+                fwrite(STDERR, "Usage: cajeer migrate [--dry-run] [--json]\n");
+                return 2;
+            }
+        }
+        $json = in_array('--json', $argv, true);
+        $dryRun = in_array('--dry-run', $argv, true);
+        $result = $this->app->container()->get(MigrationRunner::class)->run($dryRun);
+        $message = $dryRun
+            ? 'Pending migrations (dry-run): ' . (implode(', ', $result['pending']) ?: 'none') . "\n"
+            : 'Applied migrations: ' . (implode(', ', $result['applied']) ?: 'none') . "\n";
+        $this->output($result, $json, $message);
+        return 0;
+    }
+
+    private function migrationStatus(bool $json): int
+    {
+        $rows = $this->app->container()->get(MigrationRunner::class)->status();
+        $text = '';
+        foreach ($rows as $row) {
+            $text .= sprintf("%-10s %s\n", strtoupper($row['status']), $row['version']);
+        }
+        $this->output(['migrations' => $rows], $json, $text !== '' ? $text : "No migrations found.\n");
+        return array_intersect(['modified', 'missing', 'out_of_order'], array_column($rows, 'status')) !== [] ? 1 : 0;
+    }
+
+    private function migrationPending(bool $json): int
+    {
+        $result = $this->app->container()->get(MigrationRunner::class)->validate();
+        if (!$result['valid']) {
+            fwrite(STDERR, "Migration history is inconsistent; run migrate:validate.\n");
+            return 1;
+        }
+        $names = array_values(array_map(static fn (array $row): string => $row['version'], array_filter(
+            $result['rows'], static fn (array $row): bool => $row['status'] === 'pending',
+        )));
+        $this->output(['pending' => $names], $json, $names === [] ? "No pending migrations.\n" : implode("\n", $names) . "\n");
+        return 0;
+    }
+
+    private function migrationValidate(bool $json): int
+    {
+        $result = $this->app->container()->get(MigrationRunner::class)->validate();
+        $this->output($result, $json, $result['valid'] ? "Migration history valid.\n" : "Migration checksum/history mismatch.\n");
+        return $result['valid'] ? 0 : 1;
+    }
+
+    private function output(array $result, bool $json, string $human): void
+    {
+        fwrite(STDOUT, $json ? json_encode($result, JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . "\n" : $human);
+    }
+
     private function unavailable(string $command): int
     {
-        fwrite(STDERR, sprintf("Command '%s' is not implemented in 0.1.2. No operation was performed.\n", $command));
+        fwrite(STDERR, sprintf("Command '%s' is not implemented in 0.1.3. No operation was performed.\n", $command));
         return 3;
     }
 

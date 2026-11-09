@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.1.3] — Database & Migration Engine (2026-11-09)
+
+### Added
+- Настоящие PostgreSQL PDO connections, транзакции/savepoints и безопасный DSN builder.
+- Атомарное выполнение SQL-миграций под PostgreSQL advisory lock; SHA-256 journal, контроль истории, dry-run.
+- SQL statement parser с поддержкой PL/pgSQL dollar quoting и вложенных комментариев.
+- CLI database:check, migrate, migrate:status, migrate:pending, migrate:validate и совместимые standalone entrypoints.
+- Миграция role/permission associations и индексов; native database smoke-tests и изолированный PostgreSQL integration test.
+
+### Security
+- Предотвращение незаметного изменения/пропажи применённых миграций.
+- Запрет незадекларированного baseline и out-of-order SQL; запрет миграций MySQL до достижения parity.
+
+### Known limitations
+- PostgreSQL integration test требует отдельного реального PostgreSQL 17/18 и ext-pdo_pgsql; CI без DB не подтверждает integration.
+- Отсутствует Composer lockfile; дополнительные API/аутентификация не публикуются.
+
 ## 0.1.2 — HTTP Kernel & REST API (2026-11-09)
 
 - Работающий router, middleware pipeline, динамические параметры пути, HEAD/OPTIONS/405 и консистентные problem+json ответы.

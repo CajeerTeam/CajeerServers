@@ -41,6 +41,25 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 
 **Не входят в 0.1.2:** authentication/RBAC, state-changing API, real PostgreSQL/Redis/Proxmox/VMmanager/collectors.
 
+## 0.1.3 — Database & Migration Engine (реализовано)
+
+- [x] PostgreSQL PDO connection factory с TLS-настройками и защитой DSN.
+- [x] DatabaseManager: транзакции, вложенные savepoints, retry serialization/deadlock.
+- [x] Реальный SQL migration runner: advisory lock, atomic DDL, SHA-256 checksum, migration journal.
+- [x] CLI `database:check`, `migrate`, `migrate:status`, `migrate:pending`, `migrate:validate`, `--dry-run`.
+- [x] PostgreSQL role/permission pivots и индексы через `0002_rbac_relations.sql`.
+- [x] Native database smoke-test; отдельный сценарий PostgreSQL integration test.
+- [ ] Реальный PostgreSQL 17/18 integration run в CI / deployment environment.
+- [ ] MySQL/MariaDB migration parity (отложена; мигратор не разрешает применять неполную схему).
+
+**Не входят в 0.1.3:** installer, auth, RBAC middleware, открытие state-changing API, inventory CRUD, очередь и collectors.
+
+## 0.1.4 — Installer & Initial Setup (следующий релиз)
+
+- [ ] CLI/Web installer с environment/database prerequisites и APP_KEY generation.
+- [ ] Первая миграция и создание администратора.
+- [ ] Защита от повторной установки, installation state и безопасная диагностика.
+
 ## 0.2.0 — Core Kernel
 
 Цель: рабочее ядро приложения, маршрутизация, конфигурация и базовая безопасность.
