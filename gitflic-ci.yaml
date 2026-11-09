@@ -20,6 +20,7 @@ php84-runtime:
     - APP_ENV=local APP_DEBUG=false php tests/observability-smoke.php
     - APP_ENV=local APP_DEBUG=false php tests/admin-smoke.php
     - APP_ENV=local APP_DEBUG=false php tests/release-smoke.php
+    - APP_ENV=local APP_DEBUG=false php tests/inventory-readiness-smoke.php
     - APP_ENV=local APP_DEBUG=false php bin/cajeer self:test
 
 php85-runtime:
@@ -37,6 +38,7 @@ php85-runtime:
     - APP_ENV=local APP_DEBUG=false php tests/observability-smoke.php
     - APP_ENV=local APP_DEBUG=false php tests/admin-smoke.php
     - APP_ENV=local APP_DEBUG=false php tests/release-smoke.php
+    - APP_ENV=local APP_DEBUG=false php tests/inventory-readiness-smoke.php
     - APP_ENV=local APP_DEBUG=false php bin/cajeer self:test
 
 composer-and-unit-tests:
@@ -94,6 +96,7 @@ postgres-redis-integration:
     - php tests/security-postgres-integration.php
     - php tests/infrastructure-postgres-integration.php
     - php tests/admin-postgres-integration.php
+    - php tests/inventory-postgres-integration.php
     - CAJEER_PG_TEST_DATABASE="$CAJEER_INSTALL_PG_TEST_DATABASE" php tests/installer-postgres-integration.php
     - php tests/infrastructure-redis-integration.php
 # Full --strict additionally requires built Nuxt, private .env, live HTTPS deployment,

@@ -57,7 +57,7 @@ CFG);
     foreach (glob(dirname(__DIR__) . '/migrations/pgsql/*.sql') as $file) {
         copy($file, $migrationDir . '/' . basename($file));
     }
-    file_put_contents($migrationDir . '/0008_rollback_probe.sql', "CREATE TABLE cajeer_test_rollback_probe(id integer);\nSELECT non_existing_function_probe();\n");
+    file_put_contents($migrationDir . '/0009_rollback_probe.sql', "CREATE TABLE cajeer_test_rollback_probe(id integer);\nSELECT non_existing_function_probe();\n");
     try {
         (new MigrationRunner($manager, $migrationDir))->run();
         throw new RuntimeException('Expected probe SQL to fail.');
@@ -65,7 +65,7 @@ CFG);
         // Expected PostgreSQL failure; the transaction must be rolled back.
     }
     $exists = $pdo->query("SELECT to_regclass('cajeer_test_rollback_probe')")?->fetchColumn();
-    $journal = $pdo->query("SELECT count(*) FROM cajeer_schema_migrations WHERE version='0008_rollback_probe'")?->fetchColumn();
+    $journal = $pdo->query("SELECT count(*) FROM cajeer_schema_migrations WHERE version='0009_rollback_probe'")?->fetchColumn();
     if ($exists !== null || (int) $journal !== 0) {
         throw new RuntimeException('Failed SQL was not rolled back atomically.');
     }

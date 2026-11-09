@@ -6,6 +6,7 @@ namespace Cajeer\Servers\Release;
 use Cajeer\Servers\Database\DatabaseManager;
 use Cajeer\Servers\Database\MigrationRunner;
 use Cajeer\Servers\Installer\InstallState;
+use Cajeer\Servers\Inventory\InventoryReadiness;
 use Cajeer\Servers\Kernel\Application;
 use Cajeer\Servers\Observability\Diagnostics;
 use Cajeer\Servers\Runtime\RuntimeDiagnostics;
@@ -78,9 +79,12 @@ final class DeploymentVerifier
                 $migration = $this->app->container()->get(MigrationRunner::class);
                 $validation = $migration->validate();
                 $rows = $validation['rows'];
-                return $validation['valid'] && count($rows) >= 7 && count(array_filter(
+                return $validation['valid'] && count($rows) >= 8 && count(array_filter(
                     $rows, static fn (array $row): bool => $row['status'] !== 'applied')) === 0;
             }, 'Every shipped PostgreSQL migration must be applied with valid checksum.');
+            $this->probe($checks, 'inventory_readiness', fn (): bool => $this->app->container()
+                ->get(InventoryReadiness::class)->inspect(true)['ok'] === true,
+                'Inventory contains invalid legacy data or upgrade constraints are unvalidated.');
             $this->probe($checks, 'dependencies', fn (): bool => $this->app->container()->get(Diagnostics::class)->run()['ok'] === true,
                 'Required PostgreSQL, Redis, queue, scheduler and storage must pass readiness checks.');
         }

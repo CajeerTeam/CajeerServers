@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.2.1] — Core Stabilization & Inventory Readiness (2026-11-09)
+
+- Рабочий `InventoryReadiness`: real PostgreSQL audit колонок и агрегированных данных, нет выдачи hostname/IP/attributes в CLI.
+- Транзакционная `0008_inventory_readiness.sql`: восемь check constraints `NOT VALID` и четыре индекса без изменения данных предыдущих релизов.
+- CLI `inventory:preflight [--strict] [--json]` и `inventory:constraints [--apply]`: контроль данных и явная валидация существующих строк.
+- Strict release-gate блокируется при невалидных данных, невалидированных ограничениях и неприменённых миграциях.
+- Native PDO-double smoke, независимый PostgreSQL upgrade integration на изолированной схеме, миграционный rollback probe 0009, расширены GitFlic CI и release verification.
+- Синхронизированы VERSION, release.json, OpenAPI и Nuxt metadata; исходные миграции 0001–0007 не изменены.
+- **Не подтверждены локально:** реальный PostgreSQL/Redis, Composer/npm dependency resolution, Nuxt production build, Playwright browser E2E. Lock-файлы намеренно не подделывались; production-gate должен оставаться закрытым без этих проверок.
+
 ## [0.2.0] — Production-oriented Core (2026-11-09)
 
 - Единая SemVer 0.2.0 в ядре, release.json, Nuxt и OpenAPI; исправлен устаревший installer marker.

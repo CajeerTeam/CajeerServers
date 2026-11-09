@@ -36,7 +36,7 @@ php bin/cajeer doctor:deep
 php bin/cajeer release:check --strict --json
 ```
 
-`release:check` не заменяет настоящие integration/E2E. Он возвращает **ненулевой exit code** на несогласованную версию, недостающую зависимость, нарушение TLS или неготовую БД. Режим `--strict` также требует приватную `.env`, завершённую установку, соответствие `installation_id` локального marker и PostgreSQL, семь применённых проверенных миграций, работающие Redis/queue/scheduler/storage, `vendor/autoload.php`, lock-файлы и `admin/.output/server/index.mjs`.
+`release:check` не заменяет настоящие integration/E2E. Он возвращает **ненулевой exit code** на несогласованную версию, недостающую зависимость, нарушение TLS или неготовую БД. Режим `--strict` также требует приватную `.env`, завершённую установку, соответствие `installation_id` локального marker и PostgreSQL, все применённые проверенные миграции (в 0.2.1 их восемь), работающие Redis/queue/scheduler/storage, `vendor/autoload.php`, lock-файлы и `admin/.output/server/index.mjs`.
 
 ### Изолированный PostgreSQL/Redis
 
@@ -75,3 +75,7 @@ CAJEER_SMOKE_URL=https://staging.example.com php scripts/smoke-http.php
 ## Известные ограничения
 
 В текущей среде PHP native smoke и анализ конфигурации доступны; нет PDO PostgreSQL, PostgreSQL/Redis серверов и npm registry. Их реальную работоспособность, E2E и сохранность данных необходимо подтвердить в целевой инфраструктуре. Серверы и гипервизоры через будущие коннекторы в 0.2.0 ещё не управляются.
+
+## Дополнение 0.2.1
+
+Перед строгим release-gate для новой Inventory-модели требуется `inventory:preflight --strict` после миграции 0008 и выполнения `inventory:constraints --apply`. Операции и сохранность предыдущих данных описаны в [Inventory-Readiness.md](Inventory-Readiness.md).

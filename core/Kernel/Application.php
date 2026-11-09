@@ -31,6 +31,7 @@ use Cajeer\Servers\Database\ConnectionFactory;
 use Cajeer\Servers\Database\ConnectionFactoryInterface;
 use Cajeer\Servers\Database\DatabaseManager;
 use Cajeer\Servers\Database\MigrationRunner;
+use Cajeer\Servers\Inventory\InventoryReadiness;
 use Cajeer\Servers\Logging\JsonLogger;
 use Cajeer\Servers\Http\HttpKernel;
 use Cajeer\Servers\Http\Router;
@@ -100,6 +101,9 @@ final class Application
         ));
         $this->services->singleton(MigrationRunner::class, fn (ServiceContainer $container): MigrationRunner => new MigrationRunner(
             $container->get(DatabaseManager::class), $this->basePath('migrations/pgsql'),
+        ));
+        $this->services->singleton(InventoryReadiness::class, fn (ServiceContainer $container): InventoryReadiness => new InventoryReadiness(
+            $container->get(DatabaseManager::class),
         ));
         $this->services->singleton(JsonLogger::class, fn (ServiceContainer $container): JsonLogger => new JsonLogger($this->basePath('storage/logs')));
         $this->services->singleton(RedisClient::class, function (ServiceContainer $c): RedisClient {

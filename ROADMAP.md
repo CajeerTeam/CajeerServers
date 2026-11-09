@@ -145,6 +145,20 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 Код внешних коннекторов, inventory и автоматизации остаётся за следующими версиями.
 См. `wiki/Production-Core.md`.
 
+## 0.2.1 — Core Stabilization & Inventory Readiness (исполняемые проверки)
+
+- [x] Read-only `inventory:preflight`: реальная проверка текущей PostgreSQL Inventory-схемы и данных, безопасные агрегированные результаты без IP/имен/атрибутов.
+- [x] `0008_inventory_readiness.sql`: восемь `NOT VALID` ограничений и четыре индекса **без изменений legacy записей**; новые изменения должны быть корректны.
+- [x] `inventory:constraints --apply`: явная и идемпотентная PostgreSQL VALIDATE CONSTRAINT после исправления legacy записей.
+- [x] Strict release-gate требует применённую миграцию 0008 и валидированные ограничения; fail-closed на проблемных данных.
+- [x] Отдельный native smoke с PDO-двойником и интеграционный сценарий upgrade на настоящем PostgreSQL 17+ (отдельная тестовая схема).
+- [x] Исправлена rollback-проба интеграционного мигратора на 0009; тесты включены в GitFlic CI и скрипт релиза.
+- [ ] Зафиксировать **настоящие** `composer.lock` и `admin/package-lock.json` после сборки с сетью.
+- [ ] Выполнить PostgreSQL/Redis integration, Nuxt build/Typecheck, PHPUnit и Playwright E2E на стенде; локально они пока не подтверждены.
+- [ ] Подтвердить backup/restore, Nginx/TLS и строгий release-gate перед производственным развёртыванием.
+
+Этот этап не включает Inventory CRUD, workspace, IPAM или управление внешней инфраструктурой. См. `wiki/Inventory-Readiness.md`.
+
 ## 0.3.0 — Inventory / CMDB
 
 Цель: единая модель инфраструктуры.

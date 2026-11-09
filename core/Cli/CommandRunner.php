@@ -53,6 +53,7 @@ final class CommandRunner
                 'scheduler:add', 'scheduler:list', 'scheduler:run', 'scheduler:enable', 'scheduler:disable',
                 'storage:check', 'storage:put', 'storage:get', 'storage:exists', 'storage:delete' => (new InfrastructureCommands($this->app))->run($command, $argv),
                 'health', 'health:live', 'health:ready', 'doctor:deep', 'system:report', 'metrics:render', 'openapi:lint', 'queue:stats', 'scheduler:stats', 'security:prune' => (new OperationalCommands($this->app))->run($command, $argv),
+                'inventory:preflight', 'inventory:constraints' => (new InventoryCommands($this->app))->run($command, $argv),
                 'connector:sync', 'scripts:run', 'update:check' => $this->unavailable($command),
                 default => $this->unknown($command),
             };
@@ -65,7 +66,7 @@ final class CommandRunner
     private function help(): int
     {
         fwrite(STDOUT, <<<'TEXT'
-CajeerServers CLI 0.2.0
+CajeerServers CLI 0.2.1
 
 Рабочие команды:
   help                 Список доступных команд
@@ -84,6 +85,8 @@ CajeerServers CLI 0.2.0
                       --url=https://... --db-host=... --db-database=... --db-username=...
                       --db-password-file=/private/file (не передавать пароль в аргументах)
   self:test            Самопроверка bootstrap, DI и конфигурации
+  inventory:preflight [--json] [--strict]  Проверить реальные записи и схему Inventory без изменений
+  inventory:constraints [--json] [--apply]  Просмотреть / валидировать NOT VALID ограничения Inventory
   release:check        Проверить метаданные, runtime и обязательные части релиза
   release:check --strict [--json]  Проверить production DB, миграции, Redis, Nuxt build и lockfiles
   database:check       Проверить реальное подключение к БД
@@ -308,7 +311,7 @@ TEXT
 
     private function unavailable(string $command): int
     {
-        fwrite(STDERR, sprintf("Command '%s' is not implemented in 0.2.0. No operation was performed.\n", $command));
+        fwrite(STDERR, sprintf("Command '%s' is not implemented in 0.2.1. No operation was performed.\n", $command));
         return 3;
     }
 

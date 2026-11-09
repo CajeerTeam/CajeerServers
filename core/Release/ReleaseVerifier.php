@@ -39,7 +39,8 @@ final class ReleaseVerifier
         $check('openapi_version', $apiVersion === $version && str_contains((string)$api, 'openapi: 3.1.1'),
             'OpenAPI must match VERSION and use 3.1.1.');
         foreach (['public/index.php', 'core/bootstrap.php', 'bin/cajeer', 'routes/api.php',
-                  'migrations/pgsql/0007_admin_ui_permissions.sql', 'admin/nuxt.config.ts'] as $file) {
+                  'migrations/pgsql/0007_admin_ui_permissions.sql', 'migrations/pgsql/0008_inventory_readiness.sql',
+                  'core/Inventory/InventoryReadiness.php', 'admin/nuxt.config.ts'] as $file) {
             $check('source:' . $file, is_file($this->root . '/' . $file) && is_readable($this->root . '/' . $file), 'Required source file is available.');
         }
         // Strict deployment checks are intentionally not bypassed by the kernel's native autoload fallback.

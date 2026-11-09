@@ -2,6 +2,31 @@
 
 **CajeerServers** — русскоязычная self-hosted веб-оболочка для наблюдения и управления инфраструктурой. Это **не ОС**, не прошивка и не замена Proxmox/VMmanager. Для будущих версий предусмотрен сбор данных через API, собственные скрипты, webhooks, collectors и интеграции без обязательных системных агентов.
 
+## Версия 0.2.1 — Core Stabilization & Inventory Readiness
+
+Добавлен **работающий PostgreSQL-предпроверяющий механизм** `InventoryReadiness`: проверяет существующую
+таблицу `inventory_assets`, типы колонок, пустые обязательные поля и JSONB-форматы, не
+разглашая содержимое инфраструктурных объектов. Миграция `0008_inventory_readiness.sql`
+вводит восемь проверяемых ограничений и четыре индекса, не изменяя старые записи.
+
+```bash
+php bin/cajeer inventory:preflight --json        # только чтение текущей БД
+php bin/cajeer migrate                           # после backup
+php bin/cajeer inventory:constraints --apply     # после очистки legacy данных
+php bin/cajeer inventory:preflight --strict --json
+php tests/inventory-readiness-smoke.php
+```
+
+Операции `inventory:constraints --apply` и `migrate` меняют SQL-схему — использовать
+с запланированным окном обслуживания и резервной копией. Доступ к Inventory CRUD не
+открыт (запланирован на 0.2.3); пользовательские данные не переписываются.
+Подробно: [wiki/Inventory-Readiness.md](wiki/Inventory-Readiness.md).
+
+**Локальная проверка:** регрессионные native smoke; реальный PostgreSQL/Redis,
+Nuxt build, браузерный E2E и воспроизводимые lock-файлы остаются непроверенными,
+так как в среде отсутствуют PostgreSQL, `pdo_pgsql`, Composer и сетевой npm registry.
+`release:check --strict` должен продолжать возвращать отказ, пока условия не выполнены.
+
 ## Версия 0.2.0 — Production-oriented Core
 
 Этот релиз включает **рабочую проверку готовности к развёртыванию** и исполняемые

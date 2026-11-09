@@ -42,7 +42,9 @@
     "infrastructure:redis:test": "@php tests/infrastructure-redis-integration.php",
     "observability:test": "@php tests/observability-smoke.php",
     "admin:test": "@php tests/admin-smoke.php",
-    "admin:postgres:test": "@php tests/admin-postgres-integration.php"
+    "admin:postgres:test": "@php tests/admin-postgres-integration.php",
+    "inventory:readiness:test": "@php tests/inventory-readiness-smoke.php",
+    "inventory:postgres:test": "@php tests/inventory-postgres-integration.php"
   },
   "minimum-stability": "stable",
   "prefer-stable": true,
