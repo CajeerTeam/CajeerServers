@@ -107,10 +107,16 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 - [ ] Подтвердить PostgreSQL 17/18, Redis, внешний S3/OTLP collector, production reverse-proxy/TLS в CI.
 - [ ] Встроенный notification dispatcher и долгосрочное распределённое time-series хранилище — отдельные релизы, в 0.1.8 не заявлены.
 
-## 0.1.9 — Admin UI & End-to-End Integration (планируется)
+## 0.1.9 — Admin UI & End-to-End Integration (реализован код, внешняя интеграция ожидает подтверждения)
 
-- [ ] Реальные Nuxt страницы для auth/сессий/токенов/ролей, диагностики и queue status.
-- [ ] E2E install → auth → schedule → worker → job result → audit.
+- [x] Реальные Nuxt-страницы для входа, 2FA, users/roles, sessions/tokens, audit, diagnostics, jobs, scheduler.
+- [x] Защищённые session-only Admin API с RBAC, CSRF и новым набором permissions.
+- [x] Постановка allowlisted диагностических задач и сохранение результатов в очереди; без shell execution.
+- [x] Nginx reverse proxy same-origin для Nuxt SSR и PHP-FPM, эксплуатационная документация.
+- [x] Native smoke и готовый PostgreSQL/Playwright integration/E2E suite.
+- [ ] Выполнить реальные PostgreSQL/Redis + Nuxt build + Playwright browser E2E в CI/staging (нельзя считать выполненными без сервиса).
+- [ ] Подтвердить полную последовательность install → auth → scheduler → worker → job result → audit на staging.
+- [ ] Зафиксировать `admin/package-lock.json` и `composer.lock` после проверки реальной установки зависимостей.
 
 ## 0.2.0 — Production-oriented Core (планируется)
 

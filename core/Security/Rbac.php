@@ -14,6 +14,7 @@ final class Rbac
         'security.users.read', 'security.users.manage',
         'security.roles.read', 'security.roles.manage', 'security.roles.grant_administrator',
         'security.audit.read', 'security.webhooks.manage',
+        'admin.dashboard.read', 'admin.jobs.read', 'admin.jobs.execute', 'admin.scheduler.read',
     ];
 
     public function __construct(private readonly DatabaseManager $database, private readonly AuditLogger $audit) {}
@@ -41,6 +42,23 @@ SQL);
             $this->audit->record($pdo, $principal['user']['id'], 'security.permission.denied', 'denied', 'user', $principal['user']['id'], ['permission' => $permission]);
             throw new HttpException(403, 'Insufficient permission.', 'permission_denied');
         }
+    }
+
+    /** @param array<string,mixed> $principal @return list<string> */
+    public function permissionsFor(array $principal): array
+    {
+        if (($principal['mode'] ?? null) !== 'session' || !isset($principal['user']['id'])) {
+            throw new HttpException(403, 'Session authentication required.', 'session_required');
+        }
+        $stmt = $this->database->connection()->prepare(<<<'SQL'
+SELECT DISTINCT p.scope FROM permissions p
+JOIN role_permissions rp ON rp.permission_id=p.id
+JOIN user_roles ur ON ur.role_id=rp.role_id
+JOIN users u ON u.id=ur.user_id
+WHERE u.id=:user AND u.is_active=true ORDER BY p.scope
+SQL);
+        $stmt->execute(['user' => $principal['user']['id']]);
+        return array_values(array_filter($stmt->fetchAll(PDO::FETCH_COLUMN), 'is_string'));
     }
 
     /** @return list<array<string,mixed>> */

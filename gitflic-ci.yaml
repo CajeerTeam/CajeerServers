@@ -16,6 +16,8 @@ php84-runtime:
     - APP_ENV=local APP_DEBUG=false php tests/auth-smoke.php
     - APP_ENV=local APP_DEBUG=false php tests/security-smoke.php
     - APP_ENV=local APP_DEBUG=false php tests/infrastructure-smoke.php
+    - APP_ENV=local APP_DEBUG=false php tests/observability-smoke.php
+    - APP_ENV=local APP_DEBUG=false php tests/admin-smoke.php
     - APP_ENV=local APP_DEBUG=false php bin/cajeer self:test
 
 php85-runtime:
@@ -30,6 +32,8 @@ php85-runtime:
     - APP_ENV=local APP_DEBUG=false php tests/auth-smoke.php
     - APP_ENV=local APP_DEBUG=false php tests/security-smoke.php
     - APP_ENV=local APP_DEBUG=false php tests/infrastructure-smoke.php
+    - APP_ENV=local APP_DEBUG=false php tests/observability-smoke.php
+    - APP_ENV=local APP_DEBUG=false php tests/admin-smoke.php
     - APP_ENV=local APP_DEBUG=false php bin/cajeer self:test
 
 composer-and-unit-tests:
@@ -39,3 +43,14 @@ composer-and-unit-tests:
     - composer validate --strict
     - composer install --no-interaction --prefer-dist
     - APP_ENV=local APP_DEBUG=false vendor/bin/phpunit
+
+nuxt-admin-build:
+  stage: test
+  image: node:22
+  script:
+    - cd admin
+    - npm install --no-audit --no-fund
+    - npm run test:static
+    - npm run typecheck
+    - npm run build
+# Browser E2E additionally requires a separately deployed, isolated PostgreSQL/Redis staging stack.

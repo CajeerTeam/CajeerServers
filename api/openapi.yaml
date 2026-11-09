@@ -1,12 +1,9 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.1.8
-  description: 'CajeerServers 0.1.7: реальная PostgreSQL-аутентификация, scoped API tokens, RBAC с проверками на
-    сервере, TOTP MFA и одноразовые recovery codes, security audit (append-only), подписанный вебхук-входящий журнал
-    с защитой от replay. HTTPS обязателен в production. Для state-changing security API нужны cookie-сессия и X-CSRF-Token.
-    Bearer-токены не дают доступа к security mutations. Перед использованием очереди и планировщика нужна миграция 0006; инфраструктурные
-    действия Proxmox/VMmanager ещё не опубликованы. Webhook events принимаются и сохраняются, но не исполняются.'
+  version: 0.1.9
+  description: 'CajeerServers 0.1.9: Nuxt Admin UI, PHP session authentication, RBAC, CSRF, real diagnostic jobs and read-only
+    operational views. External infrastructure control remains disabled. See wiki/Admin-UI.md.'
 servers:
 - url: /api/v1
 security: []
@@ -43,18 +40,25 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [status, service, scope]
+                required:
+                - status
+                - service
+                - scope
                 properties:
-                  status: {type: string, const: alive}
-                  service: {type: string}
-                  scope: {type: string, const: process}
+                  status:
+                    type: string
+                    const: alive
+                  service:
+                    type: string
+                  scope:
+                    type: string
+                    const: process
   /ready:
     get:
       operationId: dependencyReadiness
       summary: Готовность runtime, установки, PostgreSQL, Redis, очереди, планировщика и storage
-      description: >-
-        Публичный endpoint возвращает только агрегат, без адресов хостов и деталей ошибок.
-        S3 storage проверяется реальной временной записью/чтением/удалением; local storage — проверкой каталога.
+      description: Публичный endpoint возвращает только агрегат, без адресов хостов и деталей ошибок. S3 storage проверяется
+        реальной временной записью/чтением/удалением; local storage — проверкой каталога.
       security: []
       responses:
         '200':
@@ -63,40 +67,54 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [status, service, scope]
+                required:
+                - status
+                - service
+                - scope
                 properties:
-                  status: {type: string, const: ready}
-                  service: {type: string}
-                  scope: {type: string, const: dependencies}
+                  status:
+                    type: string
+                    const: ready
+                  service:
+                    type: string
+                  scope:
+                    type: string
+                    const: dependencies
         '503':
           description: Не готова хотя бы одна обязательная зависимость
           content:
             application/json:
               schema:
                 type: object
-                required: [status, service, scope]
+                required:
+                - status
+                - service
+                - scope
                 properties:
-                  status: {type: string, const: not_ready}
-                  service: {type: string}
-                  scope: {type: string, const: dependencies}
+                  status:
+                    type: string
+                    const: not_ready
+                  service:
+                    type: string
+                  scope:
+                    type: string
+                    const: dependencies
   /metrics:
     get:
       operationId: prometheusScrape
       summary: Защищённый Prometheus exposition format
-      description: >-
-        Отключён по умолчанию. Требует PROMETHEUS_ENABLED=true и
-        PROMETHEUS_SCRAPE_TOKEN длиной не менее 32 символов. Bearer-token
-        проверяется по constant-time comparison; в production необходим HTTPS.
-        Счётчики HTTP/queue сохраняются локально на инстансе, метки ограничены;
-        gauge dependency_up получает фактический результат проверки зависимостей.
+      description: Отключён по умолчанию. Требует PROMETHEUS_ENABLED=true и PROMETHEUS_SCRAPE_TOKEN длиной не менее 32 символов.
+        Bearer-token проверяется по constant-time comparison; в production необходим HTTPS. Счётчики HTTP/queue сохраняются
+        локально на инстансе, метки ограничены; gauge dependency_up получает фактический результат проверки зависимостей.
       security:
-        - metricsBearer: []
+      - metricsBearer: []
       responses:
         '200':
           description: Текстовые метрики Prometheus 0.0.4
           content:
             text/plain:
-              schema: {type: string}
+              schema:
+                type: string
         '401':
           description: Не передан или неверен scrape bearer token
         '403':
@@ -167,8 +185,8 @@ paths:
                   minLength: 6
                   maxLength: 64
                   description: TOTP из authenticator либо recovery code; не сохраняется в логах.
-      description: Argon2id; для пользователей с MFA обязателен mfa_code (6-значный TOTP либо одноразовый recovery
-        code). Единый 401 при неверных учётных данных, rate limiting по account+IP и общему IP.
+      description: Argon2id; для пользователей с MFA обязателен mfa_code (6-значный TOTP либо одноразовый recovery code).
+        Единый 401 при неверных учётных данных, rate limiting по account+IP и общему IP.
   /auth/me:
     get:
       operationId: authMe
@@ -953,8 +971,149 @@ paths:
         schema:
           type: string
         description: Unix time seconds
-      description: Контент не исполняется; сохраняется в PostgreSQL. HMAC-SHA256 + timestamp ±300 sec + уникальный
-        replay digest + лимит 256KiB.
+      description: Контент не исполняется; сохраняется в PostgreSQL. HMAC-SHA256 + timestamp ±300 sec + уникальный replay
+        digest + лимит 256KiB.
+  /admin/session:
+    get:
+      operationId: adminSession
+      summary: Текущая сессия и разрешения
+      security:
+      - sessionAuth: []
+      responses:
+        '200':
+          description: Успешный ответ
+          content:
+            application/json:
+              schema:
+                type: object
+        '401':
+          description: Неавторизованный пользователь
+        '403':
+          description: Недостаточно прав
+  /admin/overview:
+    get:
+      operationId: adminOverview
+      summary: Сводка реальной готовности зависимостей
+      security:
+      - sessionAuth: []
+      responses:
+        '200':
+          description: Успешный ответ
+          content:
+            application/json:
+              schema:
+                type: object
+        '401':
+          description: Неавторизованный пользователь
+        '403':
+          description: Недостаточно прав
+  /admin/diagnostics:
+    get:
+      operationId: adminDiagnostics
+      summary: Глубокая диагностика с проверкой хранения
+      security:
+      - sessionAuth: []
+      responses:
+        '200':
+          description: Успешный ответ
+          content:
+            application/json:
+              schema:
+                type: object
+        '401':
+          description: Неавторизованный пользователь
+        '403':
+          description: Недостаточно прав
+  /admin/jobs:
+    get:
+      operationId: adminJobs
+      summary: 'Очередь: статистика и последние задачи при PostgreSQL'
+      security:
+      - sessionAuth: []
+      responses:
+        '200':
+          description: Успешный ответ
+          content:
+            application/json:
+              schema:
+                type: object
+        '401':
+          description: Неавторизованный пользователь
+        '403':
+          description: Недостаточно прав
+    post:
+      operationId: adminDispatchJob
+      summary: Постановка только разрешённой диагностической задачи
+      security:
+      - sessionAuth: []
+      responses:
+        '202':
+          description: Успешный ответ
+          content:
+            application/json:
+              schema:
+                type: object
+        '401':
+          description: Неавторизованный пользователь
+        '403':
+          description: Недостаточно прав
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - type
+              properties:
+                type:
+                  type: string
+                  enum:
+                  - runtime.diagnostics
+                  - storage.probe
+              additionalProperties: false
+      description: Требуются session cookie, admin.jobs.execute и X-CSRF-Token. Не принимает произвольный код.
+  /admin/jobs/{id}:
+    get:
+      operationId: adminJob
+      summary: Статус задачи по UUID без содержимого payload/result
+      security:
+      - sessionAuth: []
+      responses:
+        '200':
+          description: Успешный ответ
+          content:
+            application/json:
+              schema:
+                type: object
+        '401':
+          description: Неавторизованный пользователь
+        '403':
+          description: Недостаточно прав
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+  /admin/scheduler:
+    get:
+      operationId: adminScheduler
+      summary: Чтение расписаний и статистики PostgreSQL
+      security:
+      - sessionAuth: []
+      responses:
+        '200':
+          description: Успешный ответ
+          content:
+            application/json:
+              schema:
+                type: object
+        '401':
+          description: Неавторизованный пользователь
+        '403':
+          description: Недостаточно прав
 components:
   schemas:
     Health:
@@ -1254,5 +1413,5 @@ components:
       type: apiKey
       in: header
       name: X-Cajeer-Signature
-      description: sha256=<hex64> HMAC-SHA256 от v1.<unix_timestamp>.<raw_body>; отдельно X-Cajeer-Timestamp, дрейф
-        не более 300 секунд.
+      description: sha256=<hex64> HMAC-SHA256 от v1.<unix_timestamp>.<raw_body>; отдельно X-Cajeer-Timestamp, дрейф не более
+        300 секунд.

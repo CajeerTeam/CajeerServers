@@ -46,6 +46,7 @@ use Cajeer\Servers\Observability\PrometheusExporter;
 use Cajeer\Servers\Observability\OpenTelemetryTracer;
 use Cajeer\Servers\Observability\MetricsController;
 use Cajeer\Servers\Api\Controller\OperationalHealthController;
+use Cajeer\Servers\Api\Controller\AdminController;
 use RuntimeException;
 
 /** Long-lived process-safe application lifecycle: boot, handle, terminate. */
@@ -184,6 +185,11 @@ final class Application
             $c->get(ConfigRepository::class), $c->get(PrometheusExporter::class), $c->get(Diagnostics::class)));
         $this->services->singleton(OperationalHealthController::class, fn (ServiceContainer $c): OperationalHealthController => new OperationalHealthController(
             $c->get(HealthCheck::class)));
+        $this->services->singleton(AdminController::class, fn (ServiceContainer $c): AdminController => new AdminController(
+            $c->get(AuthenticationService::class), $c->get(Rbac::class), $c->get(DatabaseManager::class),
+            $c->get(QueueDriverInterface::class), $c->get(JobProcessor::class), $c->get(OperationalStats::class),
+            $c->get(Scheduler::class), $c->get(Diagnostics::class), $c->get(AuditLogger::class),
+        ));
         $this->services->singleton(Router::class, function (ServiceContainer $container): Router {
             $router = new Router();
             $register = require $this->basePath('routes/api.php');

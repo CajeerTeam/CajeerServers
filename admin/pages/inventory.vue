@@ -1,6 +1,1 @@
-<template>
-  <div>
-    <h2>Inventory / CMDB</h2>
-    <p>Стартовая страница CajeerServers: inventory / cmdb.</p>
-  </div>
-</template>
+<template><div><h1>Inventory</h1><p class="page-subtitle">Функциональность ещё не поддерживается API текущего релиза 0.1.9.</p><div class="alert info">Управление внешней инфраструктурой будет доступно в следующих версиях. В 0.1.9 не выполняются действия с серверами, виртуальными машинами и роутерами.</div><NuxtLink to="/">Вернуться к обзору</NuxtLink></div></template>

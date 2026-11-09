@@ -1,6 +1,1 @@
-<template>
-  <div>
-    <h2>Action Dispatcher</h2>
-    <p>Стартовая страница CajeerServers: action dispatcher.</p>
-  </div>
-</template>
+<script setup lang="ts">await navigateTo('/tasks',{redirectCode:302,replace:true})</script><template><p>Перенаправление к задачам…</p></template>

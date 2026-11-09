@@ -2,6 +2,14 @@
 
 **CajeerServers** — русскоязычная self-hosted веб-оболочка для наблюдения и управления инфраструктурой. Это **не ОС**, не прошивка и не замена Proxmox/VMmanager. Для будущих версий предусмотрен сбор данных через API, собственные скрипты, webhooks, collectors и интеграции без обязательных системных агентов.
 
+## Версия 0.1.9 — Admin UI & End-to-End Integration
+
+Nuxt 3 SSR Admin UI с реальными PHP API: вход с TOTP, управление пользователями и ролями, sessions/API tokens, 2FA, журнал аудита, системный dashboard и диагностические задания через queue. Сервер проверяет RBAC, CSRF и cookie-сессию для каждой операции; API-токены не обладают правами Admin UI.
+
+**Патч:** поверх 0.1.8. Перед миграцией сохраните backup PostgreSQL, затем `php bin/cajeer migrate`; новая миграция `0007_admin_ui_permissions.sql` назначает 4 новых разрешения только administrator. Сборка UI: `cd admin && npm install && npm run build`. Для Nginx используйте схему same-origin из `examples/nginx/cajeerservers-tls.conf`. Подробности: [wiki/Admin-UI.md](wiki/Admin-UI.md).
+
+**Проверки:** `php tests/admin-smoke.php`, `node admin/tests/static-check.mjs`; PostgreSQL интеграция и Playwright E2E требуют отдельного изолированного стенда. В данной среде отсутствие PostgreSQL и npm-зависимостей не позволяет заявить полный E2E-прогон или подтвердить Nuxt production build. Proxmox/VMmanager и Inventory API не объявлены работающими.
+
 ## Версия 0.1.8 — Observability & Operational CLI
 
 Реальные liveness/readiness probes, диагностика PostgreSQL/Redis/Queue/Scheduler/Local/S3,
@@ -25,7 +33,7 @@ scrape endpoint и эксплуатационные команды, включа
 
 ## Версия 0.1.6 — RBAC, Security & Audit
 
-Добавлена **исполняемая реализация** PostgreSQL RBAC (7 разрешений, пользователи/роли/назначение/отзыв), server-side CSRF, общего лимитирования входа, TOTP 2FA с одноразовыми recovery codes, XChaCha20-Poly1305 шифрования секретов, HMAC-подписанных webhooks с persisted inbox и replay protection, транзакционного append-only security audit, а также дополнительных защитных HTTP-заголовков. На новых операциях не возвращаются фиктивные результаты: действие либо записано и проверено в PostgreSQL, либо завершается ошибкой. Деструктивные операции Proxmox/VMmanager по-прежнему не опубликованы.
+Добавлена **исполняемая реализация** PostgreSQL RBAC (7 разрешений релиза 0.1.6, пользователи/роли/назначение/отзыв), server-side CSRF, общего лимитирования входа, TOTP 2FA с одноразовыми recovery codes, XChaCha20-Poly1305 шифрования секретов, HMAC-подписанных webhooks с persisted inbox и replay protection, транзакционного append-only security audit, а также дополнительных защитных HTTP-заголовков. На новых операциях не возвращаются фиктивные результаты: действие либо записано и проверено в PostgreSQL, либо завершается ошибкой. Деструктивные операции Proxmox/VMmanager по-прежнему не опубликованы.
 
 **Обновление:** 0.1.5 → 0.1.6, резервная копия PostgreSQL, `php bin/cajeer migrate`, `php bin/cajeer migrate:validate`. Прямое применение поверх более старых версий не проверялось. Рабочие маршруты, права и правила MFA: [wiki/Security.md](wiki/Security.md). Native smoke: `php tests/security-smoke.php`; интеграционный тест на изолированной PostgreSQL: `php tests/security-postgres-integration.php`. В текущей среде PostgreSQL и `pdo_pgsql` недоступны, реальная БД не проверена: эксплуатационную готовность необходимо подтвердить перед публичным развёртыванием.
 

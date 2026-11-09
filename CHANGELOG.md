@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.1.9] — Admin UI & End-to-End Integration (2026-11-09)
+
+- Настоящие страницы Nuxt 3: login/TOTP, operational dashboard, users/roles, sessions/API tokens, MFA, audit, diagnostics, jobs и scheduler.
+- Session-only admin API с RBAC + CSRF; 4 новых permissions, миграция 0007 и default-deny для остальных ролей.
+- Разрешено ставить только `runtime.diagnostics` и `storage.probe`; сохранённый job status доступен без payload/result/секретов.
+- Single-origin Nginx TLS reverse proxy для Nuxt SSR и PHP-FPM, защищённые cookies, TypeScript composables и client route guard.
+- Native admin smoke, подготовленный PostgreSQL integration test и Playwright E2E, документация развёртывания.
+- Подтверждено локально: PHP lint, native smoke, статическая проверка интерфейса. **Не подтверждено:** Nuxt build и E2E на PostgreSQL/Redis, поскольку необходимые зависимости/сервисы недоступны в этой среде.
+
 ## [0.1.8] — Observability & Operational CLI (2026-11-09)
 
 - Реальные public liveness (`/api/v1/live`) и readiness (`/api/v1/ready`), Runtime-only `/health` сохранён.

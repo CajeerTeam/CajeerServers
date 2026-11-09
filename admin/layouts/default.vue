@@ -1,19 +1,32 @@
+<script setup lang="ts">
+const auth = useAuth()
+const links = computed(() => [
+  { to: '/', label: 'Обзор', permission: 'admin.dashboard.read' },
+  { to: '/tasks', label: 'Очередь и задачи', permission: 'admin.jobs.read' },
+  { to: '/scheduler', label: 'Планировщик', permission: 'admin.scheduler.read' },
+  { to: '/users', label: 'Пользователи', permission: 'security.users.read' },
+  { to: '/roles', label: 'Роли', permission: 'security.roles.read' },
+  { to: '/audit', label: 'Аудит', permission: 'security.audit.read' },
+  { to: '/system', label: 'Диагностика', permission: 'admin.dashboard.read' },
+  { to: '/settings', label: 'Профиль и безопасность', permission: '' },
+].filter(item => !item.permission || auth.can(item.permission)))
+const loggingOut = ref(false)
+const error = ref('')
+async function logout() {
+  loggingOut.value = true; error.value = ''
+  try { await auth.signOut(); await navigateTo('/login', { replace: true }) }
+  catch (e) { error.value = apiError(e).message }
+  finally { loggingOut.value = false }
+}
+</script>
 <template>
-  <main class="shell">
-    <aside>
-      <h1>CajeerServers</h1>
-      <NuxtLink to="/">Обзор</NuxtLink>
-      <NuxtLink to="/inventory">Inventory</NuxtLink>
-      <NuxtLink to="/connectors">Коннекторы</NuxtLink>
-      <NuxtLink to="/sync">Синхронизация</NuxtLink>
-      <NuxtLink to="/scripts">Скрипты</NuxtLink>
-      <NuxtLink to="/actions">Действия</NuxtLink>
-      <NuxtLink to="/system">Система</NuxtLink>
-      <NuxtLink to="/settings">Настройки</NuxtLink>
-    </aside>
-    <section><slot /></section>
-  </main>
+  <div v-if="!auth.ready || !auth.user" class="auth-page" aria-live="polite"><span class="progress">Проверка сессии…</span></div>
+  <div v-else class="layout">
+    <nav class="sidebar" aria-label="Основная навигация">
+      <div class="brand">CajeerServers<span>Панель администратора</span></div>
+      <NuxtLink v-for="link in links" :key="link.to" class="nav-link" :to="link.to">{{ link.label }}</NuxtLink>
+      <div class="sidebar-foot"><p>{{ auth.user.name }}</p><p class="mono">{{ auth.user.email }}</p><UiAlert :message="error" /><button class="btn" type="button" :disabled="loggingOut" @click="logout">Выйти</button></div>
+    </nav>
+    <main class="main"><slot /></main>
+  </div>
 </template>
-<style scoped>
-.shell{display:grid;grid-template-columns:260px 1fr;min-height:100vh;font-family:system-ui,sans-serif}aside{padding:24px;background:#111827;color:white;display:flex;flex-direction:column;gap:12px}a{color:inherit;text-decoration:none}section{padding:32px}
-</style>

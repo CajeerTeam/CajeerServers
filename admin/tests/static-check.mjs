@@ -1,0 +1,21 @@
+import { readFileSync, readdirSync, existsSync } from 'node:fs'
+import { join } from 'node:path'
+const root = new URL('../', import.meta.url)
+const read = path => readFileSync(new URL(path, root), 'utf8')
+const pages = readdirSync(new URL('pages/', root)).filter(x => x.endsWith('.vue'))
+let passed = 0
+function ok(cond, name) { if (!cond) throw new Error(name); passed++ }
+ok(pages.includes('login.vue') && pages.includes('users.vue') && pages.includes('settings.vue'), 'real admin pages exist')
+ok(read('composables/useApi.ts').includes("credentials: 'include'"), 'cookie transport')
+ok(read('composables/useApi.ts').includes('X-CSRF-Token'), 'CSRF')
+ok(read('middleware/auth.global.ts').includes("auth.refresh()"), 'route guard')
+ok(read('composables/useAuth.ts').includes('/admin/session'), 'server-side session validation')
+ok(!read('composables/useApi.ts').includes('localStorage.'), 'no persistent client credentials')
+ok(read('pages/login.vue').includes('signIn('), 'live login form')
+ok(read('pages/users.vue').includes('/security/users'), 'live users')
+ok(read('pages/tasks.vue').includes('/admin/jobs'), 'live jobs')
+ok(read('pages/system.vue').includes('/admin/diagnostics'), 'live diagnostics')
+ok(read('pages/settings.vue').includes('/auth/tokens'), 'real API token management')
+ok(read('pages/audit.vue').includes('/security/audit'), 'live audit')
+ok(existsSync(new URL('tests/e2e/admin.spec.ts',root)), 'E2E spec exists')
+console.log(`Admin static checks: ${passed} PASS`)

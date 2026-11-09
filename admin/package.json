@@ -1,18 +1,23 @@
 {
   "name": "@cajeer/servers-admin",
+  "version": "0.1.9",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "nuxt dev",
     "build": "nuxt build",
-    "generate": "nuxt generate"
+    "preview": "nuxt preview",
+    "typecheck": "nuxt typecheck",
+    "test:e2e": "playwright test",
+    "test:static": "node tests/static-check.mjs"
   },
   "dependencies": {
-    "@nuxt/ui": "latest",
-    "nuxt": "latest",
-    "vue": "latest"
+    "nuxt": "^3.17.5",
+    "vue": "^3.5.13"
   },
   "devDependencies": {
-    "typescript": "latest"
+    "@playwright/test": "^1.55.0",
+    "typescript": "^5.8.3",
+    "vue-tsc": "^2.2.12"
   }
 }

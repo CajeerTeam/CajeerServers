@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 use Cajeer\Servers\Auth\AuthController;
+use Cajeer\Servers\Api\Controller\AdminController;
 use Cajeer\Servers\Security\SecurityController;
 use Cajeer\Servers\Api\Controller\HealthController;
 use Cajeer\Servers\Installer\InstallService;
@@ -96,6 +97,20 @@ return static function (Router $router, ServiceContainer $container): void {
             ]);
             $security->delete('/webhooks/{id}', static fn (HttpRequest $r): HttpResponse => $handler()->revokeWebhook($r));
             $security->get('/webhooks/events', static fn (HttpRequest $r): HttpResponse => $handler()->webhookEvents($r));
+        });
+        $routes->group('/admin', static function (Router $admin) use ($container): void {
+            $controller = static fn (): AdminController => $container->get(AdminController::class);
+            $admin->get('/session', static fn (HttpRequest $r): HttpResponse => $controller()->session($r));
+            $admin->get('/overview', static fn (HttpRequest $r): HttpResponse => $controller()->overview($r));
+            $admin->get('/diagnostics', static fn (HttpRequest $r): HttpResponse => $controller()->diagnostics($r));
+            $admin->get('/jobs', static fn (HttpRequest $r): HttpResponse => $controller()->jobs($r));
+            $admin->get('/jobs/{id}', static fn (HttpRequest $r): HttpResponse => $controller()->job($r));
+            $admin->post('/jobs', static fn (HttpRequest $r): HttpResponse => $controller()->dispatch($r), [
+                'required' => ['type'],
+                'properties' => ['type' => ['type' => 'string', 'enum' => ['runtime.diagnostics','storage.probe']]],
+                'additionalProperties' => false,
+            ]);
+            $admin->get('/scheduler', static fn (HttpRequest $r): HttpResponse => $controller()->scheduler($r));
         });
         // A verified webhook is persisted to the inbox; it is never executed as a script.
         $routes->post('/webhooks/{id}/events', static fn (HttpRequest $r): HttpResponse => $container->get(SecurityController::class)->ingestWebhook($r));
