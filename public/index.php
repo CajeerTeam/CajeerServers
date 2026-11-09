@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 use Cajeer\Servers\Runtime\HttpRequest;
 use Cajeer\Servers\Runtime\HttpResponse;
+use Cajeer\Servers\Http\Exception\HttpException;
 
 $app = null;
 header_remove('X-Powered-By');
@@ -10,6 +11,12 @@ try {
     $app = require dirname(__DIR__) . '/core/bootstrap.php';
     $request = HttpRequest::fromGlobals();
     $app->handle($request)->send($request->method === 'HEAD');
+} catch (HttpException $error) {
+    if ($app !== null) {
+        $app->httpKernel()->errorResponse($error)->send(($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'HEAD');
+    } else {
+        HttpResponse::problem(['title' => 'Bad Request', 'status' => 400], 400)->send();
+    }
 } catch (Throwable $error) {
     if ($app !== null) {
         $app->errors()->respondHttp($error);

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.2 — HTTP Kernel & REST API (2026-11-09)
+
+- Работающий router, middleware pipeline, динамические параметры пути, HEAD/OPTIONS/405 и консистентные problem+json ответы.
+- Реальные endpoints `/api/v1/health` (проверка runtime readiness) и `/api/v1/system` (публичные метаданные); незавершённые endpoints не публикуются.
+- Symfony HttpFoundation request/response adapter при наличии пакета; native fallback для самостоятельной диагностики без Composer.
+- Ограничение входного тела до 1 МиБ, строгий JSON parser/validator, защищённые HTTP-заголовки, request ID, структурированные access logs.
+- Native HTTP smoke и PHPUnit feature tests; OpenAPI 3.1.1 отражает только реально существующие API-операции.
+
+
 Формат основан на Keep a Changelog, версия проекта следует SemVer.
 
 ## [0.1.1] - 2026-11-09

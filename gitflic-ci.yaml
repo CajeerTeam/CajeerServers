@@ -10,6 +10,7 @@ php84-runtime:
     - find core app public bin tests -type f \( -name '*.php' -o -name 'cajeer' \) -exec php -l {} \; | grep -v 'No syntax errors detected' | tee /tmp/lint-errors.txt
     - test ! -s /tmp/lint-errors.txt
     - APP_ENV=local APP_DEBUG=false php tests/runtime-smoke.php
+    - APP_ENV=local APP_DEBUG=false php tests/http-smoke.php
     - APP_ENV=local APP_DEBUG=false php bin/cajeer self:test
     - '! php bin/cajeer migrate'
 
@@ -19,6 +20,7 @@ php85-runtime:
   script:
     - php -v
     - APP_ENV=local APP_DEBUG=false php tests/runtime-smoke.php
+    - APP_ENV=local APP_DEBUG=false php tests/http-smoke.php
     - APP_ENV=local APP_DEBUG=false php bin/cajeer self:test
 
 composer-and-unit-tests:

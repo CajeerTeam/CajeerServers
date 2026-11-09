@@ -1,87 +1,83 @@
 # CajeerServers
 
-**CajeerServers** — русскоязычная self-hosted веб-оболочка для наблюдения и управления инфраструктурой. Она **не является ОС**, не заменяет Proxmox/VMmanager и не требует установки обязательного системного агента на управляемые устройства. Запланированы интеграции через API, собственные скрипты, webhooks, collectors, exporters и прочие источники данных.
+**CajeerServers** — русскоязычная self-hosted веб-оболочка для наблюдения и управления инфраструктурой. Это **не ОС**, не прошивка и не замена Proxmox/VMmanager. Для будущих версий предусмотрен сбор данных через API, собственные скрипты, webhooks, collectors и интеграции без обязательных системных агентов.
 
-## Версия 0.1.1 — Application Bootstrap & Runtime
+## Версия 0.1.2 — HTTP Kernel & REST API
 
-Это **исполняемое ядро запуска**, не готовая панель управления серверами. Реализованы:
+Функциональность 0.1.1 (bootstrap, `.env`, DI, жизненный цикл приложения, diagnostics, CLI, JSONL-логирование) сохранена. Добавлен **работающий HTTP pipeline**:
 
-- единый bootstrap для CLI, HTTP, тестов и будущих workers;
-- процессное окружение + строгая загрузка `.env` (поддерживаются комментарии, кавычки, escape-последовательности, типизированное чтение), значения ОС имеют приоритет;
-- ленивое кешируемое чтение конфигурации по вложенным ключам;
-- DI-контейнер (instances, singleton, transient, aliases, constructor autowiring, обнаружение циклов);
-- жизненный цикл `boot → handle → terminate`;
-- структурированный JSONL-логгер с редактированием секретов и обработкой ошибок без раскрытия деталей в production;
-- рабочие диагностика runtime, version/about, конфигурационные команды, self-test, HTTP-корень с 404/405/503;
-- GitFlic CI и автоматические smoke-тесты.
+- метод-ориентированный router с группами префиксов, параметрами пути `{name}`, автоматическим HEAD и OPTIONS, обработкой 404/405;
+- глобальные middleware: `Accept`, ограничение тела **1 МиБ**, безопасные HTTP-заголовки, access logging (без query string), request ID;
+- строгий JSON object parser и валидация обязательных полей, типов, длины, enum и UUID для маршрутов с JSON schema; ошибки **400/406/413/415/422**;
+- нормализованные ошибки `application/problem+json` (status, code, request_id), перехват 500 без публикации исключений или секретов;
+- использование **Symfony HttpFoundation** для Request/Response при установленном Composer; независимый от vendor HTTP fallback для диагностики и native тестов;
+- рабочие публичные API-операции `GET /api/v1/health` (проверка **только** prerequisites runtime, 200 или 503) и `GET /api/v1/system` (публичная информация: название, версия, API v1), плюс `GET /`;
+- спецификация OpenAPI **3.1.1** описывает только реализованные операции, CI и тесты расширены.
 
-**В 0.1.1 ещё не реализованы:** HTTP Router/API `/api/v1`, мигратор и БД, установка, Auth/RBAC, Proxmox, VMmanager, очереди, webhook-интерфейсы, сбор данных и Nuxt-интеграция. Команды, относящиеся к будущим релизам, завершаются с кодом `3` и не имитируют выполнение. Имеющийся OpenAPI-файл описывает будущий контракт, **а не список уже работающих endpoints**.
+**Не реализовано в 0.1.2:** аутентификация, RBAC, управление инфраструктурой, исполнение скриптов, webhooks ingestion, синхронизация, реальное Inventory, PostgreSQL migrations, Redis jobs, VMmanager/Proxmox API. Их маршруты **не зарегистрированы и возвращают 404**. В частности, нельзя делать POST для запуска синхронизации и получать фиктивное `accepted: true`.
+
+`config/security.php` пока содержит **настройки будущих механизмов**, а не действующие RBAC, 2FA, CSRF или token auth. До реализации этих механизмов нельзя публиковать привилегированные API-маршруты.
 
 ## Требования
 
-- PHP **8.4+** (целевой PHP 8.5), `ext-json`, `ext-pdo`, `ext-openssl`, `ext-sodium`.
-- Nginx + PHP-FPM; Apache — необязательная альтернатива.
-- Composer 2 для установки Symfony Components и других зависимостей. Встроенный runtime и CLI-диагностика запускаются без vendor; сторонние компоненты становятся доступны после `composer install`.
-- Доступная на запись директория `storage/logs`, а также `storage/cache` и `storage/tmp`.
+- PHP 8.4+ (целевой 8.5), `ext-json`, `ext-pdo`, `ext-openssl`, `ext-sodium`.
+- Nginx/PHP-FPM (Apache опционально), `public/` — единственный DocumentRoot.
+- Composer 2 для Symfony Components. HTTP, CLI и native tests также работают без Composer посредством самостоятельного HTTP fallback.
+- `storage/logs`, `storage/cache`, `storage/tmp` доступны на запись процессу PHP.
 
-## Быстрый старт (локальная разработка)
+## Локальная установка
 
 ```bash
 cp .env.example .env
+# APP_ENV=local, APP_DEBUG=false; никогда не коммитьте .env
 composer install --no-interaction
 php bin/cajeer doctor
-php bin/cajeer self:test
 php tests/runtime-smoke.php
+php tests/http-smoke.php
 php -S 127.0.0.1:8080 -t public
 ```
 
-`composer install` требует доступа к репозиториям пакетов, поэтому для локального smoke-тестирования без Composer можно пропустить только эту строку. HTTP-запрос `GET /` возвращает имя и версию, `GET /несуществующий-путь` возвращает 404. Полная маршрутизация будет в 0.1.2.
-
-### Настройка production
-
-1. `APP_ENV=production`, `APP_DEBUG=false`, `APP_URL=https://example.org`.
-2. Сгенерируйте `APP_KEY`: `php -r 'echo "base64:", base64_encode(random_bytes(32)), PHP_EOL;'` и поместите результат в `.env` / менеджер секретов.
-3. Файл `.env` не должен находиться в web root, `public/` — **единственный** DocumentRoot. Не передавайте `.env` в публичные файлы или Git.
-4. Настройте права доступа PHP-FPM к `storage/{logs,cache,tmp}` и доступ только веб-пользователя к секретам.
-5. Выполните `php bin/cajeer doctor --json` и проверьте `ok: true` **до запуска HTTP**.
-
-Production-конфигурация с небезопасным ключом, включённым debug или не-HTTPS `APP_URL` возвращает HTTP **503**, а `doctor` завершается с кодом **1**. Это проверка prerequisites runtime, **не** проверка готовности PostgreSQL, Redis или соединений с гипервизорами.
-
-## CLI
+Проверки публичного API:
 
 ```bash
-php bin/cajeer help
-php bin/cajeer version
-php bin/cajeer about
-php bin/cajeer config:get app.name
-php bin/cajeer config:check
-php bin/cajeer doctor --json
-php bin/cajeer self:test
+curl -i http://127.0.0.1:8080/api/v1/health
+curl -i http://127.0.0.1:8080/api/v1/system
+curl -i -X OPTIONS http://127.0.0.1:8080/api/v1/system
+curl -i -X POST http://127.0.0.1:8080/api/v1/system  # HTTP 405
+curl -i http://127.0.0.1:8080/api/v1/actions         # HTTP 404, no fake action
 ```
 
-Коды завершения: `0` — успешно; `1` — ошибка runtime/diagnostics; `2` — неверная команда/аргументы; `3` — функциональность ещё не реализована. `config:get` запрещает доступ к секретным ключам и скрывает чувствительные поля в вложенных массивах.
+## Production configuration
 
-`.env` загружается один раз при запуске процесса. Файлы до 1 МиБ, кодировка UTF-8; многосрочные значения и `${VAR}`-подстановка в 0.1.1 не поддерживаются. Значения процесса имеют приоритет; значения `.env` не публикуются через API.
+1. Используйте `APP_ENV=production`, `APP_DEBUG=false`, `APP_URL=https://example.org`.
+2. Сгенерируйте секретный ключ: `php -r 'echo "base64:", base64_encode(random_bytes(32)), PHP_EOL;'` и задайте `APP_KEY` через секретное окружение или защищённый `.env`.
+3. `.env`, `core/`, `config/` и `storage/` **вне document root**. Запретите публичную выдачу служебных файлов. Сконфигурируйте TLS и proxy headers на Nginx.
+4. `php bin/cajeer doctor --json` должен вернуть `ok:true`. Не считайте проверку runtime проверкой состояния БД или внешних сервисов.
+5. Установите и зафиксируйте зависимости через `composer.lock` в доверенной сетевой среде. В архив не включён искусственный непроверенный lockfile.
+6. Настройте доступ на запись в `storage/logs` и ротацию журналов. Запросы логируются без query string и без тела.
+
+**Важно:** 0.1.2 реализует production-oriented HTTP boundary, но пока **не является полностью production-ready приложением**. Реальная защита операций и хранение данных планируются в следующих релизах.
 
 ## Тестирование
 
 ```bash
 APP_ENV=local APP_DEBUG=false php tests/runtime-smoke.php
+APP_ENV=local APP_DEBUG=false php tests/http-smoke.php
 APP_ENV=local APP_DEBUG=false php bin/cajeer self:test
-# после composer install:
+# после composer install
 APP_ENV=local APP_DEBUG=false vendor/bin/phpunit
 ```
 
-Доступные native smoke-тесты не требуют Composer. GitFlic CI выполняет smoke-тесты на PHP 8.4 и PHP 8.5, Composer-установку и PHPUnit. На целевых production-хостах зависимости следует **зафиксировать в `composer.lock`** после разрешения Composer и проверить готовый lock-file в CI. Этот архив не содержит сгенерированный непроверенный lock-file.
+Native smoke-tests выполняются без Composer. GitFlic CI проверяет PHP 8.4 и 8.5, PHPUnit запускается после установки пакетов. `composer.lock` пока не сгенерирован, поскольку Composer и доступ к registry в среде подготовки отсутствовали.
 
 ## Структура
 
-- `core/` — PHP runtime, конфигурация, DI, logging, CLI.
-- `public/index.php` — безопасная HTTP-точка входа.
-- `bin/cajeer` — единая точка входа CLI.
-- `config/` — конфигурация.
-- `admin/` — будущий Nuxt UI.
-- `api/` — планируемый OpenAPI-контракт.
-- `modules/`, `packages/`, `wiki/` — будущая экосистема и документация.
+- `core/Runtime/` — Request/Response, error handler и диагностика.
+- `core/Http/` — HTTP Kernel, Router, middleware, JSON validation, exceptions.
+- `routes/api.php` — реальные маршруты (только root, health, system).
+- `core/Api/Controller/` — рабочие controllers для health/system; оставшиеся контроллеры не зарегистрированы.
+- `api/openapi.yaml` — API 3.1.1 только для реализованных маршрутов.
+- `public/index.php` — front controller.
+- `tests/http-smoke.php` — native HTTP tests.
 
-Следующая версия **0.1.2 — HTTP Kernel & REST API**: Symfony HttpFoundation, роутинг, middleware, JSON-валидация и контракты ответов.
+Следующая версия **0.1.3 — Database & Migration Engine**.

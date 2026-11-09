@@ -1,92 +1,85 @@
 openapi: 3.1.1
 info:
-  title: CajeerServers API
-  version: 0.1.1
-  description: Future API contract (not implemented in runtime 0.1.1).
-x-cajeer-implementation: planned
+  title: CajeerServers REST API
+  version: 0.1.2
+  description: |
+    Реально доступные публичные HTTP операции версии 0.1.2.
+    API inventory, connectors, scripts, sync, actions и webhooks не опубликованы:
+    они появятся после реализации persistence, аутентификации и проверки прав.
 servers:
   - url: /api/v1
-security:
-  - ApiTokenAuth: []
+security: []
 paths:
   /health:
     get:
-      summary: Проверка состояния API
+      operationId: runtimeHealth
+      summary: Проверка готовности PHP runtime и конфигурации
+      description: Не проверяет PostgreSQL, Redis, VMmanager, Proxmox или внешние API.
       responses:
         '200':
-          description: OK
+          description: Runtime готов
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Health' }
+        '503':
+          description: Ошибка prerequisite runtime
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Health' }
+        '406':
+          $ref: '#/components/responses/NotAcceptable'
   /system:
     get:
-      summary: Информация о системе
+      operationId: publicSystemInfo
+      summary: Публичные сведения о приложении и версии API
       responses:
         '200':
-          description: OK
-  /inventory/assets:
-    get:
-      summary: Список инфраструктурных объектов
-      responses:
-        '200':
-          description: OK
-  /connectors:
-    get:
-      summary: Список коннекторов
-      responses:
-        '200':
-          description: OK
-  /connectors/{connector}/sync:
-    post:
-      summary: Запуск синхронизации коннектора
-      parameters:
-        - name: connector
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        '202':
-          description: Синхронизация поставлена в очередь
-  /webhooks/{source}:
-    post:
-      summary: Приём signed webhook payload
-      parameters:
-        - name: source
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        '202':
-          description: Accepted
-  /scripts:
-    get:
-      summary: Список script templates
-      responses:
-        '200':
-          description: OK
-  /actions:
-    post:
-      summary: Создание безопасного action request
-      responses:
-        '202':
-          description: Action accepted
+          description: Метаданные приложения
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/System' }
+        '406':
+          $ref: '#/components/responses/NotAcceptable'
 components:
-  securitySchemes:
-    ApiTokenAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: API token
   schemas:
-    InfrastructureAsset:
+    Health:
       type: object
+      additionalProperties: false
+      required: [status, service, scope]
       properties:
-        id: { type: string, format: uuid }
-        type: { type: string, enum: [server, vm, container, router, workstation, network] }
-        name: { type: string }
-        status: { type: string }
-        source: { type: string }
-    Connector:
+        status: { type: string, enum: [ready, not_ready] }
+        service: { type: string, const: cajeerservers }
+        scope: { type: string, const: runtime }
+    System:
       type: object
+      additionalProperties: false
+      required: [name, version, api_version, type]
       properties:
         name: { type: string }
-        type: { type: string }
-        health: { type: string }
+        version: { type: string }
+        api_version: { type: string, const: v1 }
+        type: { type: string, const: 'api-first web control shell' }
+    Problem:
+      type: object
+      additionalProperties: true
+      required: [type, title, status, code, request_id]
+      properties:
+        type: { type: string, const: 'about:blank' }
+        title: { type: string }
+        status: { type: integer, minimum: 400, maximum: 599 }
+        code: { type: string }
+        request_id: { type: string, pattern: '^[a-f0-9]{24}$' }
+        errors:
+          type: array
+          items:
+            type: object
+            required: [field, message]
+            properties:
+              field: { type: string }
+              message: { type: string }
+  responses:
+    NotAcceptable:
+      description: The Accept header does not permit JSON
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }

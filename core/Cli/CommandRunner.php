@@ -45,7 +45,7 @@ final class CommandRunner
     private function help(): int
     {
         fwrite(STDOUT, <<<'TEXT'
-CajeerServers CLI 0.1.1
+CajeerServers CLI 0.1.2
 
 Рабочие команды:
   help                 Список доступных команд
@@ -131,7 +131,7 @@ TEXT
 
     private function unavailable(string $command): int
     {
-        fwrite(STDERR, sprintf("Command '%s' is not implemented in 0.1.1. No operation was performed.\n", $command));
+        fwrite(STDERR, sprintf("Command '%s' is not implemented in 0.1.2. No operation was performed.\n", $command));
         return 3;
     }
 

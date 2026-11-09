@@ -29,11 +29,17 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 - [x] Runtime logging, native smoke tests, GitFlic CI.
 - [ ] Composer lockfile (сгенерировать в сетевой среде с Composer 2 и проверить).
 
-## 0.1.2 — HTTP Kernel & REST API (следующая версия)
+## 0.1.2 — HTTP Kernel & REST API (выполнено)
 
-- [ ] Symfony Request/Response, маршрутизация и middleware.
-- [ ] JSON-валидация, единый формат ошибок.
-- [ ] Реальный базовый REST API и тесты маршрутов.
+- [x] Рабочий HTTP Kernel, group routes, GET/POST/PUT/PATCH/DELETE, HEAD/OPTIONS, path parameters, 404/405.
+- [x] Symfony HttpFoundation request/response integration при установленном Composer; native runtime fallback для диагностики.
+- [x] Middleware: body-size, Accept, security headers, access logging, request ID.
+- [x] Bounded JSON parsing, per-route validation, 400/406/413/415/422; problem+json errors.
+- [x] Реальные публичные `/api/v1/health` и `/api/v1/system` без имитации управления инфраструктурой.
+- [x] HTTP native smoke suite, PHPUnit feature tests, актуализирован OpenAPI.
+- [ ] Composer lockfile / network integration tests in deployment environment.
+
+**Не входят в 0.1.2:** authentication/RBAC, state-changing API, real PostgreSQL/Redis/Proxmox/VMmanager/collectors.
 
 ## 0.2.0 — Core Kernel
 

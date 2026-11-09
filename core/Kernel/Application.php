@@ -6,6 +6,8 @@ namespace Cajeer\Servers\Kernel;
 use Cajeer\Servers\Config\ConfigRepository;
 use Cajeer\Servers\Config\EnvironmentLoader;
 use Cajeer\Servers\Logging\JsonLogger;
+use Cajeer\Servers\Http\HttpKernel;
+use Cajeer\Servers\Http\Router;
 use Cajeer\Servers\Runtime\ErrorHandler;
 use Cajeer\Servers\Runtime\HttpRequest;
 use Cajeer\Servers\Runtime\HttpResponse;
@@ -50,6 +52,15 @@ final class Application
         $this->services->instance(ConfigRepository::class, $this->configuration);
         $this->services->singleton(JsonLogger::class, fn (ServiceContainer $container): JsonLogger => new JsonLogger($this->basePath('storage/logs')));
         $this->services->singleton(RuntimeDiagnostics::class, fn (ServiceContainer $container): RuntimeDiagnostics => new RuntimeDiagnostics($this->basePath(), $container->get(ConfigRepository::class)));
+        $this->services->singleton(Router::class, function (ServiceContainer $container): Router {
+            $router = new Router();
+            $register = require $this->basePath('routes/api.php');
+            $register($router, $container);
+            return $router;
+        });
+        $this->services->singleton(HttpKernel::class, fn (ServiceContainer $container): HttpKernel => new HttpKernel(
+            $container->get(Router::class), $container->get(JsonLogger::class), $this->errors(),
+        ));
 
         $env = (string) $this->configuration->get('app.env', 'production');
         $debug = $env !== 'production' && $this->configuration->get('app.debug', false) === true;
@@ -67,26 +78,13 @@ final class Application
     public function handle(HttpRequest $request): HttpResponse
     {
         $this->ensureBooted();
-        $requestId = bin2hex(random_bytes(12));
-        $this->errors()->mode('http', $requestId);
-        $headers = ['X-Request-Id' => $requestId];
-        if ($request->path !== '/') {
-            return HttpResponse::json(['error' => 'Not Found', 'request_id' => $requestId], 404, $headers);
-        }
-        if (!in_array($request->method, ['GET', 'HEAD'], true)) {
-            return HttpResponse::json(['error' => 'Method Not Allowed', 'request_id' => $requestId], 405, [
-                ...$headers, 'Allow' => 'GET, HEAD',
-            ]);
-        }
-        $diagnostics = $this->container()->get(RuntimeDiagnostics::class)->run();
-        if (!$diagnostics['ok']) {
-            return HttpResponse::json(['error' => 'Service Unavailable', 'request_id' => $requestId], 503, $headers);
-        }
-        return HttpResponse::json([
-            'name' => $this->name(),
-            'version' => $this->version(),
-            'type' => 'api-first web control shell',
-        ], 200, $headers);
+        return $this->container()->get(HttpKernel::class)->handle($request);
+    }
+
+    public function httpKernel(): HttpKernel
+    {
+        $this->ensureBooted();
+        return $this->container()->get(HttpKernel::class);
     }
 
     public function terminate(): void
