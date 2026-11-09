@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 use Cajeer\Servers\Auth\AuthController;
+use Cajeer\Servers\Security\SecurityController;
 use Cajeer\Servers\Api\Controller\HealthController;
 use Cajeer\Servers\Installer\InstallService;
 use Cajeer\Servers\Installer\WebInstaller;
@@ -33,7 +34,7 @@ return static function (Router $router, ServiceContainer $container): void {
             $handler = static fn (): AuthController => $container->get(AuthController::class);
             $auth->post('/login', static fn (HttpRequest $r): HttpResponse => $handler()->login($r), [
                 'required' => ['email', 'password'],
-                'properties' => ['email' => ['type' => 'string', 'minLength' => 3, 'maxLength' => 255], 'password' => ['type' => 'string', 'minLength' => 1, 'maxLength' => 1024]],
+                'properties' => ['email' => ['type' => 'string', 'minLength' => 3, 'maxLength' => 255], 'password' => ['type' => 'string', 'minLength' => 1, 'maxLength' => 1024], 'mfa_code' => ['type' => 'string', 'minLength' => 6, 'maxLength' => 64]],
                 'additionalProperties' => false,
             ]);
             $auth->get('/me', static fn (HttpRequest $r): HttpResponse => $handler()->me($r));
@@ -53,6 +54,47 @@ return static function (Router $router, ServiceContainer $container): void {
                 'additionalProperties' => false,
             ]);
             $auth->delete('/tokens/{id}', static fn (HttpRequest $r): HttpResponse => $handler()->revokeToken($r));
+            $sec = static fn (): SecurityController => $container->get(SecurityController::class);
+            $password = ['required' => ['password'], 'properties' => ['password' => ['type' => 'string', 'minLength' => 1, 'maxLength' => 1024]], 'additionalProperties' => false];
+            $code = ['required' => ['code'], 'properties' => ['code' => ['type' => 'string', 'minLength' => 6, 'maxLength' => 64]], 'additionalProperties' => false];
+            $auth->get('/mfa', static fn (HttpRequest $r): HttpResponse => $sec()->mfaStatus($r));
+            $auth->post('/mfa/enroll', static fn (HttpRequest $r): HttpResponse => $sec()->mfaEnroll($r), $password);
+            $auth->post('/mfa/confirm', static fn (HttpRequest $r): HttpResponse => $sec()->mfaConfirm($r), $code);
+            $auth->post('/mfa/disable', static fn (HttpRequest $r): HttpResponse => $sec()->mfaDisable($r), [
+                'required' => ['password', 'code'],
+                'properties' => ['password' => ['type' => 'string', 'minLength' => 1, 'maxLength' => 1024], 'code' => ['type' => 'string', 'minLength' => 6, 'maxLength' => 64]],
+                'additionalProperties' => false,
+            ]);
+
         });
+        $routes->group('/security', static function (Router $security) use ($container): void {
+            $handler = static fn (): SecurityController => $container->get(SecurityController::class);
+            $security->get('/roles', static fn (HttpRequest $r): HttpResponse => $handler()->roles($r));
+            $security->post('/roles', static fn (HttpRequest $r): HttpResponse => $handler()->createRole($r), [
+                'required' => ['slug', 'name', 'permissions'],
+                'properties' => ['slug' => ['type' => 'string', 'minLength' => 3, 'maxLength' => 64], 'name' => ['type' => 'string', 'minLength' => 1, 'maxLength' => 255], 'permissions' => ['type' => 'array']],
+                'additionalProperties' => false,
+            ]);
+            $security->get('/users', static fn (HttpRequest $r): HttpResponse => $handler()->users($r));
+            $security->post('/users', static fn (HttpRequest $r): HttpResponse => $handler()->createUser($r), [
+                'required' => ['email', 'name', 'password'],
+                'properties' => ['email' => ['type' => 'string', 'minLength' => 3, 'maxLength' => 255], 'name' => ['type' => 'string', 'minLength' => 1, 'maxLength' => 255], 'password' => ['type' => 'string', 'minLength' => 14, 'maxLength' => 1024]],
+                'additionalProperties' => false,
+            ]);
+            $security->patch('/users/{id}', static fn (HttpRequest $r): HttpResponse => $handler()->setActive($r), [
+                'required' => ['active'], 'properties' => ['active' => ['type' => 'boolean']], 'additionalProperties' => false,
+            ]);
+            $security->post('/users/{id}/roles/{slug}', static fn (HttpRequest $r): HttpResponse => $handler()->grantRole($r));
+            $security->delete('/users/{id}/roles/{slug}', static fn (HttpRequest $r): HttpResponse => $handler()->revokeRole($r));
+            $security->get('/audit', static fn (HttpRequest $r): HttpResponse => $handler()->audit($r));
+            $security->get('/webhooks', static fn (HttpRequest $r): HttpResponse => $handler()->webhooks($r));
+            $security->post('/webhooks', static fn (HttpRequest $r): HttpResponse => $handler()->createWebhook($r), [
+                'required' => ['name'], 'properties' => ['name' => ['type' => 'string', 'minLength' => 1, 'maxLength' => 100]], 'additionalProperties' => false,
+            ]);
+            $security->delete('/webhooks/{id}', static fn (HttpRequest $r): HttpResponse => $handler()->revokeWebhook($r));
+            $security->get('/webhooks/events', static fn (HttpRequest $r): HttpResponse => $handler()->webhookEvents($r));
+        });
+        // A verified webhook is persisted to the inbox; it is never executed as a script.
+        $routes->post('/webhooks/{id}/events', static fn (HttpRequest $r): HttpResponse => $container->get(SecurityController::class)->ingestWebhook($r));
     });
 };

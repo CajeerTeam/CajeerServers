@@ -6,6 +6,13 @@ namespace Cajeer\Servers\Kernel;
 use Cajeer\Servers\Auth\AuthenticationService;
 use Cajeer\Servers\Auth\AuthController;
 use Cajeer\Servers\Auth\SessionCookie;
+use Cajeer\Servers\Audit\AuditLogger;
+use Cajeer\Servers\Security\SecretBox;
+use Cajeer\Servers\Security\RateLimiter;
+use Cajeer\Servers\Security\Rbac;
+use Cajeer\Servers\Security\TwoFactorManager;
+use Cajeer\Servers\Security\WebhookManager;
+use Cajeer\Servers\Security\SecurityController;
 use Cajeer\Servers\Installer\InstallState;
 use Cajeer\Servers\Config\ConfigRepository;
 use Cajeer\Servers\Config\EnvironmentLoader;
@@ -67,12 +74,27 @@ final class Application
         ));
         $this->services->singleton(JsonLogger::class, fn (ServiceContainer $container): JsonLogger => new JsonLogger($this->basePath('storage/logs')));
         $this->services->singleton(InstallState::class, fn (ServiceContainer $container): InstallState => new InstallState($this->basePath()));
+        $this->services->singleton(SecretBox::class, fn (ServiceContainer $container): SecretBox => new SecretBox());
+        $this->services->singleton(RateLimiter::class, fn (ServiceContainer $container): RateLimiter => new RateLimiter($container->get(SecretBox::class)));
+        $this->services->singleton(AuditLogger::class, fn (ServiceContainer $container): AuditLogger => new AuditLogger($container->get(DatabaseManager::class)));
+        $this->services->singleton(Rbac::class, fn (ServiceContainer $container): Rbac => new Rbac($container->get(DatabaseManager::class), $container->get(AuditLogger::class)));
+        $this->services->singleton(TwoFactorManager::class, fn (ServiceContainer $container): TwoFactorManager => new TwoFactorManager(
+            $container->get(DatabaseManager::class), $container->get(SecretBox::class), $container->get(AuditLogger::class), $container->get(RateLimiter::class),
+        ));
+        $this->services->singleton(WebhookManager::class, fn (ServiceContainer $container): WebhookManager => new WebhookManager(
+            $container->get(DatabaseManager::class), $container->get(SecretBox::class), $container->get(AuditLogger::class), $container->get(RateLimiter::class),
+        ));
         $this->services->singleton(SessionCookie::class, fn (ServiceContainer $container): SessionCookie => new SessionCookie($container->get(ConfigRepository::class)));
         $this->services->singleton(AuthenticationService::class, fn (ServiceContainer $container): AuthenticationService => new AuthenticationService(
             $container->get(DatabaseManager::class), $container->get(ConfigRepository::class),
             $container->get(InstallState::class), $container->get(SessionCookie::class),
+            $container->get(TwoFactorManager::class), $container->get(RateLimiter::class),
         ));
         $this->services->singleton(AuthController::class, fn (ServiceContainer $container): AuthController => new AuthController($container->get(AuthenticationService::class)));
+        $this->services->singleton(SecurityController::class, fn (ServiceContainer $container): SecurityController => new SecurityController(
+            $container->get(AuthenticationService::class), $container->get(Rbac::class), $container->get(TwoFactorManager::class),
+            $container->get(AuditLogger::class), $container->get(WebhookManager::class),
+        ));
         $this->services->singleton(RuntimeDiagnostics::class, fn (ServiceContainer $container): RuntimeDiagnostics => new RuntimeDiagnostics($this->basePath(), $container->get(ConfigRepository::class)));
         $this->services->singleton(Router::class, function (ServiceContainer $container): Router {
             $router = new Router();

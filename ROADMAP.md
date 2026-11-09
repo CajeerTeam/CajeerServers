@@ -73,14 +73,24 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 - [x] Native auth smoke-тесты и отдельный PostgreSQL integration test.
 - [ ] Подтверждение PostgreSQL 17/18 и composer-backed E2E в CI/deployment environment.
 
-## 0.1.6 — RBAC, Security Middleware & Audit (следующий релиз)
+## 0.1.6 — RBAC, Security Middleware & Audit (реализовано)
 
-- [ ] Принудительное RBAC/permission-scopes на сервере, deny-by-default.
-- [ ] Настоящий 2FA TOTP для существующих пользователей и recovery codes.
-- [ ] Системный rate limiting, CSRF/security middleware для state-changing API.
-- [ ] Подписи/anti-replay webhooks, расширенный аудит и enforcement.
+- [x] PostgreSQL RBAC, реальные проверки users/roles/permissions, защита от эскалации и потери последнего администратора.
+- [x] TOTP 2FA, encrypted secrets, recovery codes, блокировка повторного counter.
+- [x] Session-only + CSRF + Same-Origin для привилегированных операций; API tokens read-only.
+- [x] Login IP limiter, MFA и webhook rate limiting, Security Headers/HSTS.
+- [x] Подписанные webhook events, timestamp/HMAC/replay-check, durable inbox без исполнения.
+- [x] Append-only PostgreSQL audit log с разрешёнными полями метаданных.
+- [x] Native security smoke, документация, OpenAPI 3.1.1 и отдельный PostgreSQL integration test.
+- [ ] Реальный прогон PostgreSQL 17/18 integration test и production TLS verification в CI — не выполнялся в текущей среде.
 
+## 0.1.7 — Cache, Queue, Scheduler & Storage (планируется)
 
+- [ ] Redis cache с TTL и namespace.
+- [ ] Redis/PostgreSQL queue workers с retries и дедупликацией.
+- [ ] Scheduler с блокировкой конкурирующих запусков.
+- [ ] Local + S3-compatible storage adapters.
+- [ ] Фоновое обслуживание истёкших security rate-limit и webhook inbox записей согласно policy.
 
 ## 0.2.0 — Core Kernel
 

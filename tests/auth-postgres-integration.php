@@ -150,7 +150,7 @@ try {
     if ($pdo !== null) {
         try {
             foreach ($ids as $id) {
-                $pdo->prepare('DELETE FROM audit_log WHERE actor_id = :id')->execute(['id' => $id]);
+                // audit_log is append-only since 0.1.6; test actors leave durable audit records.
                 $pdo->prepare('DELETE FROM users WHERE id = :id')->execute(['id' => $id]);
             }
         } catch (Throwable $e) { fwrite(STDERR, "WARNING: test user cleanup failed; disposable DB must be discarded.\n"); }

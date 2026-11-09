@@ -34,7 +34,9 @@
     "runtime:test": "@php tests/runtime-smoke.php",
     "runtime:doctor": "@php bin/cajeer doctor",
     "database:test": "@php tests/database-smoke.php",
-    "auth:test": "@php tests/auth-smoke.php"
+    "auth:test": "@php tests/auth-smoke.php",
+    "security:test": "@php tests/security-smoke.php",
+    "security:postgres:test": "@php tests/security-postgres-integration.php"
   },
   "minimum-stability": "stable",
   "prefer-stable": true,

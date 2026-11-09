@@ -10,6 +10,7 @@ use Cajeer\Servers\Http\Middleware\MiddlewareInterface;
 use Cajeer\Servers\Http\Middleware\RequestSizeMiddleware;
 use Cajeer\Servers\Http\Middleware\SecurityHeadersMiddleware;
 use Cajeer\Servers\Logging\JsonLogger;
+use Cajeer\Servers\Security\SecurityHeaders;
 use Cajeer\Servers\Runtime\ErrorHandler;
 use Cajeer\Servers\Runtime\HttpRequest;
 use Cajeer\Servers\Runtime\HttpResponse;
@@ -85,18 +86,7 @@ final class HttpKernel
 
     private function secure(HttpResponse $response): HttpResponse
     {
-        foreach ([
-            'X-Content-Type-Options' => 'nosniff',
-            'X-Frame-Options' => 'DENY',
-            'Referrer-Policy' => 'no-referrer',
-            'Content-Security-Policy' => str_starts_with($response->headers['Content-Type'] ?? '', 'text/html')
-                ? "default-src 'none'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
-                : "default-src 'none'; frame-ancestors 'none'",
-            'Cache-Control' => 'no-store',
-        ] as $header => $value) {
-            $response = $response->withHeader($header, $value);
-        }
-        return $response;
+        return SecurityHeaders::apply($response, in_array(strtolower((string) ($_SERVER['HTTPS'] ?? '')), ['on', '1'], true));
     }
 
     private function logException(Throwable $error, string $requestId): void

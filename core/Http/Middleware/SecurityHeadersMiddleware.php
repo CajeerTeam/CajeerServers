@@ -5,24 +5,13 @@ namespace Cajeer\Servers\Http\Middleware;
 
 use Cajeer\Servers\Runtime\HttpRequest;
 use Cajeer\Servers\Runtime\HttpResponse;
+use Cajeer\Servers\Security\SecurityHeaders;
 
 /** Conservative headers for JSON-only public API, no permissive cross-origin defaults. */
 final class SecurityHeadersMiddleware implements MiddlewareInterface
 {
     public function process(HttpRequest $request, callable $next): HttpResponse
     {
-        $response = $next($request);
-        foreach ([
-            'X-Content-Type-Options' => 'nosniff',
-            'X-Frame-Options' => 'DENY',
-            'Referrer-Policy' => 'no-referrer',
-            'Content-Security-Policy' => str_starts_with($response->headers['Content-Type'] ?? '', 'text/html')
-                ? "default-src 'none'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
-                : "default-src 'none'; frame-ancestors 'none'",
-            'Cache-Control' => 'no-store',
-        ] as $header => $value) {
-            $response = $response->withHeader($header, $value);
-        }
-        return $response;
+        return SecurityHeaders::apply($next($request), in_array(strtolower((string) ($_SERVER['HTTPS'] ?? '')), ['on', '1'], true));
     }
 }

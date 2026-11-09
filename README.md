@@ -2,6 +2,12 @@
 
 **CajeerServers** — русскоязычная self-hosted веб-оболочка для наблюдения и управления инфраструктурой. Это **не ОС**, не прошивка и не замена Proxmox/VMmanager. Для будущих версий предусмотрен сбор данных через API, собственные скрипты, webhooks, collectors и интеграции без обязательных системных агентов.
 
+## Версия 0.1.6 — RBAC, Security & Audit
+
+Добавлена **исполняемая реализация** PostgreSQL RBAC (7 разрешений, пользователи/роли/назначение/отзыв), server-side CSRF, общего лимитирования входа, TOTP 2FA с одноразовыми recovery codes, XChaCha20-Poly1305 шифрования секретов, HMAC-подписанных webhooks с persisted inbox и replay protection, транзакционного append-only security audit, а также дополнительных защитных HTTP-заголовков. На новых операциях не возвращаются фиктивные результаты: действие либо записано и проверено в PostgreSQL, либо завершается ошибкой. Деструктивные операции Proxmox/VMmanager по-прежнему не опубликованы.
+
+**Обновление:** 0.1.5 → 0.1.6, резервная копия PostgreSQL, `php bin/cajeer migrate`, `php bin/cajeer migrate:validate`. Прямое применение поверх более старых версий не проверялось. Рабочие маршруты, права и правила MFA: [wiki/Security.md](wiki/Security.md). Native smoke: `php tests/security-smoke.php`; интеграционный тест на изолированной PostgreSQL: `php tests/security-postgres-integration.php`. В текущей среде PostgreSQL и `pdo_pgsql` недоступны, реальная БД не проверена: эксплуатационную готовность необходимо подтвердить перед публичным развёртыванием.
+
 ## Версия 0.1.5 — Authentication & API Tokens
 
 Реализована **аутентификация через PostgreSQL и самоуправление учётными данными**:

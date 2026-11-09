@@ -17,7 +17,7 @@ final class AuthController
         $this->auth->requireSameOrigin($request);
         $input = $request->attribute('json');
         $ip = (string) ($_SERVER['REMOTE_ADDR'] ?? 'unknown');
-        $login = $this->auth->loginOrReject($input['email'], $input['password'], $ip);
+        $login = $this->auth->loginOrReject($input['email'], $input['password'], $ip, $input['mfa_code'] ?? null);
         return HttpResponse::json([
             'user' => $login['user'], 'csrf_token' => $login['csrf_token'], 'expires_in' => $login['expires_in'],
             'auth_type' => 'session',

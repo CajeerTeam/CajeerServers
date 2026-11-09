@@ -1,13 +1,12 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.1.5
-  description: 'Реальные HTTP-операции 0.1.5: runtime/system, локальная авторизация и индивидуально отзывные
-    сессии/токены. Все приватные данные хранятся в PostgreSQL 17+; запускать после установки и миграции 0004.
-    Привилегированные инфраструктурные операции, RBAC и 2FA не опубликованы. Production cookie: __Host-cajeer_session
-    (HTTPS); local HTTP: cajeer_session. Токены поддерживают только profile:read, sessions:read, tokens:read;
-    операции изменения доступны только cookie-сессиям с X-CSRF-Token. Пользователи с two_factor_enabled=true
-    не могут войти до реализации 2FA в следующем релизе.'
+  version: 0.1.6
+  description: 'CajeerServers 0.1.6: реальная PostgreSQL-аутентификация, scoped API tokens, RBAC с проверками на
+    сервере, TOTP MFA и одноразовые recovery codes, security audit (append-only), подписанный вебхук-входящий журнал
+    с защитой от replay. HTTPS обязателен в production. Для state-changing security API нужны cookie-сессия и X-CSRF-Token.
+    Bearer-токены не дают доступа к security mutations. После обновления требуется миграция 0005; инфраструктурные
+    действия Proxmox/VMmanager ещё не опубликованы. Webhook events принимаются и сохраняются, но не исполняются.'
 servers:
 - url: /api/v1
 security: []
@@ -48,7 +47,7 @@ paths:
   /auth/login:
     post:
       operationId: authLogin
-      summary: Вход по email/паролю и выдача HttpOnly-сессии
+      summary: Вход по email/паролю, при включённой MFA — TOTP/recovery code
       responses:
         '200':
           description: Создана серверная сессия; csrf_token нужен для мутаций
@@ -91,8 +90,13 @@ paths:
                   type: string
                   minLength: 1
                   maxLength: 1024
-      description: Аргон2id; единый 401 для неверных реквизитов, блокировка после 6 неуспешных попыток с одной
-        пары email/IP за 15 мин.
+                mfa_code:
+                  type: string
+                  minLength: 6
+                  maxLength: 64
+                  description: TOTP из authenticator либо recovery code; не сохраняется в логах.
+      description: Argon2id; для пользователей с MFA обязателен mfa_code (6-значный TOTP либо одноразовый recovery
+        code). Единый 401 при неверных учётных данных, rate limiting по account+IP и общему IP.
   /auth/me:
     get:
       operationId: authMe
@@ -342,6 +346,543 @@ paths:
       schema:
         type: string
         format: uuid
+  /auth/mfa:
+    get:
+      operationId: mfaStatus
+      summary: Статус TOTP и остаток recovery codes
+      responses:
+        '200':
+          description: Данные
+          content:
+            application/json:
+              schema:
+                type: object
+        '401': &id006
+          description: Unauthenticated
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403': &id007
+          description: Forbidden
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404': &id008
+          description: Not found
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409': &id009
+          description: Conflict
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422': &id010
+          description: Validation failed
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '429': &id011
+          description: Rate limited
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503': &id012
+          description: Service unavailable
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+      security: &id013
+      - sessionAuth: []
+  /auth/mfa/enroll:
+    post:
+      operationId: mfaEnroll
+      summary: Начать включение 2FA; секрет выдаётся однократно
+      responses:
+        '201':
+          description: Данные
+          content:
+            application/json:
+              schema:
+                type: object
+        '401': *id006
+        '403': *id007
+        '404': *id008
+        '409': *id009
+        '422': *id010
+        '429': *id011
+        '503': *id012
+      security: *id013
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                password:
+                  type: string
+                  minLength: 1
+                  maxLength: 1024
+              required:
+              - password
+      parameters:
+      - &id014
+        name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+        description: Текущий CSRF токен сессии
+  /auth/mfa/confirm:
+    post:
+      operationId: mfaConfirm
+      summary: Подтвердить TOTP и получить десять recovery codes
+      responses:
+        '201':
+          description: Данные
+          content:
+            application/json:
+              schema:
+                type: object
+        '401': *id006
+        '403': *id007
+        '404': *id008
+        '409': *id009
+        '422': *id010
+        '429': *id011
+        '503': *id012
+      security: *id013
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                code:
+                  type: string
+                  minLength: 6
+                  maxLength: 64
+              required:
+              - code
+      parameters:
+      - *id014
+  /auth/mfa/disable:
+    post:
+      operationId: mfaDisable
+      summary: Отключить 2FA и отозвать все сессии и API токены
+      responses:
+        '204':
+          description: Действие завершено, тело отсутствует
+        '401': *id006
+        '403': *id007
+        '404': *id008
+        '409': *id009
+        '422': *id010
+        '429': *id011
+        '503': *id012
+      security: *id013
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                password:
+                  type: string
+                code:
+                  type: string
+              required:
+              - password
+              - code
+      parameters:
+      - *id014
+  /security/roles:
+    get:
+      operationId: securityRoles
+      summary: Просмотр ролей и их permissions
+      responses:
+        '200':
+          description: Данные
+          content:
+            application/json:
+              schema:
+                type: object
+        '401': *id006
+        '403': *id007
+        '404': *id008
+        '409': *id009
+        '422': *id010
+        '429': *id011
+        '503': *id012
+      security: *id013
+    post:
+      operationId: securityCreateRole
+      summary: Создать роль с разрешениями, которыми обладает создатель
+      responses:
+        '201':
+          description: Данные
+          content:
+            application/json:
+              schema:
+                type: object
+        '401': *id006
+        '403': *id007
+        '404': *id008
+        '409': *id009
+        '422': *id010
+        '429': *id011
+        '503': *id012
+      security: *id013
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                slug:
+                  type: string
+                  pattern: ^[a-z][a-z0-9_-]{2,63}$
+                name:
+                  type: string
+                permissions:
+                  type: array
+                  items:
+                    type: string
+              required:
+              - slug
+              - name
+              - permissions
+      parameters:
+      - *id014
+  /security/users:
+    get:
+      operationId: securityUsers
+      summary: Пользователи и роли
+      responses:
+        '200':
+          description: Данные
+          content:
+            application/json:
+              schema:
+                type: object
+        '401': *id006
+        '403': *id007
+        '404': *id008
+        '409': *id009
+        '422': *id010
+        '429': *id011
+        '503': *id012
+      security: *id013
+      parameters:
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          maximum: 100
+      - name: offset
+        in: query
+        schema:
+          type: integer
+    post:
+      operationId: securityCreateUser
+      summary: Создать пользователя без привилегий
+      responses:
+        '201':
+          description: Данные
+          content:
+            application/json:
+              schema:
+                type: object
+        '401': *id006
+        '403': *id007
+        '404': *id008
+        '409': *id009
+        '422': *id010
+        '429': *id011
+        '503': *id012
+      security: *id013
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                email:
+                  type: string
+                  format: email
+                name:
+                  type: string
+                password:
+                  type: string
+                  minLength: 14
+              required:
+              - email
+              - name
+              - password
+      parameters:
+      - *id014
+  /security/users/{id}:
+    patch:
+      operationId: securitySetUserActive
+      summary: Включить/выключить учётную запись, отозвать доступ при отключении
+      responses:
+        '204':
+          description: Действие завершено, тело отсутствует
+        '401': *id006
+        '403': *id007
+        '404': *id008
+        '409': *id009
+        '422': *id010
+        '429': *id011
+        '503': *id012
+      security: *id013
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                active:
+                  type: boolean
+              required:
+              - active
+      parameters: &id017
+      - &id015
+        name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - *id014
+      - *id014
+  /security/users/{id}/roles/{slug}:
+    post:
+      operationId: securityGrantRole
+      summary: Назначить роль без расширения собственных полномочий
+      responses:
+        '204':
+          description: Действие завершено, тело отсутствует
+        '401': *id006
+        '403': *id007
+        '404': *id008
+        '409': *id009
+        '422': *id010
+        '429': *id011
+        '503': *id012
+      security: *id013
+      parameters:
+      - *id015
+      - *id014
+      - &id016
+        name: slug
+        in: path
+        required: true
+        schema:
+          type: string
+      - *id014
+    delete:
+      operationId: securityRevokeRole
+      summary: Отозвать роль с защитой последнего администратора
+      responses:
+        '204':
+          description: Действие завершено, тело отсутствует
+        '401': *id006
+        '403': *id007
+        '404': *id008
+        '409': *id009
+        '422': *id010
+        '429': *id011
+        '503': *id012
+      security: *id013
+      parameters:
+      - *id015
+      - *id014
+      - *id016
+      - *id014
+  /security/audit:
+    get:
+      operationId: securityAudit
+      summary: Чтение неизменяемого журнала аудита
+      responses:
+        '200':
+          description: Данные
+          content:
+            application/json:
+              schema:
+                type: object
+        '401': *id006
+        '403': *id007
+        '404': *id008
+        '409': *id009
+        '422': *id010
+        '429': *id011
+        '503': *id012
+      security: *id013
+      parameters:
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+      - name: before
+        in: query
+        schema:
+          type: string
+          format: date-time
+  /security/webhooks:
+    get:
+      operationId: securityWebhookSources
+      summary: Просмотр источников без секретов
+      responses:
+        '200':
+          description: Данные
+          content:
+            application/json:
+              schema:
+                type: object
+        '401': *id006
+        '403': *id007
+        '404': *id008
+        '409': *id009
+        '422': *id010
+        '429': *id011
+        '503': *id012
+      security: *id013
+    post:
+      operationId: securityWebhookCreate
+      summary: Создание источника, секрет возвращается однократно
+      responses:
+        '201':
+          description: Данные
+          content:
+            application/json:
+              schema:
+                type: object
+        '401': *id006
+        '403': *id007
+        '404': *id008
+        '409': *id009
+        '422': *id010
+        '429': *id011
+        '503': *id012
+      security: *id013
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+              required:
+              - name
+      parameters:
+      - *id014
+  /security/webhooks/{id}:
+    delete:
+      operationId: securityWebhookRevoke
+      summary: Отзыв секрета webhook
+      responses:
+        '204':
+          description: Действие завершено, тело отсутствует
+        '401': *id006
+        '403': *id007
+        '404': *id008
+        '409': *id009
+        '422': *id010
+        '429': *id011
+        '503': *id012
+      security: *id013
+      parameters: *id017
+  /security/webhooks/events:
+    get:
+      operationId: securityWebhookEvents
+      summary: Перечень сохранённых входящих событий без содержимого payload
+      responses:
+        '200':
+          description: Данные
+          content:
+            application/json:
+              schema:
+                type: object
+        '401': *id006
+        '403': *id007
+        '404': *id008
+        '409': *id009
+        '422': *id010
+        '429': *id011
+        '503': *id012
+      security: *id013
+      parameters:
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+  /webhooks/{id}/events:
+    post:
+      operationId: webhookReceive
+      summary: Проверить подпись и сохранить JSON-событие без исполнения
+      responses:
+        '202':
+          description: Подписанное событие сохранено во входящем журнале
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookReceived'
+        '401': *id006
+        '403': *id007
+        '404': *id008
+        '409': *id009
+        '422': *id010
+        '429': *id011
+        '503': *id012
+      security:
+      - webhookHmac: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      parameters:
+      - *id015
+      - *id014
+      - *id014
+      - name: X-Cajeer-Timestamp
+        in: header
+        required: true
+        schema:
+          type: string
+        description: Unix time seconds
+      description: Контент не исполняется; сохраняется в PostgreSQL. HMAC-SHA256 + timestamp ±300 sec + уникальный
+        replay digest + лимит 256KiB.
 components:
   schemas:
     Health:
@@ -554,6 +1095,37 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/TokenInfo'
+    SecurityRole:
+      type: object
+      required:
+      - id
+      - slug
+      - name
+      - permissions
+      properties:
+        id:
+          type: string
+          format: uuid
+        slug:
+          type: string
+        name:
+          type: string
+        permissions:
+          type: array
+          items:
+            type: string
+    WebhookReceived:
+      type: object
+      required:
+      - id
+      - status
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          const: received
   responses:
     NotAcceptable:
       description: The Accept header does not permit JSON
@@ -602,3 +1174,9 @@ components:
       scheme: bearer
       bearerFormat: Opaque
       description: at1.<uuid>.<random>, хранится только sha256, поддерживаются лишь 3 read-scopes.
+    webhookHmac:
+      type: apiKey
+      in: header
+      name: X-Cajeer-Signature
+      description: sha256=<hex64> HMAC-SHA256 от v1.<unix_timestamp>.<raw_body>; отдельно X-Cajeer-Timestamp, дрейф
+        не более 300 секунд.

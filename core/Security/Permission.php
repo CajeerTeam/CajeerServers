@@ -1,11 +1,14 @@
 <?php
+declare(strict_types=1);
 namespace Cajeer\Servers\Security;
 
-/** Permission scope value object. */
+/** Explicit registry of permissions that may be delegated in version 0.1.6. */
 final class Permission
 {
-    public function name(): string
+    public static function assertKnown(string $scope): void
     {
-        return 'Permission';
+        if (!in_array($scope, Rbac::PERMISSIONS, true)) {
+            throw new \InvalidArgumentException('Unknown permission: ' . $scope);
+        }
     }
 }

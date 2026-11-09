@@ -9,6 +9,10 @@ use Cajeer\Servers\Database\DatabaseManager;
 use Cajeer\Servers\Http\Exception\HttpException;
 use Cajeer\Servers\Installer\InstallState;
 use Cajeer\Servers\Runtime\HttpRequest;
+use Cajeer\Servers\Security\TwoFactorManager;
+use Cajeer\Servers\Security\RateLimiter;
+use Cajeer\Servers\Security\ApiToken;
+use Cajeer\Servers\Security\CsrfProtection;
 use PDO;
 use RuntimeException;
 
@@ -24,6 +28,8 @@ final class AuthenticationService
         private readonly ConfigRepository $config,
         private readonly InstallState $state,
         private readonly SessionCookie $cookie,
+        private readonly ?TwoFactorManager $twoFactor = null,
+        private readonly ?RateLimiter $rateLimiter = null,
     ) {}
 
     public function cookie(): SessionCookie { return $this->cookie; }
@@ -43,7 +49,7 @@ final class AuthenticationService
     }
 
     /** @return array{user:array<string,string>,cookie:string,csrf_token:string,expires_in:int} */
-    public function login(string $email, string $password, string $clientAddress): array
+    public function login(string $email, string $password, string $clientAddress, ?string $mfaCode = null): array
     {
         $this->assertInstalled();
         $email = strtolower(trim($email));
@@ -53,7 +59,10 @@ final class AuthenticationService
         // Rate limits are bound to an HMAC of the address and canonical email;
         // do not trust unconfigured X-Forwarded-For headers.
         $key = hash_hmac('sha256', $email . "\0" . $clientAddress, $this->appKey());
-        return $this->database->transaction(function (PDO $pdo) use ($key, $email, $password): array {
+        return $this->database->transaction(function (PDO $pdo) use ($key, $email, $password, $mfaCode, $clientAddress): array {
+            if ($this->rateLimiter !== null && !$this->rateLimiter->hit($pdo, 'login.ip', $clientAddress, 30, 900)) {
+                return ['ip_limited' => true];
+            }
             $guard = $pdo->prepare('SELECT failed_count, locked_until > now() AS locked FROM auth_login_attempts WHERE subject_hash = :hash FOR UPDATE');
             $guard->execute(['hash' => $key]);
             $blocked = $guard->fetch(PDO::FETCH_ASSOC);
@@ -66,7 +75,9 @@ final class AuthenticationService
             static $dummyHash = null;
             $dummyHash ??= password_hash('dummy-nonexistent-user-password', PASSWORD_ARGON2ID);
             $valid = password_verify($password, is_array($user) ? (string) $user['password_hash'] : $dummyHash);
-            if (!$valid || !is_array($user) || !self::dbBool($user['is_active'] ?? false) || self::dbBool($user['two_factor_enabled'] ?? false)) {
+            $mfaEnabled = is_array($user) && self::dbBool($user['two_factor_enabled'] ?? false);
+            $mfaValid = !$mfaEnabled || ($valid && $this->twoFactor !== null && $this->twoFactor->verifyLogin($pdo, (string) $user['id'], $mfaCode));
+            if (!$valid || !is_array($user) || !self::dbBool($user['is_active'] ?? false) || !$mfaValid) {
                 $failure = $pdo->prepare(<<<'SQL'
 INSERT INTO auth_login_attempts (subject_hash, failed_count, window_started, locked_until)
 VALUES (:hash, 1, now(), NULL)
@@ -90,8 +101,8 @@ SQL);
             $pdo->prepare('DELETE FROM auth_login_attempts WHERE subject_hash = :hash')->execute(['hash' => $key]);
             $issued = TokenCodec::issue('cs1');
             $csrf = self::randomSecret();
-            $save = $pdo->prepare("INSERT INTO auth_sessions (id, user_id, secret_hash, csrf_hash, expires_at) VALUES (:id,:user,:secret,:csrf,now() + interval '12 hours')");
-            $save->execute(['id' => $issued['id'], 'user' => $user['id'], 'secret' => $issued['hash'], 'csrf' => TokenCodec::digest($csrf)]);
+            $save = $pdo->prepare("INSERT INTO auth_sessions (id, user_id, secret_hash, csrf_hash, expires_at, mfa_verified) VALUES (:id,:user,:secret,:csrf,now() + interval '12 hours',:mfa)");
+            $save->execute(['id' => $issued['id'], 'user' => $user['id'], 'secret' => $issued['hash'], 'csrf' => TokenCodec::digest($csrf), 'mfa' => $mfaEnabled ? 'true' : 'false']);
             $this->audit($pdo, (string) $user['id'], 'auth.login.succeeded', 'success', 'session', $issued['id']);
             return [
                 'user' => $this->publicUser($user), 'cookie' => $this->cookie->set($issued['credential']),
@@ -101,9 +112,10 @@ SQL);
     }
 
     /** Reject without leaking whether a given account exists. */
-    public function loginOrReject(string $email, string $password, string $clientAddress): array
+    public function loginOrReject(string $email, string $password, string $clientAddress, ?string $mfaCode = null): array
     {
-        $result = $this->login($email, $password, $clientAddress);
+        $result = $this->login($email, $password, $clientAddress, $mfaCode);
+        if (($result['ip_limited'] ?? false) === true) throw new HttpException(429, 'Too many login attempts.', 'login_rate_limited', ['Retry-After' => '900']);
         if (($result['rejected'] ?? false) === true) throw self::unauthorized();
         return $result;
     }
@@ -123,19 +135,19 @@ SQL);
         $id = is_string($raw) ? TokenCodec::parse($raw, 'cs1') : null;
         if ($id === null) throw self::unauthorized();
         $stmt = $this->database->connection()->prepare(<<<'SQL'
-SELECT s.id::text AS session_id, s.secret_hash, s.csrf_hash,
+SELECT s.id::text AS session_id, s.secret_hash, s.csrf_hash, s.mfa_verified,
        u.id::text AS user_id, u.email, u.name, u.is_active, u.two_factor_enabled
 FROM auth_sessions s JOIN users u ON u.id = s.user_id
 WHERE s.id = :id AND s.revoked_at IS NULL AND s.expires_at > now()
 SQL);
         $stmt->execute(['id' => $id]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
-        if (!is_array($row) || !self::dbBool($row['is_active']) || self::dbBool($row['two_factor_enabled']) || !TokenCodec::validHash((string) $row['secret_hash'], $raw)) {
+        if (!is_array($row) || !self::dbBool($row['is_active']) || (self::dbBool($row['two_factor_enabled']) && !self::dbBool($row['mfa_verified'])) || !TokenCodec::validHash((string) $row['secret_hash'], $raw)) {
             throw self::unauthorized();
         }
         $touch = $this->database->connection()->prepare("UPDATE auth_sessions SET last_seen_at = now() WHERE id = :id AND last_seen_at < now() - interval '5 minutes'");
         $touch->execute(['id' => $id]);
-        return ['mode' => 'session', 'id' => $id, 'user' => $this->publicUser($row, 'user_id'), 'scopes' => [], 'csrf_hash' => (string) $row['csrf_hash']];
+        return ['mode' => 'session', 'id' => $id, 'user' => $this->publicUser($row, 'user_id'), 'scopes' => [], 'csrf_hash' => (string) $row['csrf_hash'], 'mfa_verified' => self::dbBool($row['mfa_verified'])];
     }
 
     /** @return array{mode:string,user:array<string,string>,id:string,scopes:list<string>} */
@@ -144,22 +156,20 @@ SQL);
         $id = TokenCodec::parse($raw, 'at1');
         if ($id === null) throw self::unauthorized();
         $stmt = $this->database->connection()->prepare(<<<'SQL'
-SELECT t.id::text AS token_id, t.token_hash, t.scopes::text, u.id::text AS user_id, u.email, u.name, u.is_active, u.two_factor_enabled
+SELECT t.id::text AS token_id, t.token_hash, t.scopes::text, t.mfa_verified, u.id::text AS user_id, u.email, u.name, u.is_active, u.two_factor_enabled
 FROM api_tokens t JOIN users u ON u.id = t.user_id
 WHERE t.id = :id AND t.revoked_at IS NULL AND (t.expires_at IS NULL OR t.expires_at > now())
 SQL);
         $stmt->execute(['id' => $id]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
-        if (!is_array($row) || !self::dbBool($row['is_active']) || self::dbBool($row['two_factor_enabled']) || !TokenCodec::validHash((string) $row['token_hash'], $raw)) {
+        if (!is_array($row) || !self::dbBool($row['is_active']) || (self::dbBool($row['two_factor_enabled']) && !self::dbBool($row['mfa_verified'])) || !TokenCodec::validHash((string) $row['token_hash'], $raw)) {
             throw self::unauthorized();
         }
         $scopes = json_decode((string) $row['scopes'], true);
         if (!is_array($scopes) || !array_is_list($scopes)) throw self::unauthorized();
         foreach ($scopes as $scope) { if (!is_string($scope)) throw self::unauthorized(); }
         if (array_diff($scopes, self::TOKEN_SCOPES)) throw self::unauthorized();
-        foreach ($required as $scope) {
-            if (!in_array($scope, $scopes, true)) throw new HttpException(403, 'API token scope is insufficient.', 'insufficient_scope');
-        }
+        ApiToken::authorize($scopes, $required);
         $this->database->connection()->prepare("UPDATE api_tokens SET last_used_at = now() WHERE id = :id AND (last_used_at IS NULL OR last_used_at < now() - interval '5 minutes')")->execute(['id' => $id]);
         return ['mode' => 'token', 'id' => $id, 'user' => $this->publicUser($row, 'user_id'), 'scopes' => $scopes];
     }
@@ -169,9 +179,7 @@ SQL);
     {
         if (($principal['mode'] ?? '') !== 'session') throw self::unauthorized();
         $token = $request->header('X-CSRF-Token', '');
-        if ($token === '' || strlen($token) > 256 || !hash_equals((string) ($principal['csrf_hash'] ?? ''), TokenCodec::digest($token))) {
-            throw new HttpException(403, 'Invalid CSRF token.', 'invalid_csrf');
-        }
+        CsrfProtection::verify((string) ($principal['csrf_hash'] ?? ''), $token);
         $this->requireSameOrigin($request);
     }
 
@@ -280,12 +288,10 @@ SQL);
         $this->onlySession($principal);
         if ($name === '' || strlen($name) > 100 || preg_match('/[\x00-\x1f\x7f]/', $name)
             || $expiresIn < 300 || $expiresIn > self::MAX_TOKEN_SECONDS
-            || count($scopes) < 1 || count($scopes) > count(self::TOKEN_SCOPES)
-            || count(array_unique($scopes)) !== count($scopes)
-            || count(array_filter($scopes, 'is_string')) !== count($scopes)
-            || array_diff($scopes, self::TOKEN_SCOPES)) {
+            || count($scopes) < 1) {
             throw new HttpException(422, 'Invalid API token settings.', 'validation_failed');
         }
+        $scopes = ApiToken::validateScopes($scopes);
         return $this->database->transaction(function (PDO $pdo) use ($principal, $name, $scopes, $expiresIn): array {
             $this->assertLiveSession($pdo, $principal);
             $lock = $pdo->prepare('SELECT id FROM users WHERE id = :id FOR UPDATE');
@@ -295,10 +301,10 @@ SQL);
             $count->execute(['user' => $principal['user']['id']]);
             if ((int) $count->fetchColumn() >= 25) throw new HttpException(409, 'Too many active API tokens.', 'token_limit');
             $issued = TokenCodec::issue('at1');
-            $stmt = $pdo->prepare("INSERT INTO api_tokens (id,user_id,name,token_hash,scopes,expires_at) VALUES (:id,:user,:name,:hash,CAST(:scopes AS jsonb),now() + CAST(:ttl AS integer) * interval '1 second') RETURNING created_at::text, expires_at::text");
+            $stmt = $pdo->prepare("INSERT INTO api_tokens (id,user_id,name,token_hash,scopes,expires_at,mfa_verified) VALUES (:id,:user,:name,:hash,CAST(:scopes AS jsonb),now() + CAST(:ttl AS integer) * interval '1 second',CAST(:mfa AS boolean)) RETURNING created_at::text, expires_at::text");
             $stmt->execute([
                 'id' => $issued['id'], 'user' => $principal['user']['id'], 'name' => $name,
-                'hash' => $issued['hash'], 'scopes' => json_encode(array_values($scopes), JSON_THROW_ON_ERROR), 'ttl' => $expiresIn,
+                'hash' => $issued['hash'], 'scopes' => json_encode(array_values($scopes), JSON_THROW_ON_ERROR), 'ttl' => $expiresIn, 'mfa' => ($principal['mfa_verified'] ?? false) ? 'true' : 'false',
             ]);
             $row = $stmt->fetch(PDO::FETCH_ASSOC);
             if (!is_array($row)) throw new RuntimeException('Could not issue API token.');

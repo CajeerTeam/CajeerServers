@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.1.6] — RBAC, Security & Audit (2026-11-09)
+
+- PostgreSQL migration `0005_security_audit.sql`: актуальные permission grants для administrator, MFA/recovery/limiter/webhook tables, append-only audit trigger.
+- Ролевые и пользовательские операции с принудительной проверкой прав, anti-escalation checks, запретом самоотключения и удаления последнего администратора.
+- Полноценный RFC 6238 TOTP, XChaCha20-Poly1305 secret storage, single-use recovery codes и защита от повторного TOTP counter. Логин/сессии/токены поддерживают активную MFA; старые сессии и токены отзываются при включении.
+- Signed webhook inbox: HMAC-SHA256, пяти минутное временное окно, PostgreSQL uniqueness replay protection, ограничения размера и rate limit. Входящие события сохраняются, **не исполняются**.
+- Аудит событий управления и отказов, metadata allowlist; `audit_log` запрещает UPDATE/DELETE на уровне БД.
+- Доработаны CSRF, application security headers, scope checks; добавлены native security smoke tests, отдельный PostgreSQL integration test и OpenAPI 3.1.1.
+- Не проверено здесь: реальные транзакции на PostgreSQL 17/18 (в среде отсутствуют `pdo_pgsql` и сервер PostgreSQL). Следующие задачи: queue/scheduler/cache/storage в 0.1.7.
+
 ## [0.1.5] — Authentication & API Tokens (2026-11-09)
 
 ### Added
