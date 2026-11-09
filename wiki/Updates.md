@@ -1,3 +1,3 @@
 # Updates
 
-Система обновлений через GitFlic Releases / Registry.
+Система обновлений через GitHub Releases / Registry.

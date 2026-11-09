@@ -244,7 +244,7 @@ APP_ENV=local APP_DEBUG=false php bin/cajeer self:test
 APP_ENV=local APP_DEBUG=false vendor/bin/phpunit
 ```
 
-Native smoke-tests выполняются без Composer. GitFlic CI проверяет PHP 8.4 и 8.5, PHPUnit запускается после установки пакетов. `composer.lock` пока не сгенерирован, поскольку Composer и доступ к registry в среде подготовки отсутствовали.
+Native smoke-tests выполняются без Composer. GitHub CI проверяет PHP 8.4 и 8.5, PHPUnit запускается после установки пакетов. `composer.lock` пока не сгенерирован, поскольку Composer и доступ к registry в среде подготовки отсутствовали.
 
 ## Структура
 

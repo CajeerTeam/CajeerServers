@@ -1,3 +1,3 @@
 # CajeerServers Wiki
 
-Стартовый набор страниц для GitFlic Wiki.
+Стартовый набор страниц для GitHub Wiki.

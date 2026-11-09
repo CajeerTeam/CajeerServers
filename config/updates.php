@@ -1,2 +1,2 @@
 <?php
-return ['provider' => 'gitflic', 'channels' => ['stable', 'lts', 'security', 'dev'], 'components' => ['core', 'modules', 'plugins', 'themes']];
+return ['provider' => 'github', 'channels' => ['stable', 'lts', 'security', 'dev'], 'components' => ['core', 'modules', 'plugins', 'themes']];

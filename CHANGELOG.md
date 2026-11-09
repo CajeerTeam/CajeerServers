@@ -6,7 +6,7 @@
 - Транзакционная `0008_inventory_readiness.sql`: восемь check constraints `NOT VALID` и четыре индекса без изменения данных предыдущих релизов.
 - CLI `inventory:preflight [--strict] [--json]` и `inventory:constraints [--apply]`: контроль данных и явная валидация существующих строк.
 - Strict release-gate блокируется при невалидных данных, невалидированных ограничениях и неприменённых миграциях.
-- Native PDO-double smoke, независимый PostgreSQL upgrade integration на изолированной схеме, миграционный rollback probe 0009, расширены GitFlic CI и release verification.
+- Native PDO-double smoke, независимый PostgreSQL upgrade integration на изолированной схеме, миграционный rollback probe 0009, расширены GitHub CI и release verification.
 - Синхронизированы VERSION, release.json, OpenAPI и Nuxt metadata; исходные миграции 0001–0007 не изменены.
 - **Не подтверждены локально:** реальный PostgreSQL/Redis, Composer/npm dependency resolution, Nuxt production build, Playwright browser E2E. Lock-файлы намеренно не подделывались; production-gate должен оставаться закрытым без этих проверок.
 
@@ -21,7 +21,7 @@
 - `scripts/smoke-http.php` проверяет настоящий удалённый HTTPS без выполнения изменений.
 - Исправлена интеграционная PostgreSQL rollback-проба 0008 после 0007,
   тест установщика использует отдельную пустую тестовую базу.
-- Добавлены GitFlic CI integration job и script генерации настоящих dependency lockfiles.
+- Добавлены GitHub CI integration job и script генерации настоящих dependency lockfiles.
 - Локально проверены native smoke, PHP lint и Nuxt static. **Не проверены локально:**
   установка npm/composer зависимостей, Nuxt production build, живые PostgreSQL/Redis,
   внешний Nginx deployment и E2E. Строгий production gate без них не проходит.
@@ -138,7 +138,7 @@
 - JSONL runtime logging с редактированием секретов и обработкой ошибок.
 - HTTP runtime: root JSON, 404, 405, 503, request ID, HEAD support.
 - CLI: version, about, config:get, doctor, config:check, self:test с реальными exit codes.
-- Native smoke tests, PHPUnit runtime tests, GitFlic CI, документация запуска.
+- Native smoke tests, PHPUnit runtime tests, GitHub CI, документация запуска.
 
 ### Changed
 - Неисполняемые команды `migrate`, `queue:work` и другие завершаются кодом 3 вместо ложного успеха.
@@ -159,4 +159,3 @@
 - Nuxt/Vue admin skeleton.
 - Inventory, connectors, collectors, scripts, sync engine и action dispatcher placeholders.
 - PostgreSQL/MySQL migration skeleton.
-- GitFlic Wiki стартовые страницы.

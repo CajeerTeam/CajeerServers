@@ -19,14 +19,13 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 - [x] MySQL/MariaDB compatibility migration skeleton.
 - [x] Extension manifest examples.
 - [x] CLI `cajeer` command shell.
-- [x] GitFlic Wiki стартовые страницы.
 
 ## 0.1.1 — Application Bootstrap & Runtime (выполнено)
 
 - [x] Единый bootstrap, загрузка .env, ConfigRepository, DI container.
 - [x] Application lifecycle и обработка ошибок HTTP/CLI.
 - [x] Рабочие CLI диагностика, self-test, коды ошибок.
-- [x] Runtime logging, native smoke tests, GitFlic CI.
+- [x] Runtime logging, native smoke tests, GitHub CI.
 - [ ] Composer lockfile (сгенерировать в сетевой среде с Composer 2 и проверить).
 
 ## 0.1.2 — HTTP Kernel & REST API (выполнено)
@@ -133,7 +132,7 @@ Roadmap основан на SemVer, LTS и security-release модели. При
       security headers, отсутствие выдачи cookie гостям и обязательный TLS удалённого сайта.
 - [x] Исправлена устаревшая PostgreSQL integration rollback-проба после миграции 0007.
 - [x] Выделен отдельный пустой PostgreSQL database для destructive installer integration.
-- [x] GitFlic CI stages для PHP 8.4/8.5, зависимостей Nuxt и disposable PostgreSQL/Redis integration.
+- [x] GitHub CI stages для PHP 8.4/8.5, зависимостей Nuxt и disposable PostgreSQL/Redis integration.
 - [x] Маркер установки фиксирует версию из VERSION; старые уже установленные marker не переписываются.
 - [ ] **Гейт к публичному production:** сгенерировать и зафиксировать настоящие composer.lock и admin/package-lock.json.
 - [ ] **Гейт к публичному production:** выполнить Composer-install, Nuxt build/typecheck, PHPunit,
@@ -152,7 +151,7 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 - [x] `inventory:constraints --apply`: явная и идемпотентная PostgreSQL VALIDATE CONSTRAINT после исправления legacy записей.
 - [x] Strict release-gate требует применённую миграцию 0008 и валидированные ограничения; fail-closed на проблемных данных.
 - [x] Отдельный native smoke с PDO-двойником и интеграционный сценарий upgrade на настоящем PostgreSQL 17+ (отдельная тестовая схема).
-- [x] Исправлена rollback-проба интеграционного мигратора на 0009; тесты включены в GitFlic CI и скрипт релиза.
+- [x] Исправлена rollback-проба интеграционного мигратора на 0009; тесты включены в GitHub CI и скрипт релиза.
 - [ ] Зафиксировать **настоящие** `composer.lock` и `admin/package-lock.json` после сборки с сетью.
 - [ ] Выполнить PostgreSQL/Redis integration, Nuxt build/Typecheck, PHPUnit и Playwright E2E на стенде; локально они пока не подтверждены.
 - [ ] Подтвердить backup/restore, Nginx/TLS и строгий release-gate перед производственным развёртыванием.
@@ -297,7 +296,7 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 - [ ] OpenAPI contract tests.
 - [ ] Admin dashboard.
 - [ ] Release package.
-- [ ] GitFlic Releases publishing.
+- [ ] GitHub Releases publishing.
 - [ ] Upgrade path from 0.x.
 
 ## 1.1.x — Automation
@@ -332,7 +331,7 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 - [ ] Manifest validation.
 - [ ] Compatibility constraints.
 - [ ] Permission review.
-- [ ] GitFlic Registry integration.
+- [ ] GitHub Registry integration.
 - [ ] Extension update channel.
 - [ ] Sandbox policies.
 

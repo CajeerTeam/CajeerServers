@@ -10,7 +10,7 @@
 - HTTPS, корректный `APP_URL`, уникальный сильный `APP_KEY`, `APP_ENV=production`, `APP_DEBUG=false`.
 - PostgreSQL и Redis доступны по loopback/приватной сети; для удалённой PostgreSQL требуется `DB_SSLMODE=verify-full` с CA, для удалённого Redis — TLS.
 - `public/` — **единственный** веб-root PHP; `storage/`, `.env`, `vendor/`, `config/` и миграции не доступны из браузера.
-- Не записывать production-пароли в shell history, GitFlic, CI logs или URL. Использовать секреты окружения и файлы с правами 0600.
+- Не записывать production-пароли в shell history, GitHub, CI logs или URL. Использовать секреты окружения и файлы с правами 0600.
 - Очереди и scheduler запускаются отдельно под непривилегированным service user. Проверяйте retention, ресурсы, резервные копии БД и тренировку восстановления.
 
 ## Воспроизводимые зависимости

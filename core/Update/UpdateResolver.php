@@ -1,7 +1,8 @@
 <?php
+
 namespace Cajeer\Servers\Update;
 
-/** Update resolver for GitFlic releases. */
+/** Update resolver for GitHub releases. */
 final class UpdateResolver
 {
     public function name(): string
