@@ -10,6 +10,8 @@ use Cajeer\Servers\Kernel\ServiceContainer;
 use Cajeer\Servers\Runtime\RuntimeDiagnostics;
 use Cajeer\Servers\Logging\JsonLogger;
 use Throwable;
+use Cajeer\Servers\Installer\InstallService;
+use Cajeer\Servers\Installer\InstallCommand;
 
 /** CLI functionality shipped in 0.1.1; future commands fail, not fake success. */
 final class CommandRunner
@@ -32,8 +34,13 @@ final class CommandRunner
                 'version', '--version', '-V' => $this->version(),
                 'about' => $this->about(),
                 'config:get' => $this->getConfig($argv[2] ?? ''),
-                'config:check', 'env:check', 'doctor', 'install:check' => $this->doctor(in_array('--json', $argv, true)),
+                'config:check', 'env:check', 'doctor' => $this->doctor(in_array('--json', $argv, true)),
                 'self:test' => $this->selfTest(),
+                'install' => (new InstallCommand(new InstallService($this->app->basePath())))->run($argv),
+                'install:web-token' => $this->webInstallToken(),
+                'install:status' => $this->installStatus(in_array('--json', $argv, true)),
+                'install:recover' => $this->installRecover(),
+                'install:check' => $this->installCheck(in_array('--json', $argv, true)),
                 'database:check', 'db:check' => $this->databaseCheck(in_array('--json', $argv, true)),
                 'migrate' => $this->migrate($argv),
                 'migrate:status' => $this->migrationStatus(in_array('--json', $argv, true)),
@@ -52,7 +59,7 @@ final class CommandRunner
     private function help(): int
     {
         fwrite(STDOUT, <<<'TEXT'
-CajeerServers CLI 0.1.3
+CajeerServers CLI 0.1.4
 
 Рабочие команды:
   help                 Список доступных команд
@@ -62,7 +69,14 @@ CajeerServers CLI 0.1.3
   config:check         То же, что env:check
   config:get <key>     Прочитать несекретное значение конфигурации
   doctor [--json]      Проверить PHP, расширения, storage и конфигурацию
-  install:check        Предварительная проверка runtime (не установщик)
+  install:check        Реальная проверка предпосылок установщика (--json)
+  install:status       Текущий статус установки (--json)
+  install:recover      Восстановить локальный marker из подтверждённой PostgreSQL-записи
+  install:web-token    Сгенерировать одноразовый код для Web Installer
+  install             Установка PostgreSQL, миграции и первого администратора
+                      --admin-email=... --admin-name=... --admin-password-file=/private/file
+                      --url=https://... --db-host=... --db-database=... --db-username=...
+                      --db-password-file=/private/file (не передавать пароль в аргументах)
   self:test            Самопроверка bootstrap, DI и конфигурации
   database:check       Проверить реальное подключение к БД
   migrate              Выполнить неприменённые PostgreSQL миграции
@@ -140,6 +154,35 @@ TEXT
             fwrite(STDOUT, sprintf("[%s] %s\n", $ok ? 'OK' : 'FAIL', $name));
         }
         return in_array(false, $checks, true) ? 1 : 0;
+    }
+
+    private function installCheck(bool $json): int
+    {
+        $result = (new InstallService($this->app->basePath()))->preflight();
+        $text = implode("\n", array_map(static fn (array $c): string => sprintf('[%s] %s', $c['ok'] ? 'OK' : 'FAIL', $c['name']), $result['checks'])) . "\n";
+        $this->output($result, $json, $text);
+        return $result['ok'] ? 0 : 1;
+    }
+
+    private function installStatus(bool $json): int
+    {
+        $result = (new InstallService($this->app->basePath()))->state()->status();
+        $this->output($result, $json, $result['installed'] ? "Installed (local marker).\n" : "Not installed (local marker missing; database state not verified).\n");
+        return 0;
+    }
+
+    private function installRecover(): int
+    {
+        $result = (new InstallService($this->app->basePath()))->recover();
+        fwrite(STDOUT, "Installation marker verified/recovered. Installed at: " . $result['installed_at'] . "\n");
+        return 0;
+    }
+
+    private function webInstallToken(): int
+    {
+        $token = (new InstallService($this->app->basePath()))->state()->issueWebToken();
+        fwrite(STDOUT, "Web installation token (shown once; store securely):\n" . $token . "\n");
+        return 0;
     }
 
     private function databaseCheck(bool $json): int

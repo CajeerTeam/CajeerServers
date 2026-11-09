@@ -54,11 +54,20 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 
 **Не входят в 0.1.3:** installer, auth, RBAC middleware, открытие state-changing API, inventory CRUD, очередь и collectors.
 
-## 0.1.4 — Installer & Initial Setup (следующий релиз)
+## 0.1.4 — Installer & Initial Setup (реализовано)
 
-- [ ] CLI/Web installer с environment/database prerequisites и APP_KEY generation.
-- [ ] Первая миграция и создание администратора.
-- [ ] Защита от повторной установки, installation state и безопасная диагностика.
+- [x] Настоящий CLI installer, preflight PHP/DB, конфигурация, APP_KEY, секреты из файлов.
+- [x] Web Installer `/install`: out-of-band setup token, session CSRF, TLS / local-only HTTP.
+- [x] Выполнение миграций и создание первого администратора (Argon2id) с ролью и записью аудита.
+- [x] PostgreSQL singleton installation state, атомарный локальный marker и `install:recover`.
+- [x] Smoke tests и отдельный сценарий реальной PostgreSQL integration проверки.
+- [ ] Запуск integration test на PostgreSQL 17/18 в CI/CD; в среде разработки 0.1.4 отсутствует pdo_pgsql.
+
+## 0.1.5 — Authentication & API Tokens (следующий релиз)
+
+- [ ] Логин/логаут, серверные сессии, Argon2id, безопасная смена пароля.
+- [ ] API token issuing, hashed storage, revocation и scope enforcement.
+
 
 ## 0.2.0 — Core Kernel
 

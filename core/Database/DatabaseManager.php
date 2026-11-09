@@ -21,6 +21,7 @@ final class DatabaseManager
     public function __construct(
         private readonly ConfigRepository $config,
         private readonly ConnectionFactoryInterface $factory,
+        private readonly ?array $connectionOverride = null,
     ) {}
 
     public function driver(): string
@@ -108,6 +109,7 @@ final class DatabaseManager
     /** @return array<string, mixed> */
     private function configuration(): array
     {
+        if ($this->connectionOverride !== null) return $this->connectionOverride;
         $name = $this->connectionName();
         $config = $this->config->get('database.connections.' . $name);
         if (!is_array($config) || !isset($config['driver']) || !is_string($config['driver'])) {
@@ -118,6 +120,7 @@ final class DatabaseManager
 
     private function connectionName(): string
     {
+        if ($this->connectionOverride !== null) return 'installer_pgsql';
         $name = $this->config->get('database.default', 'pgsql');
         if (!is_string($name) || !preg_match('/^[a-z][a-z0-9_-]*$/D', $name)) {
             throw new RuntimeException('Invalid default database connection.');

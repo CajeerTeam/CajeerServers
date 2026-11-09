@@ -89,7 +89,9 @@ final class HttpKernel
             'X-Content-Type-Options' => 'nosniff',
             'X-Frame-Options' => 'DENY',
             'Referrer-Policy' => 'no-referrer',
-            'Content-Security-Policy' => "default-src 'none'; frame-ancestors 'none'",
+            'Content-Security-Policy' => str_starts_with($response->headers['Content-Type'] ?? '', 'text/html')
+                ? "default-src 'none'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+                : "default-src 'none'; frame-ancestors 'none'",
             'Cache-Control' => 'no-store',
         ] as $header => $value) {
             $response = $response->withHeader($header, $value);

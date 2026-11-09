@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.1.4] — Installer & Initial Setup (2026-11-09)
+
+### Added
+- CLI installer with real PostgreSQL schema creation, administrator provisioning (Argon2id), administrator role, audit event.
+- Database-backed singleton installation state in `0003_installation_state.sql`, advisory-locked initial provisioning transaction.
+- Web Installer at `/install` (HTTPS / local-only HTTP), one-time server-issued setup token and session CSRF.
+- Atomic `.env` writer with 0600 permissions; cryptographically random APP_KEY generation.
+- Installation status, preflight, recovery of local marker from committed DB state.
+- Installer smoke and isolated PostgreSQL integration test; safer Nginx PHP front-controller config.
+
+### Notes
+- Actual PostgreSQL 17/18 integration needs `ext-pdo_pgsql` and a disposable test database.
+- Authentication/login UI not yet available; creating an administrator record does not imply completed auth.
+
+
 ## [0.1.3] — Database & Migration Engine (2026-11-09)
 
 ### Added

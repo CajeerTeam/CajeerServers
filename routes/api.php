@@ -2,6 +2,8 @@
 declare(strict_types=1);
 
 use Cajeer\Servers\Api\Controller\HealthController;
+use Cajeer\Servers\Installer\InstallService;
+use Cajeer\Servers\Installer\WebInstaller;
 use Cajeer\Servers\Api\Controller\SystemController;
 use Cajeer\Servers\Http\Router;
 use Cajeer\Servers\Kernel\Application;
@@ -12,6 +14,9 @@ use Cajeer\Servers\Runtime\RuntimeDiagnostics;
 
 /** Register only executed, useful, safe endpoints. Unauthenticated destructive routes are NOT registered. */
 return static function (Router $router, ServiceContainer $container): void {
+    $webInstaller = new WebInstaller(new InstallService($container->get(Application::class)->basePath()));
+    $router->get('/install', $webInstaller);
+    $router->post('/install', $webInstaller);
     $router->get('/', static function (HttpRequest $request) use ($container): HttpResponse {
         $app = $container->get(Application::class);
         $ready = $container->get(RuntimeDiagnostics::class)->run()['ok'];

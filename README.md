@@ -2,6 +2,21 @@
 
 **CajeerServers** — русскоязычная self-hosted веб-оболочка для наблюдения и управления инфраструктурой. Это **не ОС**, не прошивка и не замена Proxmox/VMmanager. Для будущих версий предусмотрен сбор данных через API, собственные скрипты, webhooks, collectors и интеграции без обязательных системных агентов.
 
+## Версия 0.1.4 — Installer & Initial Setup
+
+В 0.1.4 реализован **настоящий одноразовый установщик**, а не CLI-заглушка:
+
+- `php bin/cajeer install` и `installer/cli/install.php` — интерактивная/неинтерактивная настройка без пароля в аргументах командной строки; секреты можно прочитать из файлов.
+- `php bin/cajeer install:check`, `install:status`, `install:web-token`, `install:recover` — preflight, status, одноразовая активация web installer и восстановление marker после сбоя.
+- `GET/POST /install` — HTTP-установка через `public/index.php`, session CSRF, одноразовый код из серверного CLI, HTTPS (или loopback в local), запрет повторной установки.
+- Проверка PostgreSQL 17+, реальный migration runner 0.1.3, создание первого администратора с Argon2id-хешем и ролью `administrator` в одной транзакции с DB installation marker и записью аудита.
+- `.env` записывается атомарно с правами 0600 и случайным APP_KEY; `storage/app/installed.json` записывается только после DB commit; специальная команда восстановления marker.
+- Native smoke-тесты установщика и отдельный интеграционный тест на **пустой одноразовой PostgreSQL**.
+
+Полная инструкция: [wiki/Installation.md](wiki/Installation.md). Установка не открывает доступ к серверным действиям: login, RBAC enforcement и управление инфраструктурой появятся в следующих релизах.
+
+**Для установки требуются PostgreSQL 17+, PHP ext-pdo_pgsql и права на миграции.** Никаких результатов с реальной БД нельзя считать подтверждёнными без запуска `tests/installer-postgres-integration.php` в соответствующем окружении.
+
 ## Версия 0.1.3 — Database & Migration Engine
 
 0.1.3 добавляет **настоящую PostgreSQL persistence-инфраструктуру**, не публикуя незащищённые API и не притворяясь, что auth/inventory уже реализованы:
@@ -139,4 +154,4 @@ Native smoke-tests выполняются без Composer. GitFlic CI прове
 - `public/index.php` — front controller.
 - `tests/http-smoke.php` — native HTTP tests.
 
-Следующая версия **0.1.4 — Installer & Initial Setup**.
+Следующая версия **0.1.5 — Authentication & API Tokens**.

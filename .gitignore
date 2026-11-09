@@ -11,3 +11,7 @@
 !/storage/**/.gitkeep
 .phpunit.result.cache
 .DS_Store
+
+/storage/app/installed.json
+/storage/app/setup.lock
+/storage/app/web-install-token.sha256
