@@ -4,6 +4,8 @@ declare(strict_types=1);
 namespace Cajeer\Servers\Queue;
 
 use Cajeer\Servers\Logging\JsonLogger;
+use Cajeer\Servers\Observability\PrometheusExporter;
+use Cajeer\Servers\Observability\OpenTelemetryTracer;
 use RuntimeException;
 use Throwable;
 
@@ -12,7 +14,8 @@ final class JobWorker
 {
     private bool $stopping = false;
 
-    public function __construct(private readonly QueueDriverInterface $queue, private readonly JobProcessor $processor, private readonly JsonLogger $logger) {}
+    public function __construct(private readonly QueueDriverInterface $queue, private readonly JobProcessor $processor, private readonly JsonLogger $logger,
+        private readonly ?PrometheusExporter $metrics = null, private readonly ?OpenTelemetryTracer $tracer = null) {}
 
     public function stop(): void { $this->stopping = true; }
 
@@ -21,6 +24,7 @@ final class JobWorker
         $reserved = $this->queue->reserve($name,$leaseSeconds);
         if ($reserved === null) return null;
         $job=$reserved->job;
+        $started = hrtime(true);
         try {
             $output=$this->processor->process($job);
         } catch (Throwable $e) {
@@ -29,13 +33,23 @@ final class JobWorker
             $reason = 'Handler failure: ' . $e::class;
             $this->queue->release($reserved,$reason,$delay);
             $failed = $reserved->attempt >= $job->maxAttempts;
+            $this->observe($job->type, false, (hrtime(true) - $started) / 1_000_000_000);
             $this->logger->log('warning','queue.handler_failed',['job_id'=>$job->id,'job_type'=>$job->type,'attempt'=>$reserved->attempt,'terminal'=>$failed,'error_class'=>$e::class]);
             return ['id'=>$job->id,'status'=>$failed?'failed':'retry_scheduled','attempt'=>$reserved->attempt];
         }
         // A stale receipt is a fencing failure, never turn it into a retry of a finished task.
         $this->queue->succeed($reserved,$output);
+        $this->observe($job->type, true, (hrtime(true) - $started) / 1_000_000_000);
         $this->logger->info('queue.completed',['job_id'=>$job->id,'job_type'=>$job->type,'attempt'=>$reserved->attempt]);
         return ['id'=>$job->id,'status'=>'completed','attempt'=>$reserved->attempt];
+    }
+
+    private function observe(string $type, bool $success, float $elapsed): void
+    {
+        try { $this->metrics?->observeJob($type, $success, $elapsed); }
+        catch (Throwable) { error_log('CajeerServers: queue metrics write failed.'); }
+        try { $this->tracer?->recordJob($type, $success, $elapsed); }
+        catch (Throwable) { error_log('CajeerServers: queue tracing export failed.'); }
     }
 
     /** @return array{processed:int,failed:int} */

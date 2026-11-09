@@ -1,0 +1,17 @@
+groups:
+  - name: cajeerservers
+    rules:
+      - alert: CajeerServersUnavailable
+        expr: up{job="cajeerservers"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'CajeerServers metrics endpoint is unavailable'
+      - alert: CajeerServersDependencyDown
+        expr: cajeer_dependency_up{job="cajeerservers"} == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'CajeerServers dependency not ready: {{ $labels.dependency }}'

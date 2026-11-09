@@ -38,6 +38,14 @@ use Cajeer\Servers\Runtime\ErrorHandler;
 use Cajeer\Servers\Runtime\HttpRequest;
 use Cajeer\Servers\Runtime\HttpResponse;
 use Cajeer\Servers\Runtime\RuntimeDiagnostics;
+use Cajeer\Servers\Observability\Diagnostics;
+use Cajeer\Servers\Observability\OperationalStats;
+use Cajeer\Servers\Observability\HealthCheck;
+use Cajeer\Servers\Observability\SystemReport;
+use Cajeer\Servers\Observability\PrometheusExporter;
+use Cajeer\Servers\Observability\OpenTelemetryTracer;
+use Cajeer\Servers\Observability\MetricsController;
+use Cajeer\Servers\Api\Controller\OperationalHealthController;
 use RuntimeException;
 
 /** Long-lived process-safe application lifecycle: boot, handle, terminate. */
@@ -128,7 +136,8 @@ final class Application
         $this->services->singleton(JobProcessor::class, fn (ServiceContainer $c): JobProcessor => new JobProcessor(
             $c->get(RuntimeDiagnostics::class),$c->get(StorageDiskInterface::class),$c->get(QueueDriverInterface::class)));
         $this->services->singleton(JobWorker::class, fn (ServiceContainer $c): JobWorker => new JobWorker(
-            $c->get(QueueDriverInterface::class),$c->get(JobProcessor::class),$c->get(JsonLogger::class)));
+            $c->get(QueueDriverInterface::class),$c->get(JobProcessor::class),$c->get(JsonLogger::class),
+            $c->get(PrometheusExporter::class), $c->get(OpenTelemetryTracer::class)));
         $this->services->singleton(Scheduler::class, fn (ServiceContainer $c): Scheduler => new Scheduler(
             $c->get(DatabaseManager::class),$c->get(QueueDriverInterface::class),$c->get(JobProcessor::class)));
 
@@ -155,6 +164,26 @@ final class Application
             $container->get(AuditLogger::class), $container->get(WebhookManager::class),
         ));
         $this->services->singleton(RuntimeDiagnostics::class, fn (ServiceContainer $container): RuntimeDiagnostics => new RuntimeDiagnostics($this->basePath(), $container->get(ConfigRepository::class)));
+        $this->services->singleton(OperationalStats::class, fn (ServiceContainer $c): OperationalStats => new OperationalStats(
+            $c->get(ConfigRepository::class), $c->get(DatabaseManager::class), $c->get(RedisClient::class)));
+        $this->services->singleton(Diagnostics::class, fn (ServiceContainer $c): Diagnostics => new Diagnostics(
+            $c->get(RuntimeDiagnostics::class), $c->get(ConfigRepository::class), $c, $c->get(InstallState::class)));
+        $this->services->singleton(HealthCheck::class, fn (ServiceContainer $c): HealthCheck => new HealthCheck(
+            $c->get(RuntimeDiagnostics::class), $c->get(Diagnostics::class)));
+        $this->services->singleton(SystemReport::class, fn (ServiceContainer $c): SystemReport => new SystemReport(
+            $this, $c->get(ConfigRepository::class), $c->get(RuntimeDiagnostics::class), $c->get(Diagnostics::class)));
+        $this->services->singleton(PrometheusExporter::class, fn (ServiceContainer $c): PrometheusExporter => new PrometheusExporter(
+            $this->basePath('storage/cache/observability-metrics.json')));
+        $this->services->singleton(OpenTelemetryTracer::class, function (ServiceContainer $c): OpenTelemetryTracer {
+            $cfg = $c->get(ConfigRepository::class);
+            return new OpenTelemetryTracer($cfg->get('observability.otel_enabled', false) === true,
+                (string)$cfg->get('observability.otel_endpoint', 'http://127.0.0.1:4318'),
+                $this->version(), (float)$cfg->get('observability.otel_sample_ratio', 0.1));
+        });
+        $this->services->singleton(MetricsController::class, fn (ServiceContainer $c): MetricsController => new MetricsController(
+            $c->get(ConfigRepository::class), $c->get(PrometheusExporter::class), $c->get(Diagnostics::class)));
+        $this->services->singleton(OperationalHealthController::class, fn (ServiceContainer $c): OperationalHealthController => new OperationalHealthController(
+            $c->get(HealthCheck::class)));
         $this->services->singleton(Router::class, function (ServiceContainer $container): Router {
             $router = new Router();
             $register = require $this->basePath('routes/api.php');
@@ -163,6 +192,7 @@ final class Application
         });
         $this->services->singleton(HttpKernel::class, fn (ServiceContainer $container): HttpKernel => new HttpKernel(
             $container->get(Router::class), $container->get(JsonLogger::class), $this->errors(),
+            $container->get(PrometheusExporter::class), $container->get(OpenTelemetryTracer::class),
         ));
 
         $env = (string) $this->configuration->get('app.env', 'production');

@@ -29,6 +29,9 @@ return static function (Router $router, ServiceContainer $container): void {
     });
     $router->group('/api/v1', static function (Router $routes) use ($container): void {
         $routes->get('/health', static fn (HttpRequest $request): HttpResponse => ($container->get(HealthController::class))($request));
+        $routes->get('/live', static fn (HttpRequest $r): HttpResponse => $container->get(\Cajeer\Servers\Api\Controller\OperationalHealthController::class)->live($r));
+        $routes->get('/ready', static fn (HttpRequest $r): HttpResponse => $container->get(\Cajeer\Servers\Api\Controller\OperationalHealthController::class)->ready($r));
+        $routes->get('/metrics', static fn (HttpRequest $r): HttpResponse => ($container->get(\Cajeer\Servers\Observability\MetricsController::class))($r));
         $routes->get('/system', static fn (HttpRequest $request): HttpResponse => $container->get(SystemController::class)->index($request));
         $routes->group('/auth', static function (Router $auth) use ($container): void {
             $handler = static fn (): AuthController => $container->get(AuthController::class);

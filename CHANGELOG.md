@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.8] — Observability & Operational CLI (2026-11-09)
+
+- Реальные public liveness (`/api/v1/live`) и readiness (`/api/v1/ready`), Runtime-only `/health` сохранён.
+- PostgreSQL/Redis/queue/scheduler/storage diagnostics; недоступные зависимости fail closed, без утечки секретов.
+- Prometheus HTTP histogram/counters, worker outcome counters и dependency gauges, bounded labels и persistent 0600 file-lock store.
+- Opt-in, token-protected `/api/v1/metrics` (text/plain), HTTPS-only в production.
+- Opt-in OpenTelemetry OTLP/HTTP JSON для HTTP и queue, без пользовательских URL, payload и токенов.
+- CLI health:live, health:ready, doctor:deep, system:report, metrics:render, queue:stats, scheduler:stats, security:prune, openapi:lint с реальными exit codes.
+- Замена placeholder entrypoints, конфигурация, OpenAPI 3.1.1, Wiki, пример Prometheus alerts, native observability smoke.
+- Локально проверены метрики, HTTP-скрейп, трассы через HTTP fixture и регрессии. Продуктовые PostgreSQL/Redis/S3-интеграции здесь не запускались.
+
+
 ## [0.1.7] — Cache, Queue, Scheduler & Storage (2026-11-09)
 
 - Реальный Redis client (RESP2, AUTH/ACL, TLS, binary safety), TTL cache с атомарным INCRBY.

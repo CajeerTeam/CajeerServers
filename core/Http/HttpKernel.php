@@ -11,6 +11,8 @@ use Cajeer\Servers\Http\Middleware\RequestSizeMiddleware;
 use Cajeer\Servers\Http\Middleware\SecurityHeadersMiddleware;
 use Cajeer\Servers\Logging\JsonLogger;
 use Cajeer\Servers\Security\SecurityHeaders;
+use Cajeer\Servers\Observability\PrometheusExporter;
+use Cajeer\Servers\Observability\OpenTelemetryTracer;
 use Cajeer\Servers\Runtime\ErrorHandler;
 use Cajeer\Servers\Runtime\HttpRequest;
 use Cajeer\Servers\Runtime\HttpResponse;
@@ -26,6 +28,8 @@ final class HttpKernel
         private readonly Router $router,
         private readonly JsonLogger $logger,
         private readonly ErrorHandler $errors,
+        private readonly ?PrometheusExporter $metrics = null,
+        private readonly ?OpenTelemetryTracer $tracer = null,
     ) {
         $this->middleware = [
             new AccessLogMiddleware($logger),
@@ -43,6 +47,7 @@ final class HttpKernel
 
     public function handle(HttpRequest $request): HttpResponse
     {
+        $start = hrtime(true);
         $requestId = bin2hex(random_bytes(12));
         $request = $request->withAttribute('request_id', $requestId);
         $this->errors->mode('http', $requestId);
@@ -60,7 +65,20 @@ final class HttpKernel
             $response = $this->problem(new HttpException(500, 'Internal Server Error', 'internal_error'), $requestId);
         }
         // Apply even on exception paths, including failures inside middleware.
-        return $this->secure($response)->withHeader('X-Request-Id', $requestId);
+        $response = $this->secure($response)->withHeader('X-Request-Id', $requestId);
+        $this->observe($request->method, $response->status, (hrtime(true) - $start) / 1_000_000_000);
+        return $response;
+    }
+
+    private function observe(string $method, int $status, float $seconds): void
+    {
+        try { $this->metrics?->observe($method, $status, $seconds); }
+        catch (Throwable $error) { error_log('CajeerServers: metrics recording unavailable.'); }
+        try {
+            if ($this->tracer !== null && !$this->tracer->recordHttp($method, $status, $seconds)) {
+                // Best-effort OTLP: never fail an HTTP request if collection is offline.
+            }
+        } catch (Throwable $error) { error_log('CajeerServers: tracing exporter unavailable.'); }
     }
 
     /** HTTP protocol errors thrown during parsing before a Request exists. */

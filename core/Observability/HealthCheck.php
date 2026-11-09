@@ -1,11 +1,25 @@
 <?php
+declare(strict_types=1);
+
 namespace Cajeer\Servers\Observability;
 
-/** Health check contract. */
+use Cajeer\Servers\Runtime\RuntimeDiagnostics;
+
+/** Liveness never depends on Redis/PostgreSQL; readiness does. */
 final class HealthCheck
 {
-    public function name(): string
+    public function __construct(private readonly RuntimeDiagnostics $runtime, private readonly Diagnostics $diagnostics) {}
+
+    /** @return array{status:string,service:string,scope:string} */
+    public function live(): array
     {
-        return 'HealthCheck';
+        return ['status' => 'alive', 'service' => 'cajeerservers', 'scope' => 'process'];
+    }
+
+    /** @return array{status:string,service:string,scope:string} */
+    public function ready(): array
+    {
+        $result = $this->diagnostics->run();
+        return ['status' => $result['status'], 'service' => 'cajeerservers', 'scope' => 'dependencies'];
     }
 }

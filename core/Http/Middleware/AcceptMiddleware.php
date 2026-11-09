@@ -12,7 +12,7 @@ final class AcceptMiddleware implements MiddlewareInterface
 {
     public function process(HttpRequest $request, callable $next): HttpResponse
     {
-        if ($request->path === '/install') return $next($request);
+        if (in_array($request->path, ['/install', '/api/v1/metrics'], true)) return $next($request);
         if ($request->method !== 'OPTIONS' && !self::acceptsJson($request->header('Accept', '*/*'))) {
             throw new HttpException(406, 'Only JSON responses are available.', 'not_acceptable');
         }

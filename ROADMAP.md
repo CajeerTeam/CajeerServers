@@ -96,12 +96,16 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 - [ ] Политика retention для security rate limits и webhook inbox (отдельное обслуживание; 0.1.8).
 - [ ] RabbitMQ driver и multipart/streaming S3 для больших объектов — отложены.
 
-## 0.1.8 — Observability & Operational CLI (следующий релиз)
+## 0.1.8 — Observability & Operational CLI (реализовано, требуется проверка на внешних сервисах)
 
-- [ ] Достоверные liveness/readiness PostgreSQL, Redis, storage и queue.
-- [ ] Prometheus metrics и OpenTelemetry spans для HTTP и фоновых jobs.
-- [ ] `doctor`, `system:report`, `queue:stats`, structured logs, alerts, cleanup security/webhooks.
-- [ ] Единая диагностика и проверка production-конфигурации.
+- [x] Liveness и readiness с реальными проверками PostgreSQL, Redis, queue, scheduler, storage.
+- [x] Prometheus metrics с ограниченными метками, HTTP histogram, queue outcomes, dependency gauges.
+- [x] Opt-in OpenTelemetry spans для HTTP и фоновых worker jobs.
+- [x] CLI health:live/ready, doctor:deep, system:report, queue:stats, scheduler:stats, metrics:render, openapi:lint.
+- [x] Bounded cleanup security rate limits/login attempts/webhook inbox/sessions с dry-run, без удаления audit_log.
+- [x] Примеры внешних Prometheus alert rules, документированные параметры production и native smoke.
+- [ ] Подтвердить PostgreSQL 17/18, Redis, внешний S3/OTLP collector, production reverse-proxy/TLS в CI.
+- [ ] Встроенный notification dispatcher и долгосрочное распределённое time-series хранилище — отдельные релизы, в 0.1.8 не заявлены.
 
 ## 0.1.9 — Admin UI & End-to-End Integration (планируется)
 

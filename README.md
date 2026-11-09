@@ -2,6 +2,19 @@
 
 **CajeerServers** — русскоязычная self-hosted веб-оболочка для наблюдения и управления инфраструктурой. Это **не ОС**, не прошивка и не замена Proxmox/VMmanager. Для будущих версий предусмотрен сбор данных через API, собственные скрипты, webhooks, collectors и интеграции без обязательных системных агентов.
 
+## Версия 0.1.8 — Observability & Operational CLI
+
+Реальные liveness/readiness probes, диагностика PostgreSQL/Redis/Queue/Scheduler/Local/S3,
+запись HTTP/queue metrics в Prometheus exposition format, OTLP/HTTP JSON spans, защищённый
+scrape endpoint и эксплуатационные команды, включая system-report, stats и bounded retention.
+Используйте `php bin/cajeer health:live`, `php bin/cajeer health:ready`,
+`php bin/cajeer doctor:deep`, `php bin/cajeer metrics:render` и
+`php tests/observability-smoke.php`. Полные настройки — [wiki/Observability.md](wiki/Observability.md).
+
+**Patch:** поверх 0.1.7. Metrics endpoint по умолчанию закрыт и включается только
+с отдельным scrape token. Нет открытых инфраструктурных mutation API. Реальные Redis/PostgreSQL/S3
+интеграционные тесты в целевой среде обязательны перед production rollout.
+
 ## Версия 0.1.7 — Cache, Queue, Scheduler & Storage
 
 Рабочие драйверы Redis cache (RESP2/TLS/ACL), очередей Redis (атомарный Lua) и PostgreSQL (SKIP LOCKED/lease fencing), worker с allowlist типов задач, планировщик PostgreSQL с cron/таймзонами/transactional outbox, локальное атомарное и S3-compatible SigV4 хранилище. Не запускает произвольные PHP/shell-команды из заданий. Доступ только через локальный CLI; инфраструктурные HTTP API не публикуются.

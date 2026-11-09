@@ -39,7 +39,8 @@
     "security:postgres:test": "@php tests/security-postgres-integration.php",
     "infrastructure:test": "@php tests/infrastructure-smoke.php",
     "infrastructure:postgres:test": "@php tests/infrastructure-postgres-integration.php",
-    "infrastructure:redis:test": "@php tests/infrastructure-redis-integration.php"
+    "infrastructure:redis:test": "@php tests/infrastructure-redis-integration.php",
+    "observability:test": "@php tests/observability-smoke.php"
   },
   "minimum-stability": "stable",
   "prefer-stable": true,

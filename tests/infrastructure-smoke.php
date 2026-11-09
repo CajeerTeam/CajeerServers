@@ -111,7 +111,8 @@ try {
  };
  $project=dirname(__DIR__);
  $processor=new JobProcessor(new RuntimeDiagnostics($project,new ConfigRepository($project.'/config')),$disk,$queueFake);
- $worker=new JobWorker($queueFake,$processor,new JsonLogger($dir.'/logs'));
+ $workerMetrics = new \Cajeer\Servers\Observability\PrometheusExporter($dir.'/worker-metrics.json');
+ $worker=new JobWorker($queueFake,$processor,new JsonLogger($dir.'/logs'),$workerMetrics);
  $probe=QueuedJob::create('storage.probe',[], 'default',2);
  $queueFake->next=new QueueReservation($probe,'receipt',1);
  $r=$worker->once();
@@ -123,6 +124,9 @@ try {
  $queueFake->next=new QueueReservation($unknown,'receipt3',2);
  $r=$worker->once();
  $check($r['status']==='failed','job reaches terminal attempt');
+ $collected=$workerMetrics->render();
+ $check(str_contains($collected, 'cajeer_queue_jobs_processed_total{type="storage.probe",outcome="completed"} 1'), 'real worker success metric');
+ $check(str_contains($collected, 'cajeer_queue_jobs_processed_total{type="other",outcome="failed"} 2'), 'real worker retry/failed attempts metric');
  $check($processor->supports('queue.prune'),'queue retention job registered');
  $check($processor->process(QueuedJob::create('queue.prune',['days'=>7]))['deleted']===9,'queue retention processor executes');
  $reject(fn()=> $processor->process(QueuedJob::create('queue.prune',['days'=>'seven'])),'invalid prune payload denied');

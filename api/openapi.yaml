@@ -1,7 +1,7 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.1.7
+  version: 0.1.8
   description: 'CajeerServers 0.1.7: реальная PostgreSQL-аутентификация, scoped API tokens, RBAC с проверками на
     сервере, TOTP MFA и одноразовые recovery codes, security audit (append-only), подписанный вебхук-входящий журнал
     с защитой от replay. HTTPS обязателен в production. Для state-changing security API нужны cookie-сессия и X-CSRF-Token.
@@ -31,6 +31,78 @@ paths:
                 $ref: '#/components/schemas/Health'
         '406':
           $ref: '#/components/responses/NotAcceptable'
+  /live:
+    get:
+      operationId: processLiveness
+      summary: Liveness HTTP/PHP процесса, не зависит от PostgreSQL и Redis
+      security: []
+      responses:
+        '200':
+          description: Веб-процесс отвечает
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, service, scope]
+                properties:
+                  status: {type: string, const: alive}
+                  service: {type: string}
+                  scope: {type: string, const: process}
+  /ready:
+    get:
+      operationId: dependencyReadiness
+      summary: Готовность runtime, установки, PostgreSQL, Redis, очереди, планировщика и storage
+      description: >-
+        Публичный endpoint возвращает только агрегат, без адресов хостов и деталей ошибок.
+        S3 storage проверяется реальной временной записью/чтением/удалением; local storage — проверкой каталога.
+      security: []
+      responses:
+        '200':
+          description: Все обязательные зависимости доступны
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, service, scope]
+                properties:
+                  status: {type: string, const: ready}
+                  service: {type: string}
+                  scope: {type: string, const: dependencies}
+        '503':
+          description: Не готова хотя бы одна обязательная зависимость
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, service, scope]
+                properties:
+                  status: {type: string, const: not_ready}
+                  service: {type: string}
+                  scope: {type: string, const: dependencies}
+  /metrics:
+    get:
+      operationId: prometheusScrape
+      summary: Защищённый Prometheus exposition format
+      description: >-
+        Отключён по умолчанию. Требует PROMETHEUS_ENABLED=true и
+        PROMETHEUS_SCRAPE_TOKEN длиной не менее 32 символов. Bearer-token
+        проверяется по constant-time comparison; в production необходим HTTPS.
+        Счётчики HTTP/queue сохраняются локально на инстансе, метки ограничены;
+        gauge dependency_up получает фактический результат проверки зависимостей.
+      security:
+        - metricsBearer: []
+      responses:
+        '200':
+          description: Текстовые метрики Prometheus 0.0.4
+          content:
+            text/plain:
+              schema: {type: string}
+        '401':
+          description: Не передан или неверен scrape bearer token
+        '403':
+          description: В production требуется HTTPS
+        '404':
+          description: Экспорт метрик отключён или не сконфигурирован
   /system:
     get:
       operationId: publicSystemInfo
@@ -1164,6 +1236,10 @@ components:
           schema:
             $ref: '#/components/schemas/Problem'
   securitySchemes:
+    metricsBearer:
+      type: http
+      scheme: bearer
+      description: Отдельный статический scrape token, не API token пользователя.
     sessionAuth:
       type: apiKey
       in: cookie

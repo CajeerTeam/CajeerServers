@@ -50,8 +50,8 @@ final class CommandRunner
                 'queue:push', 'queue:work', 'queue:status', 'queue:failed', 'queue:retry', 'queue:prune',
                 'scheduler:add', 'scheduler:list', 'scheduler:run', 'scheduler:enable', 'scheduler:disable',
                 'storage:check', 'storage:put', 'storage:get', 'storage:exists', 'storage:delete' => (new InfrastructureCommands($this->app))->run($command, $argv),
-                'connector:sync', 'scripts:run',
-                'system:report', 'openapi:lint', 'update:check' => $this->unavailable($command),
+                'health', 'health:live', 'health:ready', 'doctor:deep', 'system:report', 'metrics:render', 'openapi:lint', 'queue:stats', 'scheduler:stats', 'security:prune' => (new OperationalCommands($this->app))->run($command, $argv),
+                'connector:sync', 'scripts:run', 'update:check' => $this->unavailable($command),
                 default => $this->unknown($command),
             };
         } catch (Throwable $error) {
@@ -63,7 +63,7 @@ final class CommandRunner
     private function help(): int
     {
         fwrite(STDOUT, <<<'TEXT'
-CajeerServers CLI 0.1.7
+CajeerServers CLI 0.1.8
 
 Рабочие команды:
   help                 Список доступных команд
@@ -108,6 +108,16 @@ CajeerServers CLI 0.1.7
   storage:get          --key=... --output=/path/to/new/file
   storage:exists       --key=...
   storage:delete       --key=...
+  health:live          Проверка liveness, не зависит от БД и Redis
+  health:ready         Проверка runtime, installation, PostgreSQL, Redis, queue, scheduler, storage
+  doctor:deep          Глубокие проверки инфраструктуры, включая storage read/write/delete
+  system:report        Системный отчёт без секретов [--deep]
+  metrics:render       Экспорт накопленных Prometheus-метрик (CLI)
+  openapi:lint         Проверка YAML/OpenAPI при наличии symfony/yaml
+  queue:stats          Счётчики реально сохранённых jobs [--queue=default]
+  scheduler:stats      PostgreSQL task/outbox counters
+  security:prune       Выборка кандидатов на очистку [--days=30] [--limit=500]
+  security:prune --apply   Выполнить ограниченную очистку; audit_log неизменен
 
 Нереализованные инфраструктурные команды возвращают ошибку.
 TEXT
