@@ -1,8 +1,9 @@
 openapi: 3.1.1
 info:
   title: CajeerServers API
-  version: 0.1.0
-  description: API-first web control shell for infrastructure data collection and management.
+  version: 0.1.1
+  description: Future API contract (not implemented in runtime 0.1.1).
+x-cajeer-implementation: planned
 servers:
   - url: /api/v1
 security:

@@ -1,15 +1,18 @@
 #!/usr/bin/env php
 <?php
-$command = $argv[1] ?? 'help';
-$commands = [
-    'help', 'doctor', 'install:check', 'migrate', 'queue:work', 'scheduler:run',
-    'connector:sync', 'scripts:run', 'system:report', 'openapi:lint', 'self:test', 'update:check'
-];
+declare(strict_types=1);
 
-if ($command === 'help' || !in_array($command, $commands, true)) {
-    echo "CajeerServers CLI\n";
-    echo "Available commands: " . implode(', ', $commands) . "\n";
-    exit(0);
+use Cajeer\Servers\Cli\CommandRunner;
+
+$app = null;
+$exitCode = 1;
+try {
+    $app = require dirname(__DIR__) . '/core/bootstrap.php';
+    $exitCode = (new CommandRunner($app))->run($argv);
+} catch (Throwable $error) {
+    error_log('CajeerServers: CLI bootstrap failure (' . $error::class . ').');
+    fwrite(STDERR, "[ERROR] CLI bootstrap failed. Check .env syntax and runtime configuration.\n");
+} finally {
+    $app?->terminate();
 }
-
-echo "[cajeerservers] executing {$command}\n";
+exit($exitCode);

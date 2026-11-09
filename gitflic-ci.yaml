@@ -1,0 +1,30 @@
+stages:
+  - verify
+  - test
+
+php84-runtime:
+  stage: verify
+  image: php:8.4-cli
+  script:
+    - php -v
+    - find core app public bin tests -type f \( -name '*.php' -o -name 'cajeer' \) -exec php -l {} \; | grep -v 'No syntax errors detected' | tee /tmp/lint-errors.txt
+    - test ! -s /tmp/lint-errors.txt
+    - APP_ENV=local APP_DEBUG=false php tests/runtime-smoke.php
+    - APP_ENV=local APP_DEBUG=false php bin/cajeer self:test
+    - '! php bin/cajeer migrate'
+
+php85-runtime:
+  stage: verify
+  image: php:8.5-cli
+  script:
+    - php -v
+    - APP_ENV=local APP_DEBUG=false php tests/runtime-smoke.php
+    - APP_ENV=local APP_DEBUG=false php bin/cajeer self:test
+
+composer-and-unit-tests:
+  stage: test
+  image: composer:2
+  script:
+    - composer validate --strict
+    - composer install --no-interaction --prefer-dist
+    - APP_ENV=local APP_DEBUG=false vendor/bin/phpunit

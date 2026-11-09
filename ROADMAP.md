@@ -21,6 +21,20 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 - [x] CLI `cajeer` command shell.
 - [x] GitFlic Wiki стартовые страницы.
 
+## 0.1.1 — Application Bootstrap & Runtime (выполнено)
+
+- [x] Единый bootstrap, загрузка .env, ConfigRepository, DI container.
+- [x] Application lifecycle и обработка ошибок HTTP/CLI.
+- [x] Рабочие CLI диагностика, self-test, коды ошибок.
+- [x] Runtime logging, native smoke tests, GitFlic CI.
+- [ ] Composer lockfile (сгенерировать в сетевой среде с Composer 2 и проверить).
+
+## 0.1.2 — HTTP Kernel & REST API (следующая версия)
+
+- [ ] Symfony Request/Response, маршрутизация и middleware.
+- [ ] JSON-валидация, единый формат ошибок.
+- [ ] Реальный базовый REST API и тесты маршрутов.
+
 ## 0.2.0 — Core Kernel
 
 Цель: рабочее ядро приложения, маршрутизация, конфигурация и базовая безопасность.

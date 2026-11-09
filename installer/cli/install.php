@@ -1,4 +1,6 @@
 #!/usr/bin/env php
 <?php
-echo "CajeerServers CLI Installer\n";
-echo "1. Check PHP 8.4+\n2. Check storage\n3. Check database\n";
+declare(strict_types=1);
+
+fwrite(STDERR, "Installer is not implemented in 0.1.1. Run 'php bin/cajeer install:check' to verify the runtime.\n");
+exit(3);
