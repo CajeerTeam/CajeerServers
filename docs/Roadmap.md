@@ -376,4 +376,15 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 - [x] Native smoke / PostgreSQL integration сценарии, GitHub Actions, OpenAPI 3.1.1 и GitHub Docs.
 - [ ] Подтверждённый PostgreSQL 17/18 E2E на целевой платформе (требует запуска CI и инфраструктуры).
 
-Следующий этап: **0.2.5 Infrastructure Relationships & Topology**.
+Этап 0.2.5 реализован; 0.2.6 развивает CMDB тегами, группами и поиском.
+
+### 0.2.6 — Tags, Groups, Search & Filtering (реализовано локально)
+
+- [x] Workspace-scoped PostgreSQL taxonomy, group membership, audit and optimistic edits.
+- [x] Backfill of legacy tags and PostgreSQL trigger synchronization.
+- [x] Search by name, external ID, IP and owner/environment/tag/group filters.
+- [x] Catalog and Inventory Nuxt pages, OpenAPI 3.1.1, smoke and PostgreSQL integration test sources.
+- [ ] Full PostgreSQL 17/18 integration and Nuxt browser E2E on a real deployment.
+- [ ] Reproducible Composer/npm lockfiles, production release gate.
+
+**Следующий этап: 0.2.7 — Inventory History, Provenance & Reconciliation.**

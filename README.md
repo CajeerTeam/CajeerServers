@@ -306,3 +306,12 @@ Native smoke-tests выполняются без Composer. GitHub CI прове�
 ### Infrastructure Relationships & Topology (0.2.5)
 
 Новый раздел `/topology` показывает хранимые в PostgreSQL связи инфраструктурных объектов и read-only связи IPAM. CRUD отношений защищён RBAC, workspace, CSRF и ETag; PostgreSQL блокирует циклы, неподходящие пары и перенос/soft-delete связанных объектов. Полное описание: [Infrastructure Relationships & Topology](docs/Infrastructure-Relationships-Topology.md). Действия на реальном оборудовании не выполняются.
+
+### Tags, Groups, Search & Filtering (0.2.6)
+
+- Реляционный каталог тегов и групп с workspace-изоляцией, ETag, RBAC, CSRF и аудитом.
+- Автоматическая нормализация старых `inventory_assets.tags` и синхронизация новых изменений триггером PostgreSQL.
+- Фильтры по тегу, группе, окружению, владельцу, типу, статусу, ОС и источнику; полнотекстовый поиск по имени/external ID и IP lookup.
+- `GET /api/v1/inventory/tags`, `/groups`, `/assets` и UI `/catalog`, `/inventory`.
+- Миграция `migrations/pgsql/0013_inventory_catalog_search.sql`, `docs/Inventory-Catalog-Search.md`.
+- Полный production-gate требует PostgreSQL integration, Nuxt build и browser E2E.

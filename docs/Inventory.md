@@ -64,3 +64,5 @@ php tests/inventory-crud-postgres-integration.php
 Legacy-IP остаются JSONB-массивом; нормализованный IPAM реализован в 0.2.4, отношения и топология — в 0.2.5. Автоматический импорт, sync engine и provider connectors — позднее. Данный выпуск не реализует управление реальными устройствами, секретами, сетями и виртуализацией.
 
 Документация размещена в GitHub Docs (`docs/`), CI — GitHub Actions (`.github/workflows/`).
+
+Версия 0.2.6 добавляет реляционные теги, группы, окружения и поиск; см. `Inventory-Catalog-Search.md`.

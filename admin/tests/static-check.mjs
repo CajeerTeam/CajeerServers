@@ -27,4 +27,8 @@ ok(read('pages/ipam.vue').includes('/ipam/networks') && read('pages/ipam.vue').i
 ok(existsSync(new URL('pages/topology.vue',root)), 'topology page exists')
 ok(read('pages/topology.vue').includes('/inventory/relationships') && read('pages/topology.vue').includes('/inventory/topology'), 'topology consumes live APIs')
 ok(read('pages/topology.vue').includes('If-Match') && read('layouts/default.vue').includes('/topology'), 'topology optimistic editing and navigation')
+ok(existsSync(new URL('pages/catalog.vue',root)), 'Catalog management UI exists')
+ok(read('pages/catalog.vue').includes('/inventory/tags') && read('pages/catalog.vue').includes('/inventory/groups'), 'Catalog UI uses live endpoints')
+ok(read('pages/catalog.vue').includes('If-Match') && read('layouts/default.vue').includes('/catalog'), 'Catalog optimistic editing and navigation')
+ok(read('pages/inventory.vue').includes('tagFilter') && read('pages/inventory.vue').includes('groupFilter') && read('pages/inventory.vue').includes('envFilter'), 'Inventory faceted filtering')
 console.log(`Admin static checks: ${passed} PASS`)

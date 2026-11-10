@@ -1,8 +1,8 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.2.5
-  description: 'CajeerServers 0.2.5: typed infrastructure relationships, workspace-scoped topology, plus IPv4/IPv6 IPAM, Inventory CRUD, RBAC, session CSRF, ETag and audit. Manual inventory only; external infrastructure control remains disabled. See docs/Inventory.md.'
+  version: 0.2.6
+  description: 'CajeerServers 0.2.6: workspace tags and groups, full-text inventory search, faceted filters, group membership, cursor pagination, plus existing Inventory/IPAM/Topology, RBAC, session CSRF, ETag and audit. Manual inventory only; external infrastructure control remains disabled. See docs/Inventory.md.'
 servers:
 - url: /api/v1
 security: []
@@ -1594,6 +1594,702 @@ paths:
         schema:
           type: string
           format: uuid
+  /inventory/tags:
+    get:
+      operationId: listInventoryTags
+      summary: Теги или группы выбранного workspace
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 100
+      - name: offset
+        in: query
+        schema:
+          type: integer
+          minimum: 0
+          maximum: 10000
+          default: 0
+      responses:
+        '200':
+          description: Список в пределах доступного пространства
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatalogPage'
+        '401':
+          description: Требуется сессия
+        '403':
+          description: Нет прав или недостаточная роль workspace
+        '404':
+          description: Ресурс не найден или недоступен
+        '409':
+          description: Конфликт связей или состояния
+        '412':
+          description: Устаревший ETag
+        '422':
+          description: Некорректные поля
+        '428':
+          description: Требуется If-Match
+        '503':
+          description: Сервис недоступен
+    post:
+      operationId: createInventoryTags
+      summary: Создать запись каталога в управляемом workspace
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCatalogEntry'
+      responses:
+        '201':
+          description: Запись каталога из PostgreSQL
+          headers:
+            ETag:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatalogEntryResponse'
+        '401':
+          description: Требуется сессия
+        '403':
+          description: Нет прав или недостаточная роль workspace
+        '404':
+          description: Ресурс не найден или недоступен
+        '409':
+          description: Конфликт связей или состояния
+        '412':
+          description: Устаревший ETag
+        '422':
+          description: Некорректные поля
+        '428':
+          description: Требуется If-Match
+        '503':
+          description: Сервис недоступен
+  /inventory/tags/{id}:
+    get:
+      operationId: readInventoryTags
+      summary: Получить запись каталога
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Запись каталога из PostgreSQL
+          headers:
+            ETag:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatalogEntryResponse'
+        '401':
+          description: Требуется сессия
+        '403':
+          description: Нет прав или недостаточная роль workspace
+        '404':
+          description: Ресурс не найден или недоступен
+        '409':
+          description: Конфликт связей или состояния
+        '412':
+          description: Устаревший ETag
+        '422':
+          description: Некорректные поля
+        '428':
+          description: Требуется If-Match
+        '503':
+          description: Сервис недоступен
+    patch:
+      operationId: updateInventoryTags
+      summary: Изменить название или описание (slug неизменяем)
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      - name: If-Match
+        in: header
+        required: true
+        schema:
+          type: string
+        description: Strong ETag of the catalog entry/group
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateCatalogEntry'
+      responses:
+        '200':
+          description: Запись каталога из PostgreSQL
+          headers:
+            ETag:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatalogEntryResponse'
+        '401':
+          description: Требуется сессия
+        '403':
+          description: Нет прав или недостаточная роль workspace
+        '404':
+          description: Ресурс не найден или недоступен
+        '409':
+          description: Конфликт связей или состояния
+        '412':
+          description: Устаревший ETag
+        '422':
+          description: Некорректные поля
+        '428':
+          description: Требуется If-Match
+        '503':
+          description: Сервис недоступен
+    delete:
+      operationId: deleteInventoryTags
+      summary: Удалить запись только при отсутствии привязок
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      - name: If-Match
+        in: header
+        required: true
+        schema:
+          type: string
+        description: Strong ETag of the catalog entry/group
+      responses:
+        '204':
+          description: Запись удалена
+        '401':
+          description: Требуется сессия
+        '403':
+          description: Нет прав или недостаточная роль workspace
+        '404':
+          description: Ресурс не найден или недоступен
+        '409':
+          description: Конфликт связей или состояния
+        '412':
+          description: Устаревший ETag
+        '422':
+          description: Некорректные поля
+        '428':
+          description: Требуется If-Match
+        '503':
+          description: Сервис недоступен
+  /inventory/groups:
+    get:
+      operationId: listInventoryGroups
+      summary: Теги или группы выбранного workspace
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 100
+      - name: offset
+        in: query
+        schema:
+          type: integer
+          minimum: 0
+          maximum: 10000
+          default: 0
+      responses:
+        '200':
+          description: Список в пределах доступного пространства
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatalogPage'
+        '401':
+          description: Требуется сессия
+        '403':
+          description: Нет прав или недостаточная роль workspace
+        '404':
+          description: Ресурс не найден или недоступен
+        '409':
+          description: Конфликт связей или состояния
+        '412':
+          description: Устаревший ETag
+        '422':
+          description: Некорректные поля
+        '428':
+          description: Требуется If-Match
+        '503':
+          description: Сервис недоступен
+    post:
+      operationId: createInventoryGroups
+      summary: Создать запись каталога в управляемом workspace
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCatalogEntry'
+      responses:
+        '201':
+          description: Запись каталога из PostgreSQL
+          headers:
+            ETag:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatalogEntryResponse'
+        '401':
+          description: Требуется сессия
+        '403':
+          description: Нет прав или недостаточная роль workspace
+        '404':
+          description: Ресурс не найден или недоступен
+        '409':
+          description: Конфликт связей или состояния
+        '412':
+          description: Устаревший ETag
+        '422':
+          description: Некорректные поля
+        '428':
+          description: Требуется If-Match
+        '503':
+          description: Сервис недоступен
+  /inventory/groups/{id}:
+    get:
+      operationId: readInventoryGroups
+      summary: Получить запись каталога
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Запись каталога из PostgreSQL
+          headers:
+            ETag:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatalogEntryResponse'
+        '401':
+          description: Требуется сессия
+        '403':
+          description: Нет прав или недостаточная роль workspace
+        '404':
+          description: Ресурс не найден или недоступен
+        '409':
+          description: Конфликт связей или состояния
+        '412':
+          description: Устаревший ETag
+        '422':
+          description: Некорректные поля
+        '428':
+          description: Требуется If-Match
+        '503':
+          description: Сервис недоступен
+    patch:
+      operationId: updateInventoryGroups
+      summary: Изменить название или описание (slug неизменяем)
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      - name: If-Match
+        in: header
+        required: true
+        schema:
+          type: string
+        description: Strong ETag of the catalog entry/group
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateCatalogEntry'
+      responses:
+        '200':
+          description: Запись каталога из PostgreSQL
+          headers:
+            ETag:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatalogEntryResponse'
+        '401':
+          description: Требуется сессия
+        '403':
+          description: Нет прав или недостаточная роль workspace
+        '404':
+          description: Ресурс не найден или недоступен
+        '409':
+          description: Конфликт связей или состояния
+        '412':
+          description: Устаревший ETag
+        '422':
+          description: Некорректные поля
+        '428':
+          description: Требуется If-Match
+        '503':
+          description: Сервис недоступен
+    delete:
+      operationId: deleteInventoryGroups
+      summary: Удалить запись только при отсутствии привязок
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      - name: If-Match
+        in: header
+        required: true
+        schema:
+          type: string
+        description: Strong ETag of the catalog entry/group
+      responses:
+        '204':
+          description: Запись удалена
+        '401':
+          description: Требуется сессия
+        '403':
+          description: Нет прав или недостаточная роль workspace
+        '404':
+          description: Ресурс не найден или недоступен
+        '409':
+          description: Конфликт связей или состояния
+        '412':
+          description: Устаревший ETag
+        '422':
+          description: Некорректные поля
+        '428':
+          description: Требуется If-Match
+        '503':
+          description: Сервис недоступен
+  /inventory/groups/{id}/assets:
+    get:
+      operationId: listInventoryGroupAssets
+      summary: Объекты группы, включая soft-deleted для управления членством
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 100
+      - name: offset
+        in: query
+        schema:
+          type: integer
+          minimum: 0
+          maximum: 10000
+          default: 0
+      responses:
+        '200':
+          description: Объекты группы, включая soft-deleted для управления членством
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        name:
+                          type: string
+                        type:
+                          type: string
+                        status:
+                          type: string
+        '401':
+          description: Требуется сессия
+        '403':
+          description: Нет прав или недостаточная роль workspace
+        '404':
+          description: Ресурс не найден или недоступен
+        '409':
+          description: Конфликт связей или состояния
+        '412':
+          description: Устаревший ETag
+        '422':
+          description: Некорректные поля
+        '428':
+          description: Требуется If-Match
+        '503':
+          description: Сервис недоступен
+  /inventory/groups/{id}/assets/{assetId}:
+    post:
+      operationId: attachInventoryGroupAsset
+      summary: Добавить существующий активный asset в группу
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: assetId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      - name: If-Match
+        in: header
+        required: true
+        schema:
+          type: string
+        description: Strong ETag of the catalog entry/group
+      responses:
+        '200':
+          description: Запись каталога из PostgreSQL
+          headers:
+            ETag:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatalogEntryResponse'
+        '401':
+          description: Требуется сессия
+        '403':
+          description: Нет прав или недостаточная роль workspace
+        '404':
+          description: Ресурс не найден или недоступен
+        '409':
+          description: Конфликт связей или состояния
+        '412':
+          description: Устаревший ETag
+        '422':
+          description: Некорректные поля
+        '428':
+          description: Требуется If-Match
+        '503':
+          description: Сервис недоступен
+    delete:
+      operationId: detachInventoryGroupAsset
+      summary: Удалить привязку asset к группе
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: assetId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      - name: If-Match
+        in: header
+        required: true
+        schema:
+          type: string
+        description: Strong ETag of the catalog entry/group
+      responses:
+        '200':
+          description: Запись каталога из PostgreSQL
+          headers:
+            ETag:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatalogEntryResponse'
+        '401':
+          description: Требуется сессия
+        '403':
+          description: Нет прав или недостаточная роль workspace
+        '404':
+          description: Ресурс не найден или недоступен
+        '409':
+          description: Конфликт связей или состояния
+        '412':
+          description: Устаревший ETag
+        '422':
+          description: Некорректные поля
+        '428':
+          description: Требуется If-Match
+        '503':
+          description: Сервис недоступен
   /inventory/assets:
     get:
       operationId: listInventoryAssets
@@ -1651,6 +2347,55 @@ paths:
         schema:
           type: string
           maxLength: 100
+      - name: tag
+        in: query
+        schema:
+          type: string
+          pattern: ^[a-z0-9][a-z0-9._-]{0,63}$
+      - name: group_id
+        in: query
+        schema:
+          type: string
+          format: uuid
+      - name: owner_user_id
+        in: query
+        schema:
+          type: string
+          format: uuid
+      - name: environment
+        in: query
+        schema:
+          type: string
+          maxLength: 64
+      - name: source
+        in: query
+        schema:
+          type: string
+          maxLength: 120
+      - name: os_family
+        in: query
+        schema:
+          type: string
+          enum:
+          - windows
+          - debian
+          - ubuntu
+          - linux
+          - other
+      - name: sort
+        in: query
+        schema:
+          type: string
+          enum:
+          - created_desc
+          - updated_desc
+          - name_asc
+          default: created_desc
+      - name: cursor
+        in: query
+        schema:
+          type: string
+          description: Opaque keyset cursor; only for created_desc with offset=0
       - name: include_deleted
         in: query
         schema:
@@ -2977,19 +3722,19 @@ paths:
         '422': {description: Неверный запрос}
 components:
   schemas:
-  InventoryRelationship:
-    type: object
-    required: [id, workspace_id, source_asset_id, target_asset_id, kind, version, etag]
-    properties:
-      id: {type: string, format: uuid}
-      workspace_id: {type: string, format: uuid}
-      source_asset_id: {type: string, format: uuid}
-      target_asset_id: {type: string, format: uuid}
-      kind: {type: string, enum: [cluster_contains, hosts, depends_on, connected_to]}
-      version: {type: integer, minimum: 1}
-      etag: {type: string}
-      created_at: {type: string, format: date-time}
-      updated_at: {type: string, format: date-time}
+    InventoryRelationship:
+      type: object
+      required: [id, workspace_id, source_asset_id, target_asset_id, kind, version, etag]
+      properties:
+        id: {type: string, format: uuid}
+        workspace_id: {type: string, format: uuid}
+        source_asset_id: {type: string, format: uuid}
+        target_asset_id: {type: string, format: uuid}
+        kind: {type: string, enum: [cluster_contains, hosts, depends_on, connected_to]}
+        version: {type: integer, minimum: 1}
+        etag: {type: string}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
     Health:
       type: object
       additionalProperties: false
@@ -3269,6 +4014,9 @@ components:
           type: array
           items:
             type: string
+        environment:
+          type: string
+          description: Workspace-local environment identifier
         tags:
           type: array
           items:
@@ -3320,6 +4068,9 @@ components:
           items:
             type: string
             maxLength: 45
+        environment: &id037
+          type: string
+          pattern: '^[a-z][a-z0-9_-]{0,63}$'
         tags: &id034
           type: array
           maxItems: 50
@@ -3340,6 +4091,7 @@ components:
         status: *id030
         os_family: *id032
         ip_addresses: *id033
+        environment: *id037
         tags: *id034
         attributes: *id035
         owner_user_id: *id036
@@ -3376,6 +4128,98 @@ components:
               type: integer
             total:
               type: integer
+            next_cursor:
+              type: [string, "null"]
+    CatalogEntry:
+      type: object
+      required:
+      - id
+      - workspace_id
+      - slug
+      - name
+      - description
+      - version
+      - etag
+      properties:
+        id:
+          type: string
+          format: uuid
+        workspace_id:
+          type: string
+          format: uuid
+        slug:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        version:
+          type: integer
+        etag:
+          type: string
+        asset_count:
+          type: integer
+        created_at:
+          type: string
+        updated_at:
+          type: string
+    CatalogEntryResponse:
+      type: object
+      required:
+      - data
+      properties:
+        data:
+          $ref: '#/components/schemas/CatalogEntry'
+    CatalogPage:
+      type: object
+      required:
+      - data
+      - pagination
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/CatalogEntry'
+        pagination:
+          type: object
+          properties:
+            limit:
+              type: integer
+            offset:
+              type: integer
+            total:
+              type: integer
+    CreateCatalogEntry:
+      type: object
+      required:
+      - workspace_id
+      - slug
+      - name
+      additionalProperties: false
+      properties:
+        workspace_id:
+          type: string
+          format: uuid
+        slug:
+          type: string
+          maxLength: 64
+        name:
+          type: string
+          maxLength: 128
+        description:
+          type: string
+          maxLength: 1024
+    UpdateCatalogEntry:
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          maxLength: 128
+        description:
+          type: string
+          maxLength: 1024
   responses:
     NotAcceptable:
       description: The Accept header does not permit JSON

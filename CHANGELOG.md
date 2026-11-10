@@ -1,3 +1,13 @@
+## [0.2.6] — 2026-11-09 — Tags, Groups, Search & Filtering
+
+- Рабочие PostgreSQL `inventory_tags`, `inventory_asset_tags`, `inventory_groups`, `inventory_group_assets`; сохранены старые UUID и JSONB-теги.
+- Автоматическая синхронизация старых тегов и очистка групповых связей при переносе asset между workspaces.
+- API CRUD каталога и управление составом групп с workspace RBAC, CSRF, ETag, аудитом и fail-closed проверками.
+- PostgreSQL FTS + поиск по имени/external ID/IP, фасетные фильтры, сортировка и cursor pagination.
+- Nuxt Catalog UI, расширенные фильтры Inventory, GitHub Actions integration и изолированные PostgreSQL тесты.
+- Исправлена прежняя вложенность InventoryRelationship в OpenAPI components.schemas.
+- Ограничение проверки: настоящая PostgreSQL и Nuxt E2E требуют запуска в целевом окружении.
+
 ## [0.2.5] — 2026-11-09 — Infrastructure Relationships & Topology
 
 - Рабочие PostgreSQL CMDB-отношения `cluster_contains`, `hosts`, `depends_on`, `connected_to`: транзакции, workspace-scoped FKs, циклы и structural ownership constraints.

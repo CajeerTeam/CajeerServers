@@ -5,27 +5,30 @@ const auth = useAuth()
 type Workspace = { id: string; name: string; organization_id: string; role: 'owner'|'manager'|'viewer' }
 type Asset = {
   id: string; workspace_id: string; name: string; type: string; status: string; source: string;
-  os_family: string|null; ip_addresses: string[]; tags: string[]; attributes: Record<string,unknown>;
+  os_family: string|null; environment:string; ip_addresses: string[]; tags: string[]; attributes: Record<string,unknown>;
   owner_user_id: string|null; etag: string; version: number; deleted_at: string|null; updated_at: string
 }
-type Paged = { data: Asset[]; pagination: { total:number; limit:number; offset:number } }
+type Paged = { data: Asset[]; pagination: { total:number; limit:number; offset:number; next_cursor?: string|null } }
+type CatalogEntry = { id:string; slug:string; name:string }
 const types = ['server','hypervisor_node','cluster','virtual_machine','container','router','workstation','other']
 const statuses = ['unknown','online','offline','maintenance','provisioning','decommissioned']
 const systems = ['windows','debian','ubuntu','linux','other']
 const spaces = ref<Workspace[]>([])
 const workspaceId = ref('')
 const assets = ref<Asset[]>([])
+const tagOptions=ref<CatalogEntry[]>([]),groupOptions=ref<CatalogEntry[]>([])
 const selected = ref<Asset|null>(null)
 const busy = ref(false)
 const error = ref('')
 const notice = ref('')
 const search = ref('')
 const typeFilter = ref('')
+const statusFilter=ref(''),osFilter=ref(''),sourceFilter=ref(''),envFilter=ref(''),tagFilter=ref(''),groupFilter=ref(''),ownerFilter=ref(''),sortFilter=ref('created_desc')
 const showDeleted = ref(false)
 const offset = ref(0)
 const total = ref(0)
 const limit = 25
-const form = reactive({ type: 'server', name:'', status:'unknown', os_family:'', owner_user_id:'', ips:'', tags:'', attributes:'{}' })
+const form = reactive({ type: 'server', name:'', status:'unknown', os_family:'', owner_user_id:'', environment:'unassigned', ips:'', tags:'', attributes:'{}' })
 const activeWorkspace = computed(()=>spaces.value.find(w=>w.id===workspaceId.value))
 const writable = computed(()=>['owner','manager'].includes(activeWorkspace.value?.role || ''))
 const canRead = computed(()=>auth.can('inventory.assets.read'))
@@ -35,9 +38,9 @@ const canDelete = computed(()=>writable.value && auth.can('inventory.assets.dele
 function toForm(asset?:Asset) {
   selected.value = asset || null
   Object.assign(form,asset ? {
-    type:asset.type, name:asset.name, status:asset.status, os_family:asset.os_family||'', owner_user_id:asset.owner_user_id||'',
+    type:asset.type, name:asset.name, status:asset.status, os_family:asset.os_family||'', owner_user_id:asset.owner_user_id||'', environment:asset.environment||'unassigned',
     ips:asset.ip_addresses.join(', '), tags:asset.tags.join(', '), attributes:JSON.stringify(asset.attributes,null,2),
-  } : { type:'server',name:'',status:'unknown',os_family:'',owner_user_id:'',ips:'',tags:'',attributes:'{}' })
+  } : { type:'server',name:'',status:'unknown',os_family:'',owner_user_id:'',environment:'unassigned',ips:'',tags:'',attributes:'{}' })
   error.value='';notice.value=''
 }
 async function init() {
@@ -46,8 +49,17 @@ async function init() {
   try {
     spaces.value = (await api.get<{data:Workspace[]}>('/workspaces')).data
     if (!spaces.value.some(w=>w.id===workspaceId.value)) workspaceId.value=spaces.value[0]?.id||''
-    await load()
+    await loadCatalog();await load()
   } catch(e) {error.value=apiError(e).message} finally {busy.value=false}
+}
+async function loadCatalog(){
+  tagOptions.value=[];groupOptions.value=[]
+  if (!workspaceId.value||!auth.can('inventory.catalog.read'))return
+  try{
+    const q=new URLSearchParams({workspace_id:workspaceId.value})
+    const [t,g]=await Promise.all([api.get<{data:CatalogEntry[]}>(`/inventory/tags?${q}`),api.get<{data:CatalogEntry[]}>(`/inventory/groups?${q}`)])
+    tagOptions.value=t.data;groupOptions.value=g.data
+  }catch(e){error.value=apiError(e).message}
 }
 async function load() {
   if (!workspaceId.value) {assets.value=[];total.value=0;return}
@@ -56,6 +68,8 @@ async function load() {
     const qs = new URLSearchParams({ workspace_id:workspaceId.value,limit:String(limit),offset:String(offset.value) })
     if(search.value.trim()) qs.set('search',search.value.trim())
     if(typeFilter.value) qs.set('type',typeFilter.value)
+    for(const [k,v] of Object.entries({status:statusFilter.value,os_family:osFilter.value,source:sourceFilter.value,
+       environment:envFilter.value,tag:tagFilter.value,group_id:groupFilter.value,owner_user_id:ownerFilter.value,sort:sortFilter.value})) if(v)qs.set(k,v)
     if(showDeleted.value && writable.value) qs.set('include_deleted','1')
     const result=await api.get<Paged>(`/inventory/assets?${qs}`)
     assets.value=result.data;total.value=result.pagination.total
@@ -65,7 +79,7 @@ function parseForm() {
   const attributes=JSON.parse(form.attributes)
   if (attributes === null || Array.isArray(attributes) || typeof attributes !== 'object') throw new Error('Атрибуты должны быть JSON-объектом.')
   return {
-    name:form.name.trim(),status:form.status,os_family:form.os_family||null,owner_user_id:form.owner_user_id||null,
+    name:form.name.trim(),status:form.status,os_family:form.os_family||null,environment:form.environment,owner_user_id:form.owner_user_id||null,
     ip_addresses:form.ips.split(',').map(v=>v.trim()).filter(Boolean),
     tags:form.tags.split(',').map(v=>v.trim()).filter(Boolean),attributes,
   }
@@ -100,7 +114,7 @@ async function toggleDeleted(asset:Asset) {
   } catch(e) {error.value=apiError(e).status===412?'Конфликт версии. Обновите список.':apiError(e).message}
   finally {busy.value=false}
 }
-function switchWorkspace(){offset.value=0;toForm();load()}
+function switchWorkspace(){offset.value=0;toForm();loadCatalog();load()}
 function applyFilters(){offset.value=0;load()}
 function page(dir:number){offset.value=Math.max(0,offset.value+dir*limit);load()}
 onMounted(init)
@@ -109,7 +123,7 @@ onMounted(init)
 <template>
   <div>
     <h1>Inventory / CMDB</h1>
-    <p class="page-subtitle">Учёт инфраструктуры с изоляцией по рабочим пространствам. Версия 0.2.3 — ручное создание и управление объектами. Proxmox/VMmanager здесь не исполняются.</p>
+    <p class="page-subtitle">Учёт инфраструктуры с изоляцией по рабочим пространствам. Версия 0.2.6 — каталоги тегов и групп, полнотекстовый поиск и фильтры. Proxmox/VMmanager здесь не исполняются.</p>
     <div v-if="error" class="alert" role="alert">{{ error }}</div>
     <div v-if="notice" class="alert success" role="status">{{ notice }}</div>
     <div v-if="!canRead" class="alert">Нет разрешения inventory.assets.read.</div>
@@ -117,8 +131,16 @@ onMounted(init)
       <section class="panel">
         <div class="form-row">
           <div class="field"><label for="inventory-workspace">Пространство</label><select id="inventory-workspace" v-model="workspaceId" :disabled="busy" @change="switchWorkspace"><option v-for="w in spaces" :key="w.id" :value="w.id">{{ w.name }} ({{ w.role }})</option></select></div>
-          <div class="field"><label for="inventory-search">Поиск по имени</label><input id="inventory-search" v-model="search" maxlength="100" placeholder="Имя сервера" @keyup.enter="applyFilters" /></div>
+          <div class="field"><label for="inventory-search">Поиск по имени, external ID и IP</label><input id="inventory-search" v-model="search" maxlength="100" placeholder="Имя сервера" @keyup.enter="applyFilters" /></div>
           <div class="field"><label for="inventory-type">Тип</label><select id="inventory-type" v-model="typeFilter" @change="applyFilters"><option value="">Все типы</option><option v-for="t in types" :key="t" :value="t">{{ t }}</option></select></div>
+          <div class="field"><label for="inv-filter-tag">Тег</label><select id="inv-filter-tag" v-model="tagFilter" @change="applyFilters"><option value="">Все теги</option><option v-for="t in tagOptions" :key="t.id" :value="t.slug">{{t.name}}</option></select></div>
+          <div class="field"><label for="inv-filter-group">Группа</label><select id="inv-filter-group" v-model="groupFilter" @change="applyFilters"><option value="">Все группы</option><option v-for="g in groupOptions" :key="g.id" :value="g.id">{{g.name}}</option></select></div>
+          <div class="field"><label for="inv-filter-env">Окружение</label><input id="inv-filter-env" v-model="envFilter" placeholder="production" maxlength="64" @keyup.enter="applyFilters" /></div>
+          <div class="field"><label for="inv-filter-owner">UUID владельца</label><input id="inv-filter-owner" v-model="ownerFilter" placeholder="UUID" @keyup.enter="applyFilters" /></div>
+          <div class="field"><label for="inv-filter-os">ОС</label><select id="inv-filter-os" v-model="osFilter" @change="applyFilters"><option value="">Любая</option><option v-for="os in systems" :key="os" :value="os">{{os}}</option></select></div>
+          <div class="field"><label for="inv-filter-status">Статус</label><select id="inv-filter-status" v-model="statusFilter" @change="applyFilters"><option value="">Любой</option><option v-for="st in statuses" :key="st" :value="st">{{st}}</option></select></div>
+          <div class="field"><label for="inv-filter-source">Источник</label><input id="inv-filter-source" v-model="sourceFilter" placeholder="manual" @keyup.enter="applyFilters" /></div>
+          <div class="field"><label for="inv-filter-sort">Сортировка</label><select id="inv-filter-sort" v-model="sortFilter" @change="applyFilters"><option value="created_desc">Новые сначала</option><option value="updated_desc">Недавно изменённые</option><option value="name_asc">По имени</option></select></div>
         </div>
         <div class="inline-actions"><button class="btn" type="button" :disabled="busy" @click="applyFilters">Обновить</button><button v-if="canCreate" class="btn primary" type="button" :disabled="busy" @click="toForm()">Новый объект</button><label v-if="writable"><input v-model="showDeleted" type="checkbox" style="width:auto" @change="applyFilters" /> Показывать удалённые</label></div>
         <div v-if="!assets.length" class="empty">Объекты не найдены.</div>
@@ -135,6 +157,7 @@ onMounted(init)
             <div class="field"><label for="inv-object-type">Тип</label><select id="inv-object-type" v-model="form.type" :disabled="!!selected"><option v-for="t in types" :key="t" :value="t">{{ t }}</option></select></div>
             <div class="field"><label for="inv-status">Статус</label><select id="inv-status" v-model="form.status"><option v-for="s in statuses" :key="s" :value="s">{{ s }}</option></select></div>
             <div class="field"><label for="inv-os">ОС</label><select id="inv-os" v-model="form.os_family"><option value="">Не указана</option><option v-for="s in systems" :key="s" :value="s">{{ s }}</option></select></div>
+            <div class="field"><label for="inv-env">Окружение</label><input id="inv-env" v-model="form.environment" maxlength="64" pattern="[a-z][a-z0-9_-]*" required /></div>
             <div class="field"><label for="inv-ips">IP-адреса (через запятую)</label><input id="inv-ips" v-model="form.ips" placeholder="192.0.2.10, 2001:db8::10" /></div>
             <div class="field"><label for="inv-tags">Теги (через запятую)</label><input id="inv-tags" v-model="form.tags" placeholder="production,critical" /></div>
             <div class="field"><label for="inv-owner">UUID владельца (необязательно)</label><input id="inv-owner" v-model="form.owner_user_id" placeholder="UUID участника пространства" /></div>

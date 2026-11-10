@@ -40,6 +40,8 @@ use Cajeer\Servers\Inventory\IpamController;
 use Cajeer\Servers\Inventory\RelationshipService;
 use Cajeer\Servers\Inventory\TopologyService;
 use Cajeer\Servers\Inventory\RelationshipController;
+use Cajeer\Servers\Inventory\CatalogService;
+use Cajeer\Servers\Inventory\CatalogController;
 use Cajeer\Servers\Workspace\WorkspaceService;
 use Cajeer\Servers\Workspace\WorkspaceController;
 use Cajeer\Servers\Logging\JsonLogger;
@@ -219,6 +221,10 @@ final class Application
             $c->get(DatabaseManager::class),$c->get(InventoryRepository::class)));
         $this->services->singleton(RelationshipController::class, fn (ServiceContainer $c): RelationshipController => new RelationshipController(
             $c->get(AuthenticationService::class),$c->get(Rbac::class),$c->get(RelationshipService::class),$c->get(TopologyService::class)));
+        $this->services->singleton(CatalogService::class, fn (ServiceContainer $c): CatalogService => new CatalogService(
+            $c->get(DatabaseManager::class),$c->get(InventoryRepository::class),$c->get(AuditLogger::class)));
+        $this->services->singleton(CatalogController::class, fn (ServiceContainer $c): CatalogController => new CatalogController(
+            $c->get(AuthenticationService::class),$c->get(Rbac::class),$c->get(CatalogService::class)));
         $this->services->singleton(WorkspaceService::class, fn (ServiceContainer $c): WorkspaceService => new WorkspaceService(
             $c->get(DatabaseManager::class), $c->get(AuditLogger::class)));
         $this->services->singleton(WorkspaceController::class, fn (ServiceContainer $c): WorkspaceController => new WorkspaceController(

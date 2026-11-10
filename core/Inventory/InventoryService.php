@@ -28,18 +28,31 @@ final class InventoryService
     }
 
     /** @return array<string,mixed> */
-    public function list(string $actor,string $workspace,int $limit,int $offset,?string $type,?string $status,?string $search,bool $includeDeleted):array
+    public function list(string $actor,string $workspace,int $limit,int $offset,?string $type,?string $status,?string $search,bool $includeDeleted,array $filters=[]):array
     {
         self::uuid($workspace);
         if ($limit<1 || $limit>100 || $offset<0 || $offset>10000 || ($type!==null && !in_array($type,InfrastructureAsset::TYPES,true))
             || ($status!==null && !in_array($status,InfrastructureAsset::STATUSES,true)) || ($search!==null && (strlen($search)>100 || preg_match('/[\x00-\x1f\x7f]/',$search)))) {
             throw new HttpException(422,'Invalid inventory filters.','validation_failed');
         }
+        foreach ($filters as $field=>$value) {
+            $valid=match($field){
+                'tag'=>is_string($value)&&preg_match('/^[a-z0-9][a-z0-9._-]{0,63}$/D',$value)===1,
+                'group_id','owner_user_id'=>is_string($value)&&InfrastructureAsset::isUuid($value),
+                'environment'=>is_string($value)&&preg_match('/^[a-z][a-z0-9_-]{0,63}$/D',$value)===1,
+                'source'=>is_string($value)&&preg_match('/^[a-z][a-z0-9_.-]{0,119}$/D',$value)===1,
+                'os_family'=>is_string($value)&&in_array($value,InfrastructureAsset::OS_FAMILIES,true),
+                'sort'=>is_string($value)&&in_array($value,['created_desc','name_asc','updated_desc'],true),
+                'cursor'=>is_string($value)&&strlen($value)<=200,
+                default=>false,
+            };
+            if(!$valid)throw new HttpException(422,'Invalid filter: '.$field,'validation_failed');
+        }
         $pdo=$this->db->connection();
         $role=$this->repo->workspaceRole($pdo,$workspace,$actor);
         if ($includeDeleted && !in_array($role,['owner','manager'],true)) throw new HttpException(403,'Workspace role insufficient.','permission_denied');
-        $page=$this->repo->page($pdo,$actor,$workspace,$limit,$offset,$type,$status,$search,$includeDeleted);
-        return [...$page,'pagination'=>['limit'=>$limit,'offset'=>$offset,'total'=>$page['total']]];
+        $page=$this->repo->page($pdo,$actor,$workspace,$limit,$offset,$type,$status,$search,$includeDeleted,$filters);
+        return [...$page,'pagination'=>['limit'=>$limit,'offset'=>$offset,'total'=>$page['total'],'next_cursor'=>$page['next_cursor']??null]];
     }
 
     /** @param array<string,mixed> $data @return array<string,mixed> */

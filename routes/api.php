@@ -152,7 +152,7 @@ return static function (Router $router, ServiceContainer $container): void {
                 'name'=>['type'=>'string','minLength'=>1,'maxLength'=>255],
                 'status'=>['type'=>'string','enum'=>\Cajeer\Servers\Inventory\InfrastructureAsset::STATUSES],
                 'os_family'=>[], 'owner_user_id'=>[], 'tags'=>['type'=>'array'],
-                'ip_addresses'=>['type'=>'array'], 'attributes'=>['type'=>'object'],
+                'ip_addresses'=>['type'=>'array'], 'attributes'=>['type'=>'object'], 'environment'=>['type'=>'string','maxLength'=>64],
             ];
             $patchFields = $createFields;
             unset($patchFields['workspace_id'], $patchFields['type']);
@@ -166,6 +166,25 @@ return static function (Router $router, ServiceContainer $container): void {
             ]);
             $inventory->delete('/assets/{id}', static fn (HttpRequest $r): HttpResponse => $controller()->delete($r));
             $inventory->post('/assets/{id}/restore', static fn (HttpRequest $r): HttpResponse => $controller()->restore($r));
+        });
+        // Catalog permissions are distinct from asset read/write scopes. Workspace authorization is checked in the service.
+        $routes->group('/inventory', static function (Router $catalog) use ($container): void {
+            $controller=static fn (): \Cajeer\Servers\Inventory\CatalogController => $container->get(\Cajeer\Servers\Inventory\CatalogController::class);
+            $create=['workspace_id'=>['type'=>'string','format'=>'uuid'],'slug'=>['type'=>'string','maxLength'=>64],
+                'name'=>['type'=>'string','maxLength'=>128],'description'=>['type'=>'string','maxLength'=>1024]];
+            $patch=['name'=>['type'=>'string','maxLength'=>128],'description'=>['type'=>'string','maxLength'=>1024]];
+            foreach (['tags','groups'] as $kind) {
+                $catalog->get('/'.$kind, static fn(HttpRequest $r):HttpResponse => $controller()->index($r,$kind));
+                $catalog->post('/'.$kind, static fn(HttpRequest $r):HttpResponse => $controller()->create($r,$kind),
+                    ['required'=>['workspace_id','slug','name'],'properties'=>$create,'additionalProperties'=>false]);
+                $catalog->get('/'.$kind.'/{id}', static fn(HttpRequest $r):HttpResponse => $controller()->show($r,$kind));
+                $catalog->patch('/'.$kind.'/{id}', static fn(HttpRequest $r):HttpResponse => $controller()->update($r,$kind),
+                    ['properties'=>$patch,'additionalProperties'=>false]);
+                $catalog->delete('/'.$kind.'/{id}', static fn(HttpRequest $r):HttpResponse => $controller()->delete($r,$kind));
+            }
+            $catalog->get('/groups/{id}/assets',static fn(HttpRequest $r):HttpResponse => $controller()->assets($r));
+            $catalog->post('/groups/{id}/assets/{assetId}',static fn(HttpRequest $r):HttpResponse => $controller()->member($r,true));
+            $catalog->delete('/groups/{id}/assets/{assetId}',static fn(HttpRequest $r):HttpResponse => $controller()->member($r,false));
         });
         // Inventory topology and typed asset relationships. PostgreSQL owns integrity and cycle detection.
         $routes->group('/inventory', static function (Router $graph) use ($container): void {

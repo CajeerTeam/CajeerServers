@@ -10,7 +10,7 @@ final class InfrastructureAsset
     public const TYPES = ['server','hypervisor_node','cluster','virtual_machine','container','router','workstation','other'];
     public const STATUSES = ['unknown','online','offline','maintenance','provisioning','decommissioned'];
     public const OS_FAMILIES = ['windows','debian','ubuntu','linux','other'];
-    public const FIELDS = ['name','status','os_family','ip_addresses','tags','attributes','owner_user_id'];
+    public const FIELDS = ['name','status','os_family','ip_addresses','tags','attributes','owner_user_id','environment'];
 
     /** @param array<string,mixed> $input @return array<string,mixed> */
     public static function create(array $input): array
@@ -31,6 +31,9 @@ final class InfrastructureAsset
                     if (!is_string($value)) self::invalid($key);
                     $value=trim($value);
                     if ($value==='' || strlen($value)>255 || preg_match('/[\x00-\x1F\x7F]/',$value)) self::invalid($key);
+                    break;
+                case 'environment':
+                    if (!is_string($value) || preg_match('/^[a-z][a-z0-9_-]{0,63}$/D',$value)!==1) self::invalid($key);
                     break;
                 case 'status':
                     if (!is_string($value) || !in_array($value,self::STATUSES,true)) self::invalid($key);
@@ -72,7 +75,7 @@ final class InfrastructureAsset
         }
         if (!$creating && !$out) self::invalid('patch');
         if ($creating) $out=['name'=>$out['name'], 'status'=>$out['status']??'unknown', 'os_family'=>$out['os_family']??null,
-            'owner_user_id'=>$out['owner_user_id']??null,'ip_addresses'=>$out['ip_addresses']??[], 'tags'=>$out['tags']??[], 'attributes'=>$out['attributes']??[]];
+            'owner_user_id'=>$out['owner_user_id']??null,'environment'=>$out['environment']??'unassigned','ip_addresses'=>$out['ip_addresses']??[], 'tags'=>$out['tags']??[], 'attributes'=>$out['attributes']??[]];
         return $out;
     }
 

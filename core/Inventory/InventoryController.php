@@ -69,7 +69,10 @@ final class InventoryController
         $workspace=self::textParam($r,'workspace_id');
         if ($workspace===null || !InfrastructureAsset::isUuid($workspace)) throw new HttpException(422,'workspace_id is required.','validation_failed');
         $result=$this->service->list($actor,$workspace,self::intParam($r,'limit',50),self::intParam($r,'offset',0),
-            self::textParam($r,'type'),self::textParam($r,'status'),self::textParam($r,'search'),self::includeDeleted($r));
+            self::textParam($r,'type'),self::textParam($r,'status'),self::textParam($r,'search'),self::includeDeleted($r),
+            array_filter(array_combine(['tag','group_id','owner_user_id','environment','source','os_family','sort','cursor'],
+                array_map(static fn(string $k):?string => self::textParam($r,$k),['tag','group_id','owner_user_id','environment','source','os_family','sort','cursor'])),
+                static fn($v):bool => $v!==null && $v!==''));
         return HttpResponse::json($result);
     }
     public function show(HttpRequest $r):HttpResponse
