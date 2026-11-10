@@ -103,6 +103,7 @@ return static function (Router $router, ServiceContainer $container): void {
             $admin->get('/session', static fn (HttpRequest $r): HttpResponse => $controller()->session($r));
             $admin->get('/overview', static fn (HttpRequest $r): HttpResponse => $controller()->overview($r));
             $admin->get('/diagnostics', static fn (HttpRequest $r): HttpResponse => $controller()->diagnostics($r));
+            $admin->get('/cmdb-integrity', static fn (HttpRequest $r): HttpResponse => $controller()->cmdbIntegrity($r));
             $admin->get('/jobs', static fn (HttpRequest $r): HttpResponse => $controller()->jobs($r));
             $admin->get('/jobs/{id}', static fn (HttpRequest $r): HttpResponse => $controller()->job($r));
             $admin->post('/jobs', static fn (HttpRequest $r): HttpResponse => $controller()->dispatch($r), [

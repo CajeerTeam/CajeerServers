@@ -1,8 +1,8 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.2.9
-  description: 'CajeerServers 0.2.9: complete Inventory Admin UI workflows over existing REST API, deep-linked asset cards and E2E release verification. Session-only, workspace RBAC and CSRF. No provider connectors or remote infrastructure commands.'
+  version: 0.3.0
+  description: 'CajeerServers 0.3.0: read-only CMDB integrity inspection, durable import dispatch and stable Inventory/IPAM/Topology/History integration. Session-protected diagnostics, workspace RBAC and CSRF. No provider connectors or remote infrastructure commands.'
 servers:
 - url: /api/v1
 security: []
@@ -1024,6 +1024,28 @@ paths:
           description: Неавторизованный пользователь
         '403':
           description: Недостаточно прав
+  /admin/cmdb-integrity:
+    get:
+      operationId: adminCmdbIntegrity
+      summary: Проверка согласованности Inventory / CMDB без изменения данных
+      description: Read-only PostgreSQL snapshot, 14 межмодульных проверок и агрегированные счётчики без имён, IP, учётных данных и атрибутов устройств. Требуется серверная сессия с admin.dashboard.read.
+      security:
+      - sessionAuth: []
+      responses:
+        '200':
+          description: Проверка выполнена (поле ok может быть false при нарушениях целостности)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CmdbIntegrityReport'
+        '500':
+          description: Не удалось выполнить запрос к базе; подробности не возвращаются
+        '503':
+          description: Зависимости недоступны при инициализации системы
+        '401':
+          description: Требуется серверная сессия
+        '403':
+          description: Недостаточно разрешений
   /admin/jobs:
     get:
       operationId: adminJobs
@@ -4559,6 +4581,35 @@ paths:
           type: string
 components:
   schemas:
+    CmdbIntegrityReport:
+      type: object
+      required: [ok, checked_at, totals, checks, deep]
+      properties:
+        ok:
+          type: boolean
+        checked_at:
+          type: string
+          format: date-time
+        deep:
+          type: boolean
+        totals:
+          type: object
+          additionalProperties:
+            type: integer
+            minimum: 0
+        checks:
+          type: array
+          items:
+            type: object
+            required: [name, ok, count]
+            properties:
+              name:
+                type: string
+              ok:
+                type: boolean
+              count:
+                type: integer
+                minimum: 0
     InventoryRelationship:
       type: object
       required: [id, workspace_id, source_asset_id, target_asset_id, kind, version, etag]

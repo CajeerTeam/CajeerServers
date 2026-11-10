@@ -7,6 +7,7 @@ use Cajeer\Servers\Database\DatabaseManager;
 use Cajeer\Servers\Database\MigrationRunner;
 use Cajeer\Servers\Installer\InstallState;
 use Cajeer\Servers\Inventory\InventoryReadiness;
+use Cajeer\Servers\Inventory\CmdbIntegrity;
 use Cajeer\Servers\Kernel\Application;
 use Cajeer\Servers\Observability\Diagnostics;
 use Cajeer\Servers\Runtime\RuntimeDiagnostics;
@@ -108,6 +109,9 @@ SQL)->fetchColumn();
             $this->probe($checks, 'inventory_readiness', fn (): bool => $this->app->container()
                 ->get(InventoryReadiness::class)->inspect(true)['ok'] === true,
                 'Inventory contains invalid legacy data or upgrade constraints are unvalidated.');
+            $this->probe($checks, 'cmdb_integrity', fn (): bool => $this->app->container()
+                ->get(CmdbIntegrity::class)->inspect(true)['ok'] === true,
+                'CMDB integrity violations detected in Inventory, IPAM, topology, history, imports or credentials.');
             $this->probe($checks, 'dependencies', fn (): bool => $this->app->container()->get(Diagnostics::class)->run()['ok'] === true,
                 'Required PostgreSQL, Redis, queue, scheduler and storage must pass readiness checks.');
         }

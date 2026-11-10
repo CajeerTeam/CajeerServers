@@ -54,4 +54,5 @@ ok(read('pages/ipam.vue').includes('queryUuid(route.query.asset_id)') && read('p
 ok(read('layouts/default.vue').includes('inventoryContextUrl'), 'sidebar preserves workspace context')
 ok(existsSync(new URL('tests/e2e/inventory-journey.spec.ts',root)), 'real cross-module E2E staging scenario')
 ok(existsSync(new URL('tests/e2e/import-idempotency.spec.ts',root)), 'import lost-response E2E staging scenario')
+ok(read('pages/index.vue').includes('/admin/cmdb-integrity'), 'CMDB integrity dashboard consumes authenticated API')
 console.log(`Admin static checks: ${passed} PASS`)

@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Cajeer\Servers\Cli;
 
 use Cajeer\Servers\Inventory\InventoryReadiness;
+use Cajeer\Servers\Inventory\CmdbIntegrity;
 use Cajeer\Servers\Kernel\Application;
 
 /** Manual inventory upgrade inspection; no HTTP route or secret-bearing export. */
@@ -15,10 +16,26 @@ final class InventoryCommands
     public function run(string $command, array $argv): int
     {
         $args = array_slice($argv, 2);
-        $allowed = $command === 'inventory:preflight' ? ['--json', '--strict'] : ['--apply', '--json'];
+        $allowed = match ($command) {
+            'inventory:preflight' => ['--json', '--strict'],
+            'inventory:integrity' => ['--json', '--deep'],
+            default => ['--apply', '--json'],
+        };
         if (count(array_diff($args, $allowed)) || count($args) !== count(array_unique($args))) {
-            fwrite(STDERR, "Invalid options. inventory:preflight [--json] [--strict]; inventory:constraints [--apply] [--json]\n");
+            fwrite(STDERR, "Invalid options. inventory:preflight [--json] [--strict]; inventory:constraints [--apply] [--json]; inventory:integrity [--json] [--deep]\n");
             return 2;
+        }
+        if ($command === 'inventory:integrity') {
+            $report = $this->app->container()->get(CmdbIntegrity::class)->inspect(in_array('--deep', $args, true));
+            if (in_array('--json', $args, true)) {
+                fwrite(STDOUT, json_encode($report, JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) . "\n");
+            } else {
+                fwrite(STDOUT, $report['ok'] ? "CMDB INTEGRITY: OK\n" : "CMDB INTEGRITY: FAILED\n");
+                foreach ($report['checks'] as $check) {
+                    fwrite(STDOUT, sprintf("[%s] %s (%d)\n", $check['ok'] ? 'OK' : 'FAIL', $check['name'], $check['count']));
+                }
+            }
+            return $report['ok'] ? 0 : 1;
         }
         $service = $this->app->container()->get(InventoryReadiness::class);
         if ($command === 'inventory:constraints' && !in_array('--apply', $args, true)) {

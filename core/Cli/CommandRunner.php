@@ -53,7 +53,7 @@ final class CommandRunner
                 'scheduler:add', 'scheduler:list', 'scheduler:run', 'scheduler:enable', 'scheduler:disable',
                 'storage:check', 'storage:put', 'storage:get', 'storage:exists', 'storage:delete' => (new InfrastructureCommands($this->app))->run($command, $argv),
                 'health', 'health:live', 'health:ready', 'doctor:deep', 'system:report', 'metrics:render', 'openapi:lint', 'queue:stats', 'scheduler:stats', 'security:prune' => (new OperationalCommands($this->app))->run($command, $argv),
-                'inventory:preflight', 'inventory:constraints' => (new InventoryCommands($this->app))->run($command, $argv),
+                'inventory:preflight', 'inventory:constraints', 'inventory:integrity' => (new InventoryCommands($this->app))->run($command, $argv),
                 'connector:sync', 'scripts:run', 'update:check' => $this->unavailable($command),
                 default => $this->unknown($command),
             };
@@ -87,6 +87,7 @@ CajeerServers CLI 0.2.1
   self:test            Самопроверка bootstrap, DI и конфигурации
   inventory:preflight [--json] [--strict]  Проверить реальные записи и схему Inventory без изменений
   inventory:constraints [--json] [--apply]  Просмотреть / валидировать NOT VALID ограничения Inventory
+  inventory:integrity [--json] [--deep]  Проверка согласованности CMDB (только чтение)
   release:check        Проверить метаданные, runtime и обязательные части релиза
   release:check --strict [--json]  Проверить production DB, миграции, Redis, Nuxt build и lockfiles
   database:check       Проверить реальное подключение к БД

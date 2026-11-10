@@ -1,3 +1,18 @@
+## [0.3.0] — 2026-11-10 — Inventory / CMDB Stable Integration
+
+### Added
+- Исполняемый read-only `CmdbIntegrity`: согласованная транзакция PostgreSQL, 14 межмодульных проверок, aggregate-only output, 5s statement timeout; глубокая проверка циклов.
+- CLI `inventory:integrity [--json] [--deep]`, RBAC-protected `/api/v1/admin/cmdb-integrity`, панель диагностики в Nuxt.
+- PostgreSQL-миграция `0016_cmdb_stability.sql`: provenance ручных изменений и запрет soft-delete ресурсов с активными IPAM-интерфейсами.
+- Native tests для детектора инвариантов и порядка публикации import job; изолированный PostgreSQL integration и staging browser E2E, расширенный strict release-gate.
+
+### Fixed
+- Импорт публикует job после commit PostgreSQL и повторно использует долговечный UUID при сбоях Redis/PostgreSQL Queue.
+- Недопустимые ошибки доступа больше не маскируются обработчиком отсутствия очереди.
+
+### Validation limits
+- Настоящий PostgreSQL/Redis integration, Composer/npm lockfiles, Nuxt build и browser E2E должны быть проверены на целевом стенде; локальные native tests не заменяют production-допуск.
+
 ## [0.2.9] — 2026-11-10 — Complete Inventory Admin UI & E2E
 
 ### Added

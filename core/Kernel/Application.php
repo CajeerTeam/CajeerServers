@@ -32,6 +32,7 @@ use Cajeer\Servers\Database\ConnectionFactoryInterface;
 use Cajeer\Servers\Database\DatabaseManager;
 use Cajeer\Servers\Database\MigrationRunner;
 use Cajeer\Servers\Inventory\InventoryReadiness;
+use Cajeer\Servers\Inventory\CmdbIntegrity;
 use Cajeer\Servers\Inventory\InventoryRepository;
 use Cajeer\Servers\Inventory\InventoryService;
 use Cajeer\Servers\Inventory\InventoryController;
@@ -122,6 +123,9 @@ final class Application
         $this->services->singleton(InventoryReadiness::class, fn (ServiceContainer $container): InventoryReadiness => new InventoryReadiness(
             $container->get(DatabaseManager::class),
         ));
+        $this->services->singleton(CmdbIntegrity::class, fn (ServiceContainer $container): CmdbIntegrity => new CmdbIntegrity(
+            $container->get(DatabaseManager::class),
+        ));
         $this->services->singleton(JsonLogger::class, fn (ServiceContainer $container): JsonLogger => new JsonLogger($this->basePath('storage/logs')));
         $this->services->singleton(RedisClient::class, function (ServiceContainer $c): RedisClient {
             $r = $c->get(ConfigRepository::class)->get('cache.redis', []);
@@ -209,7 +213,7 @@ final class Application
         $this->services->singleton(AdminController::class, fn (ServiceContainer $c): AdminController => new AdminController(
             $c->get(AuthenticationService::class), $c->get(Rbac::class), $c->get(DatabaseManager::class),
             $c->get(QueueDriverInterface::class), $c->get(JobProcessor::class), $c->get(OperationalStats::class),
-            $c->get(Scheduler::class), $c->get(Diagnostics::class), $c->get(AuditLogger::class),
+            $c->get(Scheduler::class), $c->get(Diagnostics::class), $c->get(AuditLogger::class), $c->get(CmdbIntegrity::class),
         ));
         $this->services->singleton(InventoryRepository::class, fn (ServiceContainer $c): InventoryRepository => new InventoryRepository());
         $this->services->singleton(InventoryService::class, fn (ServiceContainer $c): InventoryService => new InventoryService(

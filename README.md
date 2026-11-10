@@ -2,6 +2,20 @@
 
 **CajeerServers** — русскоязычная self-hosted веб-оболочка для наблюдения и управления инфраструктурой. Это **не ОС**, не прошивка и не замена Proxmox/VMmanager. Для будущих версий предусмотрен сбор данных через API, собственные скрипты, webhooks, collectors и интеграции без обязательных системных агентов.
 
+## Версия 0.3.0 — Inventory / CMDB Stable Integration
+
+Добавлена **работающая межмодульная проверка целостности** Inventory, IPAM, Topology, Catalog, History, Import и Credential Bindings. Проверки выполняются непосредственно в PostgreSQL в read-only транзакции с фиксированным snapshot и ограничением времени. Команды `inventory:integrity` и защищённый `/api/v1/admin/cmdb-integrity` возвращают только агрегированные данные без секретов. Исправлена публикация импортных queue jobs до фиксации транзакции.
+
+```bash
+php bin/cajeer version
+php bin/cajeer inventory:integrity --json
+php tests/cmdb-integrity-smoke.php
+php tests/import-dispatch-smoke.php
+php scripts/verify-release.php
+```
+
+Документация: [GitHub Docs — CMDB 0.3.0](docs/CMDB-0.3.0.md). Добавлена миграция 0016 с provenance и защитой IPAM. Строгий production-допуск требует реального PostgreSQL/Redis integration, Nuxt build, браузерного E2E и подлинных lock-файлов зависимостей. Не подтверждённые проверки нельзя считать пройденными.
+
 ## Версия 0.2.9 — Complete Inventory Admin UI & E2E
 
 Рабочая карточка `/inventory/{uuid}` с редактированием по ETag и отображением IPAM, отношений, ревизий и безопасных ссылок на credentials. Сквозная навигация Inventory/History/IPAM/Topology/Transfer с сохранением workspace через URL; восстановление идемпотентности импорта при потерянном ответе и автообновление состояния batch. Два новых настоящих browser E2E-сценария для disposable staging: создание/изменение объекта и межмодульные переходы, а также потеря HTTP-ответа после записи импортного пакета на сервере.

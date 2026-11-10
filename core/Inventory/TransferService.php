@@ -86,30 +86,54 @@ SQL);
         });
         // Durable pending row remains available for manual dispatch if the queue is offline.
         try { $this->dispatch($actor,$workspace,$batch['id']); }
-        catch (\Throwable $e) {
-            // Never claim the job has been queued; return pending status with retry instruction.
+        catch (HttpException $e) { throw $e; }
+        catch (\Throwable) {
+            // The batch is durable and retryable. Do not disguise access failures.
             return [...$this->batch($actor,$workspace,$batch['id']),'queue_available'=>false];
         }
         return [...$this->batch($actor,$workspace,$batch['id']),'queue_available'=>true];
     }
 
+    /**
+     * Allocate a stable job identity and COMMIT it before contacting the queue.
+     * Publishing to Redis inside an open PostgreSQL transaction could let workers
+     * observe a nonexistent batch; a Redis failure could also strand an orphan job.
+     * Both supported drivers deduplicate pushes by the persisted UUID, so retries
+     * after a crash between push and status update are safe.
+     */
     public function dispatch(string $actor,string $workspace,string $id):array
     {
         $workspace=self::uuid($workspace,'workspace_id');$id=self::uuid($id);
-        return $this->db->transaction(function(PDO $pdo)use($actor,$workspace,$id):array{
+        $reservation=$this->db->transaction(function(PDO $pdo)use($actor,$workspace,$id):array{
             $this->inventory->workspaceRole($pdo,$workspace,$actor,true);
             $stmt=$pdo->prepare('SELECT id::text,status,queue_job_id::text FROM inventory_import_batches WHERE id=:id AND workspace_id=:ws FOR UPDATE');
             $stmt->execute(['id'=>$id,'ws'=>$workspace]);$row=$stmt->fetch(PDO::FETCH_ASSOC);
             if(!is_array($row))throw new HttpException(404,'Import batch not found.','not_found');
-            if(in_array($row['status'],['running','completed','completed_with_errors'],true))return ['id'=>$id,'status'=>$row['status']];
+            if(in_array($row['status'],['running','completed','completed_with_errors'],true))
+                return ['status'=>$row['status'],'terminal'=>true];
             $jobId=$row['queue_job_id']??null;
-            $job=$jobId!==null ? new QueuedJob($jobId,'inventory.import',['batch_id'=>$id],'default',5)
-                : QueuedJob::create('inventory.import',['batch_id'=>$id],'default',5);
-            $pdo->prepare('UPDATE inventory_import_batches SET queue_job_id=CAST(:job AS uuid) WHERE id=:id')->execute(['job'=>$job->id,'id'=>$id]);
-            $this->queue->push($job);
-            $pdo->prepare("UPDATE inventory_import_batches SET status='enqueued',updated_at=clock_timestamp() WHERE id=:id AND status IN ('pending','enqueued')")
-                ->execute(['id'=>$id]);
-            return ['id'=>$id,'status'=>'enqueued','job_id'=>$job->id];
+            if($jobId===null){
+                $jobId=QueuedJob::create('inventory.import',['batch_id'=>$id],'default',5)->id;
+                $pdo->prepare('UPDATE inventory_import_batches SET queue_job_id=CAST(:job AS uuid),updated_at=clock_timestamp() WHERE id=:id')
+                    ->execute(['job'=>$jobId,'id'=>$id]);
+            }
+            return ['status'=>$row['status'],'terminal'=>false,'job_id'=>$jobId];
+        });
+        if($reservation['terminal']) return ['id'=>$id,'status'=>$reservation['status']];
+        $job=new QueuedJob($reservation['job_id'],'inventory.import',['batch_id'=>$id],'default',5);
+        // No DB transaction is held during the external queue write.
+        $this->queue->push($job);
+        // A fast worker may have completed before this transaction opens.
+        return $this->db->transaction(function(PDO $pdo)use($actor,$workspace,$id,$job):array{
+            $this->inventory->workspaceRole($pdo,$workspace,$actor,true);
+            $pdo->prepare("UPDATE inventory_import_batches SET status='enqueued',updated_at=clock_timestamp()
+                 WHERE id=:id AND workspace_id=:ws AND queue_job_id=CAST(:job AS uuid) AND status IN ('pending','enqueued')")
+                ->execute(['id'=>$id,'ws'=>$workspace,'job'=>$job->id]);
+            $stmt=$pdo->prepare('SELECT status FROM inventory_import_batches WHERE id=:id AND workspace_id=:ws');
+            $stmt->execute(['id'=>$id,'ws'=>$workspace]);
+            $status=$stmt->fetchColumn();
+            if(!is_string($status))throw new HttpException(404,'Import batch not found.','not_found');
+            return ['id'=>$id,'status'=>$status,'job_id'=>$job->id];
         });
     }
 

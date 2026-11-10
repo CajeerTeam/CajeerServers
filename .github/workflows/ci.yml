@@ -86,3 +86,4 @@ jobs:
           php tests/catalog-postgres-integration.php
           php tests/history-postgres-integration.php
           php tests/transfer-postgres-integration.php
+          php tests/cmdb-postgres-integration.php

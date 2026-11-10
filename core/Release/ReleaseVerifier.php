@@ -46,7 +46,9 @@ final class ReleaseVerifier
                   'migrations/pgsql/0013_inventory_catalog_search.sql', 'admin/pages/catalog.vue', 'admin/nuxt.config.ts',
                   'migrations/pgsql/0015_inventory_transfer_credentials.sql', 'core/Inventory/TransferFormat.php',
                   'core/Inventory/TransferService.php', 'core/Inventory/CredentialBindingService.php',
-                  'core/Inventory/TransferController.php', 'admin/pages/transfer.vue'] as $file) {
+                  'core/Inventory/TransferController.php', 'admin/pages/transfer.vue',
+                  'core/Inventory/CmdbIntegrity.php', 'docs/CMDB-0.3.0.md',
+                  'migrations/pgsql/0016_cmdb_stability.sql'] as $file) {
             $check('source:' . $file, is_file($this->root . '/' . $file) && is_readable($this->root . '/' . $file), 'Required source file is available.');
         }
         // Strict deployment checks are intentionally not bypassed by the kernel's native autoload fallback.

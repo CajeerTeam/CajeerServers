@@ -7,6 +7,7 @@ use Cajeer\Servers\Audit\AuditLogger;
 use Cajeer\Servers\Auth\AuthenticationService;
 use Cajeer\Servers\Database\DatabaseManager;
 use Cajeer\Servers\Http\Exception\HttpException;
+use Cajeer\Servers\Inventory\CmdbIntegrity;
 use Cajeer\Servers\Observability\Diagnostics;
 use Cajeer\Servers\Observability\OperationalStats;
 use Cajeer\Servers\Queue\JobProcessor;
@@ -32,6 +33,7 @@ final class AdminController
         private readonly Scheduler $scheduler,
         private readonly Diagnostics $diagnostics,
         private readonly AuditLogger $audit,
+        private readonly CmdbIntegrity $cmdbIntegrity,
     ) {}
 
     /** @return array<string,mixed> */
@@ -72,6 +74,16 @@ final class AdminController
     {
         $this->principal($request, 'admin.dashboard.read');
         return HttpResponse::json($this->diagnostics->run(true));
+    }
+
+    /** Read-only cross-subsystem checks; only aggregated counts, never hostnames/IPs/secrets. */
+    public function cmdbIntegrity(HttpRequest $request): HttpResponse
+    {
+        $this->principal($request, 'admin.dashboard.read');
+        $report = $this->cmdbIntegrity->inspect();
+        // A completed integrity scan is a valid HTTP read even when data needs repair.
+        // The `ok` field conveys violations; readiness/release gates still fail closed.
+        return HttpResponse::json($report);
     }
 
     public function jobs(HttpRequest $request): HttpResponse

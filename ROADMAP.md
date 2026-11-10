@@ -444,3 +444,14 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 - [ ] Lock-файлы Composer/npm, полный strict release-gate.
 
 **Следующий этап: 0.3.0 — Inventory / CMDB Stable Integration.**
+
+### 0.3.0 — Inventory / CMDB Stable Integration (выполнена кодовая интеграция)
+
+- [x] Read-only SQL integrity scan Inventory, IPAM, Topology, Tags/Groups, History, Import и credential bindings.
+- [x] CLI и сессионный Admin API с RBAC; интеграция диагностики в Nuxt Dashboard.
+- [x] Коммит идентификатора import job до публикации в queue, устойчивый повтор dispatch.
+- [x] Native smoke tests, GitHub Docs, OpenAPI 3.1.1, release metadata.
+- [ ] Подтверждённые PostgreSQL 17/18, Redis integration, Nuxt production build и browser E2E на изолированном стенде.
+- [ ] Действительные `composer.lock` и `admin/package-lock.json` и успешный strict production gate.
+
+**Следующий этап: 0.4.0 — Credentials Vault.**
