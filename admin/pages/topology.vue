@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { apiError } from '~/composables/useApi'
+import { selectWorkspace, queryUuid, inventoryAssetUrl, inventoryContextUrl } from '~/composables/inventoryNavigation'
+const route=useRoute()
 const api=useApi()
 const auth=useAuth()
 type Workspace={id:string;name:string;role:'owner'|'manager'|'viewer'}
@@ -40,7 +42,7 @@ async function init(){
   busy.value=true
   try {
     spaces.value=(await api.get<{data:Workspace[]}>('/workspaces')).data
-    workspaceId.value=spaces.value[0]?.id||''
+    workspaceId.value=selectWorkspace(spaces.value,route.query.workspace_id)
     await refresh()
   }catch(e){report(e)}finally{busy.value=false}
 }
@@ -56,6 +58,8 @@ async function refresh(){
     ])
     graph.value=g.data;relations.value=r.data;assets.value=a.data
     reset()
+    const requested=queryUuid(route.query.asset_id)
+    if(requested && assets.value.some(x=>x.id===requested))sourceId.value=requested
   }catch(e){report(e)}finally{busy.value=false}
 }
 async function save(){
@@ -109,7 +113,7 @@ onMounted(init)
     <template v-else>
       <section class="panel">
         <div class="field"><label for="topology-workspace">Рабочее пространство</label>
-          <select id="topology-workspace" v-model="workspaceId" :disabled="busy" @change="refresh">
+          <select id="topology-workspace" v-model="workspaceId" :disabled="busy" @change="navigateTo(inventoryContextUrl('topology',workspaceId),{replace:true});refresh()">
             <option v-for="w in spaces" :key="w.id" :value="w.id">{{w.name}} ({{w.role}})</option>
           </select>
         </div>
@@ -165,9 +169,9 @@ onMounted(init)
         <h2>Зарегистрированные связи ({{relations.length}})</h2>
         <table><thead><tr><th>Источник</th><th>Связь</th><th>Цель</th><th>Действия</th></tr></thead>
           <tbody><tr v-for="item in relations" :key="item.id">
-            <td>{{names.get(item.source_asset_id)||item.source_asset_id}}</td>
+            <td><NuxtLink :to="inventoryAssetUrl(item.source_asset_id,workspaceId)">{{names.get(item.source_asset_id)||item.source_asset_id}}</NuxtLink></td>
             <td>{{relationName(item.kind)}}</td>
-            <td>{{names.get(item.target_asset_id)||item.target_asset_id}}</td>
+            <td><NuxtLink :to="inventoryAssetUrl(item.target_asset_id,workspaceId)">{{names.get(item.target_asset_id)||item.target_asset_id}}</NuxtLink></td>
             <td><template v-if="canWrite"><button class="btn" type="button" :disabled="busy" @click="edit(item)">Изменить</button> <button class="btn" type="button" :disabled="busy" @click="remove(item)">Удалить</button></template><span v-else>—</span></td>
           </tr></tbody>
         </table>

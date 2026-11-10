@@ -1,3 +1,20 @@
+## [0.2.9] — 2026-11-10 — Complete Inventory Admin UI & E2E
+
+### Added
+- Сквозная карточка Inventory asset с реальными данными IPAM, топологии, ревизий и привязок credentials.
+- Контекстные ссылки workspace/asset между Inventory, IPAM, Topology, History, Transfer и Catalog без client-side хранения секретов.
+- Два браузерных интеграционных сценария для disposable staging, включая проверку потери ответа при импорте.
+- Реальный Node-контракт навигации, staging E2E preflight и отдельный GitHub Actions workflow.
+
+### Changed
+- Импорт повторно использует один Idempotency-Key при сетевом сбое и показывает progress работающего batch.
+- Боковая навигация сохраняет workspace; CRUD Inventory ведёт в карточку объекта.
+- Release gate требует явное разрешение работы browser E2E только с изолированным staging.
+- OpenAPI и метаданные версии приведены к 0.2.9 (REST контракты не изменены).
+
+### Validation limits
+- Нельзя заявлять полностью подтверждённый browser E2E, Nuxt production build или реальный PostgreSQL integration в среде без registry/DB. Отсутствующие dependency lockfiles сохраняют strict gate закрытым.
+
 ## [0.2.8] — 2026-11-10 — Inventory Import / Export & Credential Bindings
 
 - CSV/JSON parsing с ограничениями 512 КиБ / 200 строк; dry-run сверка реальной PostgreSQL без побочных действий.

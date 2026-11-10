@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import { inventoryContextUrl, queryUuid, type InventorySection } from '~/composables/inventoryNavigation'
+const route = useRoute()
+const sections: InventorySection[] = ['inventory','catalog','history','transfer','ipam','topology','workspaces']
 const auth = useAuth()
 const links = computed(() => [
   { to: '/', label: 'Обзор', permission: 'admin.dashboard.read' },
@@ -16,7 +19,9 @@ const links = computed(() => [
   { to: '/audit', label: 'Аудит', permission: 'security.audit.read' },
   { to: '/system', label: 'Диагностика', permission: 'admin.dashboard.read' },
   { to: '/settings', label: 'Профиль и безопасность', permission: '' },
-].filter(item => (!item.permission || auth.can(item.permission)) && (item.to !== '/topology' || (auth.can('inventory.assets.read') && auth.can('inventory.network.read')))))
+].filter(item => (!item.permission || auth.can(item.permission)) && (item.to !== '/topology' || (auth.can('inventory.assets.read') && auth.can('inventory.network.read'))))
+  .map(item => ({...item, to: sections.includes(item.to.slice(1) as InventorySection)
+    ? inventoryContextUrl(item.to.slice(1) as InventorySection, queryUuid(route.query.workspace_id)) : item.to})))
 const loggingOut = ref(false)
 const error = ref('')
 async function logout() {

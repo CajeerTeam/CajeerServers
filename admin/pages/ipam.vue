@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { apiError } from '~/composables/useApi'
+import { selectWorkspace, queryUuid, inventoryAssetUrl, inventoryContextUrl } from '~/composables/inventoryNavigation'
+const route=useRoute()
 const api = useApi()
 const auth = useAuth()
 type Workspace = {id:string;name:string;role:'owner'|'manager'|'viewer'}
@@ -36,7 +38,7 @@ async function initialize() {
   busy.value=true;error.value=''
   try {
     spaces.value=(await api.get<{data:Workspace[]}>('/workspaces')).data
-    if (!spaces.value.some(w=>w.id===workspaceId.value))workspaceId.value=spaces.value[0]?.id||''
+    workspaceId.value=selectWorkspace(spaces.value,route.query.workspace_id || workspaceId.value)
     await refresh()
   } catch(e){report(e)} finally{busy.value=false}
 }
@@ -52,6 +54,8 @@ async function refresh() {
     ])
     nets.value=networks.data;ports.value=interfaces.data;ips.value=addresses.data
     assets.value=inventory.data.filter(a=>!a.deleted_at)
+    const requested=queryUuid(route.query.asset_id)
+    if(requested && assets.value.some(a=>a.id===requested) && !selectedPort.value)portForm.asset_id=requested
   } catch(e){report(e)} finally{busy.value=false}
 }
 function resetNet() {selectedNet.value=null;Object.assign(networkForm,{name:'',cidr:'',vlan_id:'',description:''})}
@@ -103,7 +107,7 @@ async function assignment(ip:Address, unassign=false) {
     await refresh();notice.value=unassign?'Привязка снята.':'Адрес привязан к интерфейсу.'
   }catch(e){report(e)}finally{busy.value=false}
 }
-function switchWorkspace(){resetNet();resetPort();refresh()}
+function switchWorkspace(){resetNet();resetPort();void navigateTo(inventoryContextUrl('ipam',workspaceId.value),{replace:true});refresh()}
 onMounted(initialize)
 </script>
 
@@ -142,7 +146,7 @@ onMounted(initialize)
           </div>
           <div class="inline-actions"><button class="btn primary" type="submit" :disabled="busy">{{selectedPort?'Сохранить интерфейс':'Добавить интерфейс'}}</button><button v-if="selectedPort" class="btn" type="button" @click="resetPort">Отмена</button></div>
         </form>
-        <table><thead><tr><th>Устройство</th><th>Интерфейс</th><th>MAC</th><th>Действия</th></tr></thead><tbody><tr v-for="port in ports" :key="port.id"><td>{{assets.find(a=>a.id===port.asset_id)?.name||port.asset_id}}</td><td>{{port.name}}</td><td class="mono">{{port.mac_address||'—'}}</td><td><button v-if="canWrite" class="btn" type="button" :disabled="busy" @click="editPort(port)">Изменить</button> <button v-if="canWrite" class="btn" type="button" :disabled="busy" @click="remove('interfaces',port)">Удалить</button></td></tr></tbody></table>
+        <table><thead><tr><th>Устройство</th><th>Интерфейс</th><th>MAC</th><th>Действия</th></tr></thead><tbody><tr v-for="port in ports" :key="port.id"><td><NuxtLink :to="inventoryAssetUrl(port.asset_id,workspaceId)">{{assets.find(a=>a.id===port.asset_id)?.name||port.asset_id}}</NuxtLink></td><td>{{port.name}}</td><td class="mono">{{port.mac_address||'—'}}</td><td><button v-if="canWrite" class="btn" type="button" :disabled="busy" @click="editPort(port)">Изменить</button> <button v-if="canWrite" class="btn" type="button" :disabled="busy" @click="remove('interfaces',port)">Удалить</button></td></tr></tbody></table>
       </section>
       <section class="panel">
         <h2>IP-адреса ({{ips.length}})</h2>

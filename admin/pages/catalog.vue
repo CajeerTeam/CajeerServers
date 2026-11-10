@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import {apiError} from '~/composables/useApi'
+import { selectWorkspace, inventoryAssetUrl, inventoryContextUrl } from '~/composables/inventoryNavigation'
+const route=useRoute()
 const api=useApi(),auth=useAuth()
 type Workspace={id:string;name:string;role:string}
 type Entry={id:string;workspace_id:string;slug:string;name:string;description:string;etag:string;version:number;asset_count?:number}
 type Asset={id:string;name:string;type:string;deleted_at?:string|null}
 const spaces=ref<Workspace[]>([]),workspace=ref(''),tags=ref<Entry[]>([]),groups=ref<Entry[]>([]),assets=ref<Asset[]>([])
 const busy=ref(false),error=ref(''),notice=ref(''),kind=ref<'tags'|'groups'>('tags')
+const initializing=ref(true)
 const editing=ref<Entry|null>(null),form=reactive({slug:'',name:'',description:''})
 const selectedGroup=ref<Entry|null>(null),assetId=ref(''),linked=ref<Asset[]>([])
 const canRead=computed(()=>auth.can('inventory.catalog.read'))
@@ -25,8 +28,9 @@ async function load(){
 }
 async function start(){
   if(!canRead.value)return
-  try{spaces.value=(await api.get<{data:Workspace[]}>('/workspaces')).data;workspace.value=spaces.value[0]?.id||'';await load()}
+  try{spaces.value=(await api.get<{data:Workspace[]}>('/workspaces')).data;workspace.value=selectWorkspace(spaces.value,route.query.workspace_id);await load()}
   catch(e){error.value=apiError(e).message}
+  finally{initializing.value=false}
 }
 function reset(){editing.value=null;Object.assign(form,{slug:'',name:'',description:''})}
 function edit(row:Entry,k:'tags'|'groups'){kind.value=k;editing.value=row;Object.assign(form,{slug:row.slug,name:row.name,description:row.description})}
@@ -68,7 +72,7 @@ async function membership(asset:string,attach:boolean){
     await load()
   }catch(e){error.value=apiError(e).status===412?'Состав группы изменился. Обновите страницу.':apiError(e).message}finally{busy.value=false}
 }
-watch(workspace,()=>{reset();selectedGroup.value=null;load()})
+watch(workspace,()=>{if(initializing.value)return;reset();selectedGroup.value=null;void navigateTo(inventoryContextUrl('catalog',workspace.value),{replace:true});load()})
 onMounted(start)
 </script>
 <template>
@@ -105,7 +109,7 @@ onMounted(start)
         <form v-if="canManage&&auth.can('inventory.assets.read')" class="inline-actions" @submit.prevent="membership(assetId,true)"><select v-model="assetId" aria-label="Объект для добавления" required><option value="">Выберите объект</option><option v-for="a in assets.filter(a=>!linked.some(l=>l.id===a.id))" :key="a.id" :value="a.id">{{a.name}} — {{a.type}}</option></select><button class="btn primary" :disabled="busy||!assetId">Добавить</button></form>
         <div v-if="!auth.can('inventory.assets.read')" class="alert">Для просмотра объектов требуется inventory.assets.read.</div>
         <div v-else-if="!linked.length" class="empty">В группе нет объектов.</div>
-        <div v-for="a in linked" :key="a.id" class="inline-actions"><span>{{a.name}} ({{a.type}})<span v-if="a.deleted_at"> — удалён</span></span><button v-if="canManage" type="button" class="btn" :disabled="busy" @click="membership(a.id,false)">Исключить</button></div>
+        <div v-for="a in linked" :key="a.id" class="inline-actions"><NuxtLink :to="inventoryAssetUrl(a.id,workspace)">{{a.name}} ({{a.type}})</NuxtLink><span v-if="a.deleted_at"> — удалён</span></span><button v-if="canManage" type="button" class="btn" :disabled="busy" @click="membership(a.id,false)">Исключить</button></div>
       </section>
     </template>
   </div>

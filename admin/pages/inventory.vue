@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { apiError } from '~/composables/useApi'
+import { inventoryAssetUrl, inventoryContextUrl, selectWorkspace } from '~/composables/inventoryNavigation'
+const route = useRoute()
 const api = useApi()
 const auth = useAuth()
 type Workspace = { id: string; name: string; organization_id: string; role: 'owner'|'manager'|'viewer' }
@@ -48,7 +50,7 @@ async function init() {
   busy.value=true
   try {
     spaces.value = (await api.get<{data:Workspace[]}>('/workspaces')).data
-    if (!spaces.value.some(w=>w.id===workspaceId.value)) workspaceId.value=spaces.value[0]?.id||''
+    workspaceId.value=selectWorkspace(spaces.value,route.query.workspace_id || workspaceId.value)
     await loadCatalog();await load()
   } catch(e) {error.value=apiError(e).message} finally {busy.value=false}
 }
@@ -114,7 +116,7 @@ async function toggleDeleted(asset:Asset) {
   } catch(e) {error.value=apiError(e).status===412?'Конфликт версии. Обновите список.':apiError(e).message}
   finally {busy.value=false}
 }
-function switchWorkspace(){offset.value=0;toForm();loadCatalog();load()}
+function switchWorkspace(){offset.value=0;toForm();void navigateTo(inventoryContextUrl('inventory',workspaceId.value),{replace:true});loadCatalog();load()}
 function applyFilters(){offset.value=0;load()}
 function page(dir:number){offset.value=Math.max(0,offset.value+dir*limit);load()}
 onMounted(init)
@@ -123,7 +125,7 @@ onMounted(init)
 <template>
   <div>
     <h1>Inventory / CMDB</h1>
-    <p class="page-subtitle">Учёт инфраструктуры с изоляцией по рабочим пространствам. Версия 0.2.6 — каталоги тегов и групп, полнотекстовый поиск и фильтры. Proxmox/VMmanager здесь не исполняются.</p>
+    <p class="page-subtitle">Учёт инфраструктуры с изоляцией по рабочим пространствам. Реестр с карточками объектов, тегами, группами, полнотекстовым поиском и фильтрами. Proxmox/VMmanager здесь не исполняются.</p>
     <div v-if="error" class="alert" role="alert">{{ error }}</div>
     <div v-if="notice" class="alert success" role="status">{{ notice }}</div>
     <div v-if="!canRead" class="alert">Нет разрешения inventory.assets.read.</div>
@@ -145,9 +147,9 @@ onMounted(init)
         <div class="inline-actions"><button class="btn" type="button" :disabled="busy" @click="applyFilters">Обновить</button><button v-if="canCreate" class="btn primary" type="button" :disabled="busy" @click="toForm()">Новый объект</button><label v-if="writable"><input v-model="showDeleted" type="checkbox" style="width:auto" @change="applyFilters" /> Показывать удалённые</label></div>
         <div v-if="!assets.length" class="empty">Объекты не найдены.</div>
         <div v-else class="table-wrap"><table class="table"><thead><tr><th>Имя</th><th>Тип / статус</th><th>Адреса</th><th>Версия</th><th>Действия</th></tr></thead><tbody>
-          <tr v-for="a in assets" :key="a.id"><td>{{ a.name }} <span v-if="a.deleted_at" class="tag bad">удалён</span><div class="muted small mono">{{ a.id }}</div></td><td>{{ a.type }} / {{ a.status }}</td><td>{{ a.ip_addresses.join(', ') || '—' }}</td><td>{{ a.version }}</td><td><div class="inline-actions"><button v-if="canUpdate && !a.deleted_at && a.source==='manual'" class="btn" :disabled="busy" @click="toForm(a)">Изменить</button><button v-if="canDelete && a.source==='manual'" class="btn" :disabled="busy" @click="toggleDeleted(a)">{{ a.deleted_at?'Восстановить':'Удалить' }}</button></div></td></tr>
+          <tr v-for="a in assets" :key="a.id"><td><NuxtLink :to="inventoryAssetUrl(a.id,workspaceId)">{{ a.name }}</NuxtLink> <span v-if="a.deleted_at" class="tag bad">удалён</span><div class="muted small mono">{{ a.id }}</div></td><td>{{ a.type }} / {{ a.status }}</td><td>{{ a.ip_addresses.join(', ') || '—' }}</td><td>{{ a.version }}</td><td><div class="inline-actions"><NuxtLink class="btn" :to="inventoryAssetUrl(a.id,workspaceId)">Карточка</NuxtLink><button v-if="canUpdate && !a.deleted_at && a.source==='manual'" class="btn" :disabled="busy" @click="toForm(a)">Изменить</button><button v-if="canDelete && a.source==='manual'" class="btn" :disabled="busy" @click="toggleDeleted(a)">{{ a.deleted_at?'Восстановить':'Удалить' }}</button></div></td></tr>
         </tbody></table></div>
-        <div class="inline-actions"><span class="muted">Всего: {{ total }}</span><button class="btn" :disabled="busy || offset===0" @click="page(-1)">Назад</button><button class="btn" :disabled="busy || offset+limit>=total" @click="page(1)">Далее</button></div>
+        <div class="inline-actions"><span class="muted">Всего: {{ total }}</span><NuxtLink v-if="auth.can('inventory.network.read')" :to="inventoryContextUrl('ipam',workspaceId)" class="btn">IPAM</NuxtLink><NuxtLink v-if="auth.can('inventory.relationships.read')" :to="inventoryContextUrl('topology',workspaceId)" class="btn">Топология</NuxtLink><button class="btn" :disabled="busy || offset===0" @click="page(-1)">Назад</button><button class="btn" :disabled="busy || offset+limit>=total" @click="page(1)">Далее</button></div>
       </section>
       <section v-if="canCreate || (selected && canUpdate)" class="panel">
         <h2>{{ selected?'Редактировать объект':'Новый объект' }}</h2>

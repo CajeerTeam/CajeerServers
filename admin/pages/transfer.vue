@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { apiError } from '~/composables/useApi'
+import { selectWorkspace, queryUuid, inventoryAssetUrl, inventoryContextUrl } from '~/composables/inventoryNavigation'
+const route=useRoute()
 
 const api=useApi(),auth=useAuth()
 type Workspace={id:string;name:string;role:string}
@@ -11,23 +13,31 @@ const format=ref<'csv'|'json'>('csv'),content=ref(''),filename=ref(''),busy=ref(
 const preview=ref<{total:number;summary:Record<string,number>;rows:{row:number;external_id:string;action:string}[]}|null>(null)
 const batch=ref<Batch|null>(null),bindings=ref<Binding[]>([])
 const credentialId=ref(''),purpose=ref('ssh'),scopeId=ref('')
+const stableKey=ref('')
+const initializing=ref(true)
+let polling:ReturnType<typeof setInterval>|null=null
+function resetImport(){preview.value=null;batch.value=null;stableKey.value=''}
+function activeBatch(){return !!batch.value && ['pending','enqueued','queued','processing','running'].includes(batch.value.status)}
 const canRead=computed(()=>auth.can('inventory.transfer.read'))
 const canManage=computed(()=>auth.can('inventory.transfer.manage')&&['owner','manager'].includes(spaces.value.find(x=>x.id===workspace.value)?.role||''))
 const canCredentialRead=computed(()=>auth.can('inventory.credentials.read'))
 const canCredentialManage=computed(()=>auth.can('inventory.credentials.manage')&&canManage.value)
 const canScope=computed(()=>auth.can('inventory.credentials.scope')&&spaces.value.find(x=>x.id===workspace.value)?.role==='owner')
-function idempotencyKey(){return crypto.randomUUID()}
+function idempotencyKey(){if(!stableKey.value)stableKey.value=crypto.randomUUID();return stableKey.value}
 function query(){return new URLSearchParams({workspace_id:workspace.value})}
 function fail(e:unknown){error.value=apiError(e).message}
 async function initialize(){
   if(!canRead.value)return
-  try{spaces.value=(await api.get<{data:Workspace[]}>('/workspaces')).data;workspace.value=spaces.value[0]?.id||'';await loadAssets()}
+  try{spaces.value=(await api.get<{data:Workspace[]}>('/workspaces')).data;workspace.value=selectWorkspace(spaces.value,route.query.workspace_id);await loadAssets()}
   catch(e){fail(e)}
+  finally{initializing.value=false}
 }
 async function loadAssets(){
-  assets.value=[];assetId.value='';bindings.value=[];preview.value=null;batch.value=null
+  const requested=queryUuid(route.query.asset_id)
+  assets.value=[];assetId.value='';bindings.value=[];resetImport()
   if(!workspace.value||!auth.can('inventory.assets.read'))return
-  try{assets.value=(await api.get<{data:Asset[]}>(`/inventory/assets?${new URLSearchParams({workspace_id:workspace.value,limit:'100'})}`)).data}
+  try{assets.value=(await api.get<{data:Asset[]}>(`/inventory/assets?${new URLSearchParams({workspace_id:workspace.value,limit:'100'})}`)).data
+    if(requested&&assets.value.some(a=>a.id===requested))assetId.value=requested}
   catch(e){fail(e)}
 }
 async function selectFile(event:Event){
@@ -35,7 +45,7 @@ async function selectFile(event:Event){
   const file=files?.[0];if(!file)return
   if(file.size>524288){error.value='Размер файла больше 512 КиБ.';return}
   format.value=file.name.toLowerCase().endsWith('.json')?'json':'csv'
-  content.value=await file.text();filename.value=file.name;preview.value=null;batch.value=null;error.value=''
+  content.value=await file.text();filename.value=file.name;resetImport();error.value=''
 }
 async function inspect(){
   if(!canManage.value||!workspace.value||!content.value)return
@@ -46,7 +56,7 @@ async function inspect(){
   }catch(e){fail(e)}finally{busy.value=false}
 }
 async function submit(){
-  if(!canManage.value||!content.value||!workspace.value)return
+  if(!canManage.value||!content.value||!workspace.value||batch.value)return
   busy.value=true;error.value='';notice.value=''
   try{
     const result=await api.write<{data:Batch}>('POST','/inventory/imports',{workspace_id:workspace.value,format:format.value,content:content.value},true,{'Idempotency-Key':idempotencyKey()})
@@ -100,7 +110,9 @@ async function detach(binding:Binding){
   try{await api.write('DELETE',`/inventory/assets/${assetId.value}/credential-bindings/${binding.id}`);await loadBindings()}
   catch(e){fail(e)}finally{busy.value=false}
 }
-watch(workspace,loadAssets)
+watch(workspace,()=>{if(initializing.value)return;void navigateTo(inventoryContextUrl('transfer',workspace.value),{replace:true});loadAssets()})
+onMounted(()=>{polling=setInterval(()=>{if(activeBatch()&&!busy.value&&document.visibilityState==='visible')void refreshBatch()},3000)})
+onUnmounted(()=>{if(polling)clearInterval(polling)})
 watch(assetId,loadBindings)
 onMounted(initialize)
 </script>
@@ -126,14 +138,14 @@ onMounted(initialize)
         <label for="transfer-file">Файл</label><input id="transfer-file" type="file" accept=".csv,.json,text/csv,application/json" @change="selectFile" />
         <p v-if="filename">{{filename}} ({{format.toUpperCase()}})</p>
         <div class="inline-actions"><button type="button" class="btn" :disabled="busy||!content" @click="inspect">Предпросмотр</button>
-          <button type="button" class="btn" :disabled="busy||!preview" @click="submit">Отправить в очередь</button></div>
+          <button type="button" class="btn" :disabled="busy||!preview||!!batch" @click="submit">Отправить в очередь</button></div>
         <div v-if="preview">
           <p>Строк: {{preview.total}}; предварительная оценка: {{JSON.stringify(preview.summary)}}.</p>
           <table><thead><tr><th>Строка</th><th>External ID</th><th>Действие</th></tr></thead>
             <tbody><tr v-for="row in preview.rows" :key="row.row"><td>{{row.row}}</td><td>{{row.external_id}}</td><td>{{row.action}}</td></tr></tbody></table>
         </div>
         <div v-if="batch" class="panel">
-          <h3>Импорт {{batch.id}}</h3><p>Статус: {{batch.status}}; {{batch.processed_rows}} / {{batch.row_count}}. {{JSON.stringify(batch.summary)}}</p>
+          <h3>Импорт {{batch.id}}</h3><p role="status" aria-live="polite">Статус: {{batch.status}}; {{batch.processed_rows}} / {{batch.row_count}}. {{JSON.stringify(batch.summary)}}</p><progress :value="batch.processed_rows" :max="Math.max(1,batch.row_count)" style="width:100%" />
           <div class="inline-actions"><button type="button" class="btn" :disabled="busy" @click="refreshBatch">Обновить результат</button>
             <button v-if="batch.status==='pending'" type="button" class="btn" :disabled="busy" @click="dispatch">Повторить отправку</button></div>
           <table><thead><tr><th>Строка</th><th>Результат</th><th>Код ошибки</th></tr></thead>
@@ -143,7 +155,7 @@ onMounted(initialize)
       <section v-if="canCredentialRead&&auth.can('inventory.assets.read')" class="panel">
         <h2>Привязки credentials</h2>
         <p>Только идентификаторы существующих секретов. Содержимое зашифрованных записей не извлекается.</p>
-        <label for="credential-asset">Объект</label><select id="credential-asset" v-model="assetId"><option value="">Выбрать объект</option><option v-for="a in assets" :key="a.id" :value="a.id">{{a.name}} ({{a.type}})</option></select>
+        <label for="credential-asset">Объект</label> <NuxtLink v-if="assetId" :to="inventoryAssetUrl(assetId,workspace)">Карточка объекта</NuxtLink><select id="credential-asset" v-model="assetId"><option value="">Выбрать объект</option><option v-for="a in assets" :key="a.id" :value="a.id">{{a.name}} ({{a.type}})</option></select>
         <ul><li v-for="b in bindings" :key="b.id">{{b.purpose}} — {{b.credential_id}}
           <button v-if="canCredentialManage" class="btn" type="button" :disabled="busy" @click="detach(b)">Отвязать</button></li></ul>
         <form v-if="canCredentialManage&&assetId" @submit.prevent="attach">

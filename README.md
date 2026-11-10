@@ -2,6 +2,21 @@
 
 **CajeerServers** — русскоязычная self-hosted веб-оболочка для наблюдения и управления инфраструктурой. Это **не ОС**, не прошивка и не замена Proxmox/VMmanager. Для будущих версий предусмотрен сбор данных через API, собственные скрипты, webhooks, collectors и интеграции без обязательных системных агентов.
 
+## Версия 0.2.9 — Complete Inventory Admin UI & E2E
+
+Рабочая карточка `/inventory/{uuid}` с редактированием по ETag и отображением IPAM, отношений, ревизий и безопасных ссылок на credentials. Сквозная навигация Inventory/History/IPAM/Topology/Transfer с сохранением workspace через URL; восстановление идемпотентности импорта при потерянном ответе и автообновление состояния batch. Два новых настоящих browser E2E-сценария для disposable staging: создание/изменение объекта и межмодульные переходы, а также потеря HTTP-ответа после записи импортного пакета на сервере.
+
+```bash
+php scripts/verify-release.php
+cd admin
+npm run test:contracts
+npm run test:static
+# Только на staging с отдельной PostgreSQL, активным Nuxt и нужными env:
+npm run test:e2e:preflight && npm run test:e2e
+```
+
+[GitHub Docs — Complete Inventory Admin UI & E2E](docs/Complete-Inventory-Admin-UI-E2E.md). Новых SQL-миграций и REST endpoints нет. В текущей среде нет `pdo_pgsql` и npm registry; внешний PostgreSQL integration, Nuxt production build и браузерный E2E должны быть подтверждены отдельно. Отсутствующие `composer.lock` и `admin/package-lock.json` по-прежнему блокируют strict release-gate.
+
 ## Версия 0.2.8 — Inventory Import / Export & Credential Bindings
 
 Рабочий bounded CSV/JSON import с preview, PostgreSQL batches и queue worker, отчётами по строкам, идемпотентностью и использованием 0.2.7 reconciliation. Workspace-aware экспорт CSV/JSON с защитой от spreadsheet formulas и без секретов. Привязки **существующих** credentials к assets с контролем workspace через FK (без выдачи `encrypted_payload`). Admin UI `/transfer`.

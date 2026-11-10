@@ -1,8 +1,8 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.2.8
-  description: 'CajeerServers 0.2.8: bounded CSV/JSON inventory imports, durable queue processing, safe exports and workspace-scoped credential bindings. Session-only, workspace RBAC and CSRF. No provider connectors or remote infrastructure commands.'
+  version: 0.2.9
+  description: 'CajeerServers 0.2.9: complete Inventory Admin UI workflows over existing REST API, deep-linked asset cards and E2E release verification. Session-only, workspace RBAC and CSRF. No provider connectors or remote infrastructure commands.'
 servers:
 - url: /api/v1
 security: []

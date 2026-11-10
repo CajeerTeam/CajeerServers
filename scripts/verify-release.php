@@ -52,6 +52,7 @@ foreach (['runtime', 'http', 'database', 'installer', 'auth', 'security', 'infra
     $run($suite . ' smoke', [PHP_BINARY, 'tests/' . $suite . '-smoke.php'], $root);
 }
 $run('Admin frontend static', ['node', 'tests/static-check.mjs'], $root . '/admin');
+$run('Inventory navigation contract', ['node', '--experimental-strip-types', 'tests/navigation-contract.mjs'], $root . '/admin');
 
 if ($strict) {
     $run('Production release gate', [PHP_BINARY, 'bin/cajeer', 'release:check', '--strict'], $root);
@@ -85,9 +86,10 @@ if ($strict) {
     } else {
         $run('Real deployed HTTP', [PHP_BINARY, 'scripts/smoke-http.php'], $root);
     }
-    if (!getenv('E2E_ADMIN_EMAIL') || !getenv('E2E_ADMIN_PASSWORD') || !getenv('E2E_BASE_URL')) {
-        fwrite(STDERR, "FAIL: strict verification requires real Playwright E2E credentials and base URL.\n"); $failures++;
+    if (!getenv('E2E_ADMIN_EMAIL') || !getenv('E2E_ADMIN_PASSWORD') || !getenv('E2E_BASE_URL') || getenv('E2E_ALLOW_WRITES') !== '1' || getenv('E2E_ISOLATED_STAGING') !== '1') {
+        fwrite(STDERR, "FAIL: strict verification requires disposable E2E staging, credentials, E2E_ALLOW_WRITES=1 and E2E_ISOLATED_STAGING=1.\n"); $failures++;
     } else {
+        $run('Playwright E2E preflight', ['npm', 'run', 'test:e2e:preflight'], $root . '/admin');
         $run('Playwright E2E', ['npm', 'run', 'test:e2e'], $root . '/admin');
     }
 }

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { inventoryAssetUrl, inventoryContextUrl, selectWorkspace } from '~/composables/inventoryNavigation'
+const route=useRoute()
 const auth = useAuth()
 const api = useApi()
 type Org = { id: string; slug: string; name: string }
@@ -25,7 +27,7 @@ async function load() {
       api.get<{data:Org[]}>('/organizations'), api.get<{data:Space[]}>('/workspaces')
     ])
     organizations.value = orgs.data; spaces.value = workspaces.data
-    if (!spaces.value.some(s => s.id === selected.value)) selected.value = spaces.value[0]?.id || ''
+    selected.value=selectWorkspace(spaces.value,route.query.workspace_id||selected.value)
     if (!spaceOrganization.value) spaceOrganization.value = organizations.value[0]?.id || ''
     if (auth.can('security.users.read')) users.value = (await api.get<{data:User[]}>('/security/users?limit=100')).data
     await loadSpace()
@@ -42,6 +44,7 @@ async function loadSpace() {
 }
 async function choose(id: string) {
   selected.value = id; error.value = ''; busy.value = true
+  void navigateTo(inventoryContextUrl('workspaces',id),{replace:true})
   try { await loadSpace() } catch (e) { error.value = apiError(e).message } finally { busy.value = false }
 }
 async function mutate(action: () => Promise<unknown>, message: string) {
@@ -130,7 +133,7 @@ onMounted(() => { void load() })
         <section class="panel"><h2>Инфраструктурные объекты (только чтение)</h2>
           <div v-if="!assets.length" class="empty">В этом пространстве ещё нет объектов.</div>
           <div v-else class="table-wrap"><table class="table"><thead><tr><th>Объект</th><th>Статус</th><th>Владелец</th><th>Перемещение</th></tr></thead><tbody>
-            <tr v-for="a in assets" :key="a.id"><td>{{ a.name }} <span class="muted">{{ a.type }}</span></td><td>{{ a.status }}</td>
+            <tr v-for="a in assets" :key="a.id"><td><NuxtLink :to="inventoryAssetUrl(a.id,selected)">{{a.name}}</NuxtLink> <span class="muted">{{ a.type }}</span></td><td>{{ a.status }}</td>
               <td><select v-if="canOwnAssets" :value="a.owner_user_id || ''" :disabled="busy" :aria-label="`Владелец ${a.name}`" @change="assignOwner(a,$event)"><option value="">Не назначен</option><option v-for="m in members.filter(m=>m.is_active)" :key="m.user_id" :value="m.user_id">{{ m.name }}</option></select><span v-else>{{ members.find(m=>m.user_id===a.owner_user_id)?.name || 'Не назначен' }}</span></td>
               <td><select v-if="canTransfer && siblingSpaces.length" :disabled="busy" :aria-label="`Переместить ${a.name}`" value="" @change="transfer(a,$event)"><option value="">Переместить…</option><option v-for="s in siblingSpaces.filter(s=>['owner','manager'].includes(s.role))" :key="s.id" :value="s.id">{{ s.name }}</option></select></td>
             </tr>

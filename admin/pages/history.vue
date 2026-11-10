@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { apiError } from '~/composables/useApi'
+import { selectWorkspace, queryUuid, inventoryAssetUrl, inventoryContextUrl } from '~/composables/inventoryNavigation'
+const route=useRoute()
 const api = useApi(), auth = useAuth()
 type Workspace={id:string;name:string;role:string}
 type Asset={id:string;name:string;type:string;source:string;external_id:string|null;etag:string;version:number;deleted_at:string|null}
@@ -10,6 +12,7 @@ type Observation={id:string;event_key:string;outcome:string;received_at:string;a
 const spaces=ref<Workspace[]>([]),workspace=ref(''),assets=ref<Asset[]>([]),assetId=ref('')
 const revisions=ref<Revision[]>([]),origins=ref<Provenance[]>([]),conflicts=ref<Conflict[]>([]),observations=ref<Observation[]>([])
 const busy=ref(false),error=ref(''),notice=ref(''),historyTotal=ref(0),offset=ref(0)
+const initializing=ref(true)
 const sourceId=ref(''),eventKey=ref(''),observedName=ref(''),observedStatus=ref('unknown'),observedType=ref('server')
 const overrideField=ref('name'),overrideValue=ref(''),restoreVersion=ref('')
 const canRead=computed(()=>auth.can('inventory.history.read')&&auth.can('inventory.assets.read'))
@@ -19,14 +22,16 @@ const asset=computed(()=>assets.value.find(a=>a.id===assetId.value))
 const fieldNames=['name','status','os_family','environment']
 async function start(){
   if(!canRead.value)return
-  try{spaces.value=(await api.get<{data:Workspace[]}>('/workspaces')).data;workspace.value=spaces.value[0]?.id||'';await loadAssets()}
+  try{spaces.value=(await api.get<{data:Workspace[]}>('/workspaces')).data;workspace.value=selectWorkspace(spaces.value,route.query.workspace_id);await loadAssets()}
   catch(e){error.value=apiError(e).message}
+  finally{initializing.value=false}
 }
 async function loadAssets(){
   if(!workspace.value)return
   busy.value=true;error.value=''
+  const requested=queryUuid(route.query.asset_id)
   try{assets.value=(await api.get<{data:Asset[]}>(`/inventory/assets?${new URLSearchParams({workspace_id:workspace.value,limit:'100'})}`)).data
-    if(!assets.value.some(a=>a.id===assetId.value))assetId.value=assets.value[0]?.id||''
+    if(!assets.value.some(a=>a.id===assetId.value))assetId.value=assets.value.find(a=>a.id===requested)?.id||assets.value[0]?.id||''
     await loadHistory()
   }catch(e){error.value=apiError(e).message}finally{busy.value=false}
 }
@@ -81,7 +86,7 @@ async function restore(){
   }catch(e){error.value=apiError(e).message}finally{busy.value=false}
 }
 function formatJson(value:unknown){return JSON.stringify(value,null,2)}
-watch(workspace,()=>{assetId.value='';offset.value=0;loadAssets()})
+watch(workspace,()=>{if(initializing.value)return;assetId.value='';offset.value=0;void navigateTo(inventoryContextUrl('history',workspace.value),{replace:true});loadAssets()})
 watch(assetId,()=>{offset.value=0;loadHistory()})
 onMounted(start)
 </script>
@@ -98,7 +103,7 @@ onMounted(start)
           <div class="field"><label for="history-space">Пространство</label><select id="history-space" v-model="workspace" :disabled="busy"><option v-for="s in spaces" :key="s.id" :value="s.id">{{ s.name }}</option></select></div>
           <div class="field"><label for="history-asset">Объект</label><select id="history-asset" v-model="assetId" :disabled="busy"><option v-for="a in assets" :key="a.id" :value="a.id">{{ a.name }} ({{ a.source }})</option></select></div>
         </div>
-        <button class="btn" :disabled="busy" @click="refresh">Обновить</button>
+        <button class="btn" :disabled="busy" @click="refresh">Обновить</button> <NuxtLink v-if="assetId" class="btn" :to="inventoryAssetUrl(assetId,workspace)">Карточка объекта</NuxtLink>
       </section>
       <section v-if="assetId" class="panel">
         <h2>История версий</h2>

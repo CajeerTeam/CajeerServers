@@ -1,6 +1,6 @@
 {
   "name": "@cajeer/servers-admin",
-  "version": "0.2.8",
+  "version": "0.2.9",
   "private": true,
   "type": "module",
   "scripts": {
@@ -9,7 +9,9 @@
     "preview": "nuxt preview",
     "typecheck": "nuxt typecheck",
     "test:e2e": "playwright test",
-    "test:static": "node tests/static-check.mjs"
+    "test:static": "node tests/static-check.mjs",
+    "test:e2e:preflight": "node tests/e2e/preflight.mjs",
+    "test:contracts": "node --experimental-strip-types tests/navigation-contract.mjs"
   },
   "dependencies": {
     "nuxt": "^3.17.5",

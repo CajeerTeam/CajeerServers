@@ -1,0 +1,58 @@
+name: Inventory Admin E2E (disposable staging)
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: 'HTTPS URL of an installed DISPOSABLE staging Nuxt + PHP application'
+        type: string
+        required: true
+      confirm_disposable_environment:
+        description: 'I confirm this endpoint is a disposable staging database, NOT production'
+        type: boolean
+        required: true
+permissions:
+  contents: read
+jobs:
+  browser:
+    if: ${{ inputs.confirm_disposable_environment == true }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: inventory-e2e-staging
+    env:
+      CI: 'true'
+      E2E_BASE_URL: ${{ inputs.base_url }}
+      E2E_ADMIN_EMAIL: ${{ secrets.E2E_ADMIN_EMAIL }}
+      E2E_ADMIN_PASSWORD: ${{ secrets.E2E_ADMIN_PASSWORD }}
+      E2E_ADMIN_MFA: ${{ secrets.E2E_ADMIN_MFA }}
+      E2E_ISOLATED_STAGING: '1'
+      E2E_ALLOW_WRITES: '1'
+      E2E_TRANSFER_WRITABLE: '1'
+      E2E_HISTORY_WRITABLE: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify committed lockfile is present
+        run: test -s admin/package-lock.json
+      - name: Reproducible dependency installation
+        working-directory: admin
+        run: npm ci --no-audit --no-fund
+      - name: Browser safety preflight
+        working-directory: admin
+        run: npm run test:e2e:preflight
+      - name: Install Chromium
+        working-directory: admin
+        run: npx playwright install --with-deps chromium
+      - name: Execute real browser E2E against staging
+        working-directory: admin
+        run: npm run test:e2e
+      - name: Upload failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: inventory-e2e-failure
+          path: |
+            admin/test-results/
+            admin/playwright-report/
+          retention-days: 7

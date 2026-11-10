@@ -429,3 +429,18 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 - [ ] Подтверждение PostgreSQL integration, Nuxt build, browser E2E и строгого production release gate на реальном стенде.
 
 **Следующий этап: 0.2.9 — Complete Inventory Admin UI & End-to-End Integration.**
+
+
+### 0.2.9 — Complete Inventory Admin UI & E2E (реализована UI-интеграция)
+
+- [x] Карточка Inventory asset с реальными read/update/delete/restore через RBAC, workspace и ETag.
+- [x] Данные IPAM, Relationships, History и credential references в карточке (без чтения секретов).
+- [x] Deep-link workspace и asset из Inventory в History, IPAM, Topology, Catalog и Transfer.
+- [x] Повторный HTTP submit import сохраняет Idempotency-Key; progress обновляется только для активных задач.
+- [x] Browser staging сценарии на реальном backend, включая POST с потерянным ответом после commit.
+- [x] GitHub Actions workflow для запуска staging E2E с отдельным подтверждением среды.
+- [x] Исполняемый нативный контракт URL-навигации и проверки release.
+- [ ] Реальный Nuxt `npm ci`, typecheck, production build, PostgreSQL integration и Playwright E2E на disposable стенде.
+- [ ] Lock-файлы Composer/npm, полный strict release-gate.
+
+**Следующий этап: 0.3.0 — Inventory / CMDB Stable Integration.**
