@@ -41,7 +41,7 @@ jobs:
           npm run typecheck
           npm run build
   postgres-integration:
-    name: PostgreSQL 18 / Inventory + IPAM + Topology + History
+    name: PostgreSQL 18 / Inventory + IPAM + Topology + History + Transfer
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -85,3 +85,4 @@ jobs:
           php tests/topology-postgres-integration.php
           php tests/catalog-postgres-integration.php
           php tests/history-postgres-integration.php
+          php tests/transfer-postgres-integration.php

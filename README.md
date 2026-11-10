@@ -2,6 +2,21 @@
 
 **CajeerServers** — русскоязычная self-hosted веб-оболочка для наблюдения и управления инфраструктурой. Это **не ОС**, не прошивка и не замена Proxmox/VMmanager. Для будущих версий предусмотрен сбор данных через API, собственные скрипты, webhooks, collectors и интеграции без обязательных системных агентов.
 
+## Версия 0.2.8 — Inventory Import / Export & Credential Bindings
+
+Рабочий bounded CSV/JSON import с preview, PostgreSQL batches и queue worker, отчётами по строкам, идемпотентностью и использованием 0.2.7 reconciliation. Workspace-aware экспорт CSV/JSON с защитой от spreadsheet formulas и без секретов. Привязки **существующих** credentials к assets с контролем workspace через FK (без выдачи `encrypted_payload`). Admin UI `/transfer`.
+
+```bash
+php bin/cajeer migrate
+php bin/cajeer migrate:validate
+php tests/transfer-smoke.php
+php scripts/verify-release.php
+# Только на PostgreSQL 17+/18 в cajeer_test_*:
+CAJEER_PG_TEST=1 CAJEER_PG_TEST_DATABASE=cajeer_test_transfer php tests/transfer-postgres-integration.php
+```
+
+Инструкция: [GitHub Docs — Inventory Import/Export & Credentials](docs/Inventory-Transfer-Credentials.md). Реальный PostgreSQL integration, frontend Nuxt build и браузерный E2E необходимо подтвердить в целевом окружении.
+
 ## Версия 0.2.7 — Inventory History, Provenance & Reconciliation
 
 Новая реальная PostgreSQL-история изменений объектов, происхождение полей, приём idempotent

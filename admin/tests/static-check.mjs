@@ -36,4 +36,12 @@ ok(existsSync(new URL('pages/history.vue',root)), 'Inventory history page exists
 ok(read('pages/history.vue').includes('/inventory/assets/') && read('pages/history.vue').includes('/inventory/observations'), 'history uses real read/write API')
 ok(read('pages/history.vue').includes('If-Match') && read('pages/history.vue').includes('canManage'), 'history version checks and workspace role guard')
 ok(read('layouts/default.vue').includes('/history'), 'history link in admin nav')
+
+
+ok(existsSync(new URL('pages/transfer.vue',root)), 'Inventory transfer page exists')
+ok(existsSync(new URL('tests/e2e/transfer.spec.ts',root)), 'Inventory Transfer E2E spec exists')
+ok(read('pages/transfer.vue').includes('/inventory/imports/preview') && read('pages/transfer.vue').includes('/inventory/exports'), 'Import preview and export use live API')
+ok(read('pages/transfer.vue').includes('/inventory/credentials/scopes') && read('pages/transfer.vue').includes('/credential-bindings'), 'Credential references use API')
+ok(read('layouts/default.vue').includes('/transfer'), 'Inventory transfer link in sidebar')
+
 console.log(`Admin static checks: ${passed} PASS`)

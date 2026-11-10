@@ -209,6 +209,31 @@ return static function (Router $router, ServiceContainer $container): void {
             $catalog->post('/groups/{id}/assets/{assetId}',static fn(HttpRequest $r):HttpResponse => $controller()->member($r,true));
             $catalog->delete('/groups/{id}/assets/{assetId}',static fn(HttpRequest $r):HttpResponse => $controller()->member($r,false));
         });
+        // 0.2.8: real bounded CSV/JSON import/export and credential references (never secret bytes).
+        $routes->group('/inventory', static function (Router $transfer) use ($container): void {
+            $controller=static fn (): \Cajeer\Servers\Inventory\TransferController => $container->get(\Cajeer\Servers\Inventory\TransferController::class);
+            $body=['required'=>['workspace_id','format','content'],
+                'properties'=>['workspace_id'=>['type'=>'string','format'=>'uuid'],
+                    'format'=>['type'=>'string','enum'=>['csv','json']],
+                    'content'=>['type'=>'string','minLength'=>1,'maxLength'=>524288]],'additionalProperties'=>false];
+            $transfer->post('/imports/preview',static fn(HttpRequest $r):HttpResponse=>$controller()->preview($r),$body);
+            $transfer->post('/imports',static fn(HttpRequest $r):HttpResponse=>$controller()->submit($r),$body);
+            $transfer->get('/imports/{id}',static fn(HttpRequest $r):HttpResponse=>$controller()->batch($r));
+            $transfer->post('/imports/{id}/dispatch',static fn(HttpRequest $r):HttpResponse=>$controller()->dispatch($r));
+            $transfer->get('/exports',static fn(HttpRequest $r):HttpResponse=>$controller()->export($r));
+            $transfer->post('/credentials/scopes',static fn(HttpRequest $r):HttpResponse=>$controller()->scope($r),[
+                'required'=>['workspace_id','credential_id'],
+                'properties'=>['workspace_id'=>['type'=>'string','format'=>'uuid'],'credential_id'=>['type'=>'string','format'=>'uuid']],
+                'additionalProperties'=>false,
+            ]);
+            $transfer->get('/assets/{id}/credential-bindings',static fn(HttpRequest $r):HttpResponse=>$controller()->bindings($r));
+            $transfer->post('/assets/{id}/credential-bindings',static fn(HttpRequest $r):HttpResponse=>$controller()->attach($r),[
+                'required'=>['credential_id','purpose'],
+                'properties'=>['credential_id'=>['type'=>'string','format'=>'uuid'],'purpose'=>['type'=>'string','maxLength'=>64]],
+                'additionalProperties'=>false,
+            ]);
+            $transfer->delete('/assets/{id}/credential-bindings/{bindingId}',static fn(HttpRequest $r):HttpResponse=>$controller()->detach($r));
+        });
         // Inventory topology and typed asset relationships. PostgreSQL owns integrity and cycle detection.
         $routes->group('/inventory', static function (Router $graph) use ($container): void {
             $controller=static fn (): \Cajeer\Servers\Inventory\RelationshipController => $container->get(\Cajeer\Servers\Inventory\RelationshipController::class);

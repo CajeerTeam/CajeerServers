@@ -44,6 +44,9 @@ use Cajeer\Servers\Inventory\CatalogService;
 use Cajeer\Servers\Inventory\CatalogController;
 use Cajeer\Servers\Inventory\HistoryService;
 use Cajeer\Servers\Inventory\HistoryController;
+use Cajeer\Servers\Inventory\TransferService;
+use Cajeer\Servers\Inventory\TransferController;
+use Cajeer\Servers\Inventory\CredentialBindingService;
 use Cajeer\Servers\Workspace\WorkspaceService;
 use Cajeer\Servers\Workspace\WorkspaceController;
 use Cajeer\Servers\Logging\JsonLogger;
@@ -153,7 +156,7 @@ final class Application
             };
         });
         $this->services->singleton(JobProcessor::class, fn (ServiceContainer $c): JobProcessor => new JobProcessor(
-            $c->get(RuntimeDiagnostics::class),$c->get(StorageDiskInterface::class),$c->get(QueueDriverInterface::class)));
+            $c->get(RuntimeDiagnostics::class),$c->get(StorageDiskInterface::class),$c->get(QueueDriverInterface::class),$c->get(TransferService::class)));
         $this->services->singleton(JobWorker::class, fn (ServiceContainer $c): JobWorker => new JobWorker(
             $c->get(QueueDriverInterface::class),$c->get(JobProcessor::class),$c->get(JsonLogger::class),
             $c->get(PrometheusExporter::class), $c->get(OpenTelemetryTracer::class)));
@@ -231,6 +234,13 @@ final class Application
             $c->get(DatabaseManager::class),$c->get(InventoryRepository::class),$c->get(InventoryService::class),$c->get(AuditLogger::class)));
         $this->services->singleton(HistoryController::class, fn (ServiceContainer $c): HistoryController => new HistoryController(
             $c->get(AuthenticationService::class),$c->get(Rbac::class),$c->get(HistoryService::class)));
+        $this->services->singleton(TransferService::class, fn (ServiceContainer $c): TransferService => new TransferService(
+            $c->get(DatabaseManager::class),$c->get(InventoryRepository::class),$c->get(HistoryService::class),
+            $c->get(QueueDriverInterface::class),$c->get(AuditLogger::class),$c->get(Rbac::class)));
+        $this->services->singleton(CredentialBindingService::class, fn (ServiceContainer $c): CredentialBindingService => new CredentialBindingService(
+            $c->get(DatabaseManager::class),$c->get(InventoryRepository::class),$c->get(AuditLogger::class)));
+        $this->services->singleton(TransferController::class, fn (ServiceContainer $c): TransferController => new TransferController(
+            $c->get(AuthenticationService::class),$c->get(Rbac::class),$c->get(TransferService::class),$c->get(CredentialBindingService::class)));
         $this->services->singleton(WorkspaceService::class, fn (ServiceContainer $c): WorkspaceService => new WorkspaceService(
             $c->get(DatabaseManager::class), $c->get(AuditLogger::class)));
         $this->services->singleton(WorkspaceController::class, fn (ServiceContainer $c): WorkspaceController => new WorkspaceController(

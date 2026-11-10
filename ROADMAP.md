@@ -418,3 +418,14 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 - [ ] Reproducible Composer/npm lockfiles, production release gate.
 
 **Следующий этап: 0.2.7 — Inventory History, Provenance & Reconciliation.**
+
+### 0.2.8 — Inventory Import / Export & Credential Bindings (реализация)
+
+- [x] Реальные CSV/JSON preview, import batch, queue worker, progress/result journal.
+- [x] Идемпотентное reconciliation через 0.2.7 HistoryService.
+- [x] Ограниченный workspace export с редактированием формул CSV и исключением секретов.
+- [x] Workspace-scoped credential references для существующих записей, без реализации Vault.
+- [x] REST API, RBAC/CSRF, Nuxt UI, миграция 0015, тестовые сценарии и OpenAPI.
+- [ ] Подтверждение PostgreSQL integration, Nuxt build, browser E2E и строгого production release gate на реальном стенде.
+
+**Следующий этап: 0.2.9 — Complete Inventory Admin UI & End-to-End Integration.**

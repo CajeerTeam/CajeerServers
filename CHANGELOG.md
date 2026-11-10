@@ -1,3 +1,12 @@
+## [0.2.8] — 2026-11-10 — Inventory Import / Export & Credential Bindings
+
+- CSV/JSON parsing с ограничениями 512 КиБ / 200 строк; dry-run сверка реальной PostgreSQL без побочных действий.
+- PostgreSQL durable import batches, idempotency key, queue worker, построчные результаты и checkpoints; повторная доставка через HistoryService Reconciliation.
+- Workspace-scoped export CSV/JSON (до 500 записей), скрытие attributes/credentials, защита от spreadsheet formula injection.
+- Credential reference scope/bind/unbind с FK, RBAC, membership, CSRF и аудитом без выдачи secret payload.
+- PHP REST API, Nuxt `/transfer`, OpenAPI 3.1.1, миграция 0015, native и изолированный PostgreSQL integration-тест, GitHub Actions.
+- Ограничение проверки: нет подтверждённого PostgreSQL 17/18 + Nuxt build + browser E2E в локальной среде.
+
 ## [0.2.7] — 2026-11-10 — Inventory History, Provenance & Reconciliation
 
 - Рабочий append-only PostgreSQL журнал версий Inventory с триггерами, записью контекста actor/request_id и backfill baseline.

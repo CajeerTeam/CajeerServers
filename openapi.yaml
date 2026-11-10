@@ -1,8 +1,8 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.2.7
-  description: 'CajeerServers 0.2.7: inventory revisions, redacted history, field provenance, idempotent import observations and conflict reconciliation. Session-only, workspace RBAC and CSRF. No provider connectors or remote infrastructure commands.'
+  version: 0.2.8
+  description: 'CajeerServers 0.2.8: bounded CSV/JSON inventory imports, durable queue processing, safe exports and workspace-scoped credential bindings. Session-only, workspace RBAC and CSRF. No provider connectors or remote infrastructure commands.'
 servers:
 - url: /api/v1
 security: []
@@ -4186,6 +4186,377 @@ paths:
         schema:
           type: string
           pattern: ^"[0-9a-f-]{36}:[1-9][0-9]*"$
+  /inventory/imports/preview:
+    post:
+      operationId: previewInventoryImport
+      summary: Dry-run CSV/JSON import preview without writes
+      security:
+      - sessionAuth: []
+      responses:
+        '200':
+          description: Operation completed
+        '401':
+          description: Session required
+        '403':
+          description: RBAC / CSRF / workspace denied
+        '404':
+          description: Resource unavailable
+        '422':
+          description: Invalid input
+        '503':
+          description: Dependency unavailable
+      parameters:
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - workspace_id
+              - format
+              - content
+              additionalProperties: false
+              properties:
+                workspace_id:
+                  type: string
+                  format: uuid
+                format:
+                  type: string
+                  enum:
+                  - csv
+                  - json
+                content:
+                  type: string
+                  minLength: 1
+                  maxLength: 524288
+  /inventory/imports:
+    post:
+      operationId: submitInventoryImport
+      summary: Durable queued import batch
+      security:
+      - sessionAuth: []
+      responses:
+        '202':
+          description: Operation completed
+        '401':
+          description: Session required
+        '403':
+          description: RBAC / CSRF / workspace denied
+        '404':
+          description: Resource unavailable
+        '422':
+          description: Invalid input
+        '503':
+          description: Dependency unavailable
+      parameters:
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 8
+          maxLength: 120
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - workspace_id
+              - format
+              - content
+              additionalProperties: false
+              properties:
+                workspace_id:
+                  type: string
+                  format: uuid
+                format:
+                  type: string
+                  enum:
+                  - csv
+                  - json
+                content:
+                  type: string
+                  minLength: 1
+                  maxLength: 524288
+  /inventory/imports/{id}:
+    get:
+      operationId: inventoryImportStatus
+      summary: Read batch progress and row outcomes
+      security:
+      - sessionAuth: []
+      responses:
+        '200':
+          description: Operation completed
+        '401':
+          description: Session required
+        '403':
+          description: RBAC / CSRF / workspace denied
+        '404':
+          description: Resource unavailable
+        '422':
+          description: Invalid input
+        '503':
+          description: Dependency unavailable
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+  /inventory/imports/{id}/dispatch:
+    post:
+      operationId: dispatchInventoryImport
+      summary: Re-enqueue pending batch
+      security:
+      - sessionAuth: []
+      responses:
+        '202':
+          description: Operation completed
+        '401':
+          description: Session required
+        '403':
+          description: RBAC / CSRF / workspace denied
+        '404':
+          description: Resource unavailable
+        '422':
+          description: Invalid input
+        '503':
+          description: Dependency unavailable
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+  /inventory/exports:
+    get:
+      operationId: exportInventory
+      summary: Export max 500 assets, excluding attributes and secrets
+      security:
+      - sessionAuth: []
+      responses:
+        '200':
+          description: Raw downloadable CSV or JSON array
+          content:
+            text/csv:
+              schema:
+                type: string
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+        '401':
+          description: Session required
+        '403':
+          description: RBAC / CSRF / workspace denied
+        '404':
+          description: Resource unavailable
+        '422':
+          description: Invalid input
+        '503':
+          description: Dependency unavailable
+        '413':
+          description: Export exceeds 500 assets
+      parameters:
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: format
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - csv
+          - json
+  /inventory/credentials/scopes:
+    post:
+      operationId: scopeCredential
+      summary: Explicitly scope existing credential to workspace (owner, privileged)
+      security:
+      - sessionAuth: []
+      responses:
+        '201':
+          description: Operation completed
+        '401':
+          description: Session required
+        '403':
+          description: RBAC / CSRF / workspace denied
+        '404':
+          description: Resource unavailable
+        '422':
+          description: Invalid input
+        '503':
+          description: Dependency unavailable
+      parameters:
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - workspace_id
+              - credential_id
+              additionalProperties: false
+              properties:
+                workspace_id:
+                  type: string
+                  format: uuid
+                credential_id:
+                  type: string
+                  format: uuid
+  /inventory/assets/{id}/credential-bindings:
+    get:
+      operationId: listCredentialBindings
+      summary: Read reference IDs only; never encrypted_payload
+      security:
+      - sessionAuth: []
+      responses:
+        '200':
+          description: Operation completed
+        '401':
+          description: Session required
+        '403':
+          description: RBAC / CSRF / workspace denied
+        '404':
+          description: Resource unavailable
+        '422':
+          description: Invalid input
+        '503':
+          description: Dependency unavailable
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      operationId: attachCredentialBinding
+      summary: Attach existing scoped credential reference
+      security:
+      - sessionAuth: []
+      responses:
+        '201':
+          description: Operation completed
+        '401':
+          description: Session required
+        '403':
+          description: RBAC / CSRF / workspace denied
+        '404':
+          description: Resource unavailable
+        '422':
+          description: Invalid input
+        '503':
+          description: Dependency unavailable
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - credential_id
+              - purpose
+              additionalProperties: false
+              properties:
+                credential_id:
+                  type: string
+                  format: uuid
+                purpose:
+                  type: string
+                  pattern: ^[a-z][a-z0-9_.-]{0,63}$
+  /inventory/assets/{id}/credential-bindings/{bindingId}:
+    delete:
+      operationId: detachCredentialBinding
+      summary: Remove credential reference
+      security:
+      - sessionAuth: []
+      responses:
+        '204':
+          description: Operation completed
+        '401':
+          description: Session required
+        '403':
+          description: RBAC / CSRF / workspace denied
+        '404':
+          description: Resource unavailable
+        '422':
+          description: Invalid input
+        '503':
+          description: Dependency unavailable
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: bindingId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
 components:
   schemas:
     InventoryRelationship:

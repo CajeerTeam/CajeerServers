@@ -5,16 +5,17 @@ namespace Cajeer\Servers\Queue;
 
 use Cajeer\Servers\Runtime\RuntimeDiagnostics;
 use Cajeer\Servers\Storage\StorageDiskInterface;
+use Cajeer\Servers\Inventory\TransferService;
 use RuntimeException;
 
 /** Allowlisted application jobs; never runs raw commands, eval or user-supplied PHP. */
 final class JobProcessor
 {
-    public function __construct(private readonly RuntimeDiagnostics $diagnostics, private readonly StorageDiskInterface $storage, private readonly QueueDriverInterface $queue) {}
+    public function __construct(private readonly RuntimeDiagnostics $diagnostics, private readonly StorageDiskInterface $storage, private readonly QueueDriverInterface $queue, private readonly ?TransferService $transfer = null) {}
 
     public function supports(string $type): bool
     {
-        return in_array($type, ['runtime.diagnostics','storage.probe','queue.prune'],true);
+        return in_array($type, ['runtime.diagnostics','storage.probe','queue.prune','inventory.import'],true);
     }
 
     public function process(QueuedJob $job): array
@@ -23,8 +24,16 @@ final class JobProcessor
             'runtime.diagnostics' => $this->runtime(),
             'storage.probe' => $this->storageProbe(),
             'queue.prune' => $this->prune($job->payload),
+            'inventory.import' => $this->import($job->payload),
             default => throw new RuntimeException('No registered handler for job type.'),
         };
+    }
+
+    private function import(array $payload): array
+    {
+        if ($this->transfer === null || array_keys($payload) !== ['batch_id'] || !is_string($payload['batch_id']))
+            throw new RuntimeException('Invalid import queue job.');
+        return $this->transfer->processBatch($payload['batch_id']);
     }
 
     private function prune(array $payload): array

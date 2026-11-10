@@ -45,7 +45,7 @@ try{
   $app=(new Application($root))->boot();
   $registered=$app->container()->get(Router::class)->routes();
   foreach(['/api/v1/inventory/assets','/api/v1/inventory/assets/{id}','/api/v1/inventory/assets/{id}/restore'] as $path)$ok(in_array($path,array_column($registered,'path'),true),'route registered '.$path);
-  $ok(count($registered)===104,'104 routes total');
+  $ok(count($registered)===113,'113 routes total');
   foreach(['GET','POST'] as $method){
     $r=$app->handle(new HttpRequest($method,'/api/v1/inventory/assets', $method==='POST'?['Content-Type'=>'application/json']:[], $method==='POST'?$body:''));
     $ok(in_array($r->status,[401,503],true),'unauthorized '.$method);
