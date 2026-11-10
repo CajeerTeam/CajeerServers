@@ -5,6 +5,7 @@ const links = computed(() => [
   { to: '/workspaces', label: 'Организации и пространства', permission: 'workspaces.read' },
   { to: '/inventory', label: 'Инвентаризация', permission: 'inventory.assets.read' },
   { to: '/catalog', label: 'Теги и группы', permission: 'inventory.catalog.read' },
+  { to: '/history', label: 'История CMDB', permission: 'inventory.history.read' },
   { to: '/ipam', label: 'Сети и IPAM', permission: 'inventory.network.read' },
   { to: '/topology', label: 'Связи и топология', permission: 'inventory.relationships.read' },
   { to: '/tasks', label: 'Очередь и задачи', permission: 'admin.jobs.read' },

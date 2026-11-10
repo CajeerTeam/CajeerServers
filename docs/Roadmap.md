@@ -387,4 +387,13 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 - [ ] Full PostgreSQL 17/18 integration and Nuxt browser E2E on a real deployment.
 - [ ] Reproducible Composer/npm lockfiles, production release gate.
 
-**Следующий этап: 0.2.7 — Inventory History, Provenance & Reconciliation.**
+### 0.2.7 — Inventory History, Provenance & Reconciliation (реализовано локально)
+
+- [x] PostgreSQL append-only ревизии с baseline и SQL trigger capture для прямых и API изменений.
+- [x] Безопасная история и выборочное восстановление через новый ETag.
+- [x] Provenance на уровне поля, import observations с idempotency/replay, stale checks и конфликты ручных overrides.
+- [x] Реальные защищённые API + Nuxt `/history` + проверки GitHub Actions.
+- [ ] Выполнить PostgreSQL 17/18 integration, Nuxt build и browser E2E в целевом окружении.
+- [ ] Получить настоящие lock-файлы из зависимостей и пройти strict production release gate.
+
+**Следующий этап: 0.2.8 — Inventory Import / Export & Credential Bindings.**

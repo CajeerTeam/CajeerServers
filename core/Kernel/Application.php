@@ -42,6 +42,8 @@ use Cajeer\Servers\Inventory\TopologyService;
 use Cajeer\Servers\Inventory\RelationshipController;
 use Cajeer\Servers\Inventory\CatalogService;
 use Cajeer\Servers\Inventory\CatalogController;
+use Cajeer\Servers\Inventory\HistoryService;
+use Cajeer\Servers\Inventory\HistoryController;
 use Cajeer\Servers\Workspace\WorkspaceService;
 use Cajeer\Servers\Workspace\WorkspaceController;
 use Cajeer\Servers\Logging\JsonLogger;
@@ -225,6 +227,10 @@ final class Application
             $c->get(DatabaseManager::class),$c->get(InventoryRepository::class),$c->get(AuditLogger::class)));
         $this->services->singleton(CatalogController::class, fn (ServiceContainer $c): CatalogController => new CatalogController(
             $c->get(AuthenticationService::class),$c->get(Rbac::class),$c->get(CatalogService::class)));
+        $this->services->singleton(HistoryService::class, fn (ServiceContainer $c): HistoryService => new HistoryService(
+            $c->get(DatabaseManager::class),$c->get(InventoryRepository::class),$c->get(InventoryService::class),$c->get(AuditLogger::class)));
+        $this->services->singleton(HistoryController::class, fn (ServiceContainer $c): HistoryController => new HistoryController(
+            $c->get(AuthenticationService::class),$c->get(Rbac::class),$c->get(HistoryService::class)));
         $this->services->singleton(WorkspaceService::class, fn (ServiceContainer $c): WorkspaceService => new WorkspaceService(
             $c->get(DatabaseManager::class), $c->get(AuditLogger::class)));
         $this->services->singleton(WorkspaceController::class, fn (ServiceContainer $c): WorkspaceController => new WorkspaceController(

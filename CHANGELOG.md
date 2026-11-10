@@ -1,3 +1,12 @@
+## [0.2.7] — 2026-11-10 — Inventory History, Provenance & Reconciliation
+
+- Рабочий append-only PostgreSQL журнал версий Inventory с триггерами, записью контекста actor/request_id и backfill baseline.
+- Исторические снимки не сохраняют произвольное поле `attributes` и содержимое секретов; восстановление только разрешённых полей ручных объектов.
+- Транзакционная обработка наблюдений источника `import` с повторной доставкой по event_key, отбраковкой старых наблюдений, полевым provenance и конфликтами ручных значений.
+- Workspace RBAC, session-only/CSRF, optimistic If-Match, аудит, REST API и рабочая Nuxt-страница `/history`.
+- SQL миграция 0014, smoke и отдельный интеграционный PostgreSQL-тест, GitHub Actions и GitHub Docs.
+- Не подтверждено локально: реальный PostgreSQL/Redis, Composer/npm build, браузерный E2E; строгий production-gate остаётся обязательным.
+
 ## [0.2.6] — 2026-11-09 — Tags, Groups, Search & Filtering
 
 - Рабочие PostgreSQL `inventory_tags`, `inventory_asset_tags`, `inventory_groups`, `inventory_group_assets`; сохранены старые UUID и JSONB-теги.

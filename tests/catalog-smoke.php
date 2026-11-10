@@ -39,7 +39,7 @@ $oldEnv=getenv('APP_ENV');$oldUrl=getenv('APP_URL');putenv('APP_ENV=local');pute
 $app=(new Application($root))->boot();
 try{
     $routes=$app->container()->get(Router::class)->routes();
-    $ok(count($routes)===96,'96 production HTTP routes');
+    $ok(count($routes)===104,'104 production HTTP routes');
     foreach(['/api/v1/inventory/tags','/api/v1/inventory/groups','/api/v1/inventory/groups/{id}/assets','/api/v1/inventory/groups/{id}/assets/{assetId}'] as $route)$ok(in_array($route,array_column($routes,'path'),true),'real catalog route '.$route);
     $ok($app->container()->get(CatalogService::class) instanceof CatalogService,'catalog dependency injection');
     foreach(['/api/v1/inventory/tags','/api/v1/inventory/groups'] as $path){

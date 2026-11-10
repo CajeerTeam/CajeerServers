@@ -64,6 +64,7 @@ final class InventoryService
             $this->repo->lockWorkspace($pdo,$workspace);
             $this->repo->workspaceRole($pdo,$workspace,$actor,true);
             $this->repo->assertOwner($pdo,$workspace,$normalized['owner_user_id']);
+            HistoryService::context($pdo,$actor,'manual',$requestId);
             try {$id=$this->repo->insert($pdo,$workspace,$normalized);}
             catch (\PDOException $e) { if ($e->getCode()==='23505') throw new HttpException(409,'Asset identity conflict.','conflict'); throw $e; }
             $row=$this->repo->find($pdo,$actor,$id);
@@ -111,6 +112,7 @@ final class InventoryService
             if ($version!==$row['version']) throw new HttpException(412,'Asset has changed. Reload before retrying.','precondition_failed');
             if ($operation==='restore' && $row['deleted_at']===null) throw new HttpException(409,'Asset is not deleted.','conflict');
             if ($operation!=='restore' && $row['deleted_at']!==null) throw new HttpException(404,'Asset not found.','not_found');
+            HistoryService::context($pdo,$actor,'manual',$requestId);
             if ($operation==='update') {
                 if (array_key_exists('owner_user_id',$patch)) $this->repo->assertOwner($pdo,$workspace,$patch['owner_user_id']);
                 $this->repo->update($pdo,$id,$patch);

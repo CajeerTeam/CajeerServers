@@ -167,6 +167,29 @@ return static function (Router $router, ServiceContainer $container): void {
             $inventory->delete('/assets/{id}', static fn (HttpRequest $r): HttpResponse => $controller()->delete($r));
             $inventory->post('/assets/{id}/restore', static fn (HttpRequest $r): HttpResponse => $controller()->restore($r));
         });
+        // 0.2.7: append-only revision history, provenance and workspace-scoped reconciliation.
+        $routes->group('/inventory',static function(Router $history)use($container):void{
+            $handler=static fn():\Cajeer\Servers\Inventory\HistoryController => $container->get(\Cajeer\Servers\Inventory\HistoryController::class);
+            $history->get('/assets/{id}/history',static fn(HttpRequest $r):HttpResponse=>$handler()->revisions($r));
+            $history->get('/assets/{id}/provenance',static fn(HttpRequest $r):HttpResponse=>$handler()->provenance($r));
+            $history->get('/assets/{id}/conflicts',static fn(HttpRequest $r):HttpResponse=>$handler()->conflicts($r));
+            $history->get('/assets/{id}/observations',static fn(HttpRequest $r):HttpResponse=>$handler()->observations($r));
+            $history->post('/observations',static fn(HttpRequest $r):HttpResponse=>$handler()->receive($r),[
+                'required'=>['workspace_id','external_id','event_key','type','fields'],
+                'properties'=>['workspace_id'=>['type'=>'string','format'=>'uuid'],'source'=>['type'=>'string','enum'=>['import']],
+                    'external_id'=>['type'=>'string','minLength'=>1,'maxLength'=>255],
+                    'event_key'=>['type'=>'string','minLength'=>1,'maxLength'=>120],
+                    'type'=>['type'=>'string','enum'=>\Cajeer\Servers\Inventory\InfrastructureAsset::TYPES],
+                    'fields'=>['type'=>'object'],'observed_at'=>['type'=>'string','maxLength'=>40]],'additionalProperties'=>false,
+            ]);
+            $history->patch('/assets/{id}/overrides',static fn(HttpRequest $r):HttpResponse=>$handler()->override($r),[
+                'required'=>['fields'],'properties'=>['fields'=>['type'=>'object']],'additionalProperties'=>false,
+            ]);
+            $history->delete('/assets/{id}/overrides/{field}',static fn(HttpRequest $r):HttpResponse=>$handler()->clearOverride($r));
+            $history->post('/assets/{id}/restore-version',static fn(HttpRequest $r):HttpResponse=>$handler()->restore($r),[
+                'required'=>['revision'],'properties'=>['revision'=>['type'=>'integer']],'additionalProperties'=>false,
+            ]);
+        });
         // Catalog permissions are distinct from asset read/write scopes. Workspace authorization is checked in the service.
         $routes->group('/inventory', static function (Router $catalog) use ($container): void {
             $controller=static fn (): \Cajeer\Servers\Inventory\CatalogController => $container->get(\Cajeer\Servers\Inventory\CatalogController::class);

@@ -240,6 +240,7 @@ SQL);
             $this->workspaceLock($pdo,$workspaceId);
             $this->requireRole($pdo,$workspaceId,$actor,['owner','manager']);
             if($owner!==null) $this->readMembership($pdo,$workspaceId,$owner);
+            \Cajeer\Servers\Inventory\HistoryService::context($pdo,$actor,'manual',$requestId);
             $stmt=$pdo->prepare('UPDATE inventory_assets SET owner_user_id=CAST(:owner AS uuid),updated_at=now() WHERE id=:asset AND workspace_id=:ws AND deleted_at IS NULL RETURNING id::text,workspace_id::text,owner_user_id::text');
             $stmt->execute(['owner'=>$owner,'asset'=>$assetId,'ws'=>$workspaceId]);
             $row=$stmt->fetch(PDO::FETCH_ASSOC);
@@ -260,6 +261,7 @@ SQL);
             if ($locks[$sourceId]['organization_id']!==$locks[$destinationId]['organization_id']) throw new HttpException(403,'Cross-organization transfer prohibited.','permission_denied');
             $this->requireRole($pdo,$sourceId,$actor,['owner']);
             $this->requireRole($pdo,$destinationId,$actor,['owner','manager']);
+            \Cajeer\Servers\Inventory\HistoryService::context($pdo,$actor,'manual',$requestId);
             $stmt=$pdo->prepare('UPDATE inventory_assets SET workspace_id=:dest,owner_user_id=NULL,updated_at=now() WHERE workspace_id=:src AND id=:asset AND deleted_at IS NULL RETURNING id::text,workspace_id::text,owner_user_id::text');
             try {$stmt->execute(['dest'=>$destinationId,'src'=>$sourceId,'asset'=>$assetId]);}
             catch(\PDOException $e) {if(in_array((string)($e->errorInfo[0]??$e->getCode()),['23505','23503','23514'],true))throw new HttpException(409,'Detach relationships and network interfaces before transferring this asset.','conflict');throw $e;}

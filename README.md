@@ -2,6 +2,24 @@
 
 **CajeerServers** — русскоязычная self-hosted веб-оболочка для наблюдения и управления инфраструктурой. Это **не ОС**, не прошивка и не замена Proxmox/VMmanager. Для будущих версий предусмотрен сбор данных через API, собственные скрипты, webhooks, collectors и интеграции без обязательных системных агентов.
 
+## Версия 0.2.7 — Inventory History, Provenance & Reconciliation
+
+Новая реальная PostgreSQL-история изменений объектов, происхождение полей, приём idempotent
+наблюдений источника `import`, отклонение устаревших событий, сохранение ручных overrides и
+конфликтов, безопасное восстановление прежних значений. Доступ ограничен RBAC, членством в
+workspace, серверной сессией и CSRF. Рабочая панель `/history`.
+
+```bash
+php bin/cajeer migrate
+php bin/cajeer migrate:validate
+php tests/history-smoke.php
+# Только изолированная PostgreSQL БД cajeer_test_*:
+CAJEER_PG_TEST=1 CAJEER_PG_TEST_DATABASE=cajeer_test_history \
+  php tests/history-postgres-integration.php
+```
+
+Подробности: [GitHub Docs — Inventory History](docs/Inventory-History-Provenance.md).
+
 ## Версия 0.2.3 — Inventory Assets & CRUD Engine
 
 Реальный PostgreSQL Inventory CRUD: типизированные ручные объекты (servers, clusters, VMs,

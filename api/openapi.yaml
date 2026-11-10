@@ -1,8 +1,8 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.2.6
-  description: 'CajeerServers 0.2.6: workspace tags and groups, full-text inventory search, faceted filters, group membership, cursor pagination, plus existing Inventory/IPAM/Topology, RBAC, session CSRF, ETag and audit. Manual inventory only; external infrastructure control remains disabled. See docs/Inventory.md.'
+  version: 0.2.7
+  description: 'CajeerServers 0.2.7: inventory revisions, redacted history, field provenance, idempotent import observations and conflict reconciliation. Session-only, workspace RBAC and CSRF. No provider connectors or remote infrastructure commands.'
 servers:
 - url: /api/v1
 security: []
@@ -3720,6 +3720,472 @@ paths:
         '403': {description: Нет глобального разрешения}
         '404': {description: Workspace недоступен}
         '422': {description: Неверный запрос}
+  /inventory/assets/{id}/history:
+    get:
+      operationId: inventoryAssetHistory
+      summary: История версий без содержимого произвольных attributes
+      security:
+      - sessionAuth: []
+      responses:
+        '200':
+          description: Данные из PostgreSQL с проверкой workspace
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: Invalid request or ETag
+        '401':
+          description: Unauthenticated
+        '403':
+          description: Permission denied
+        '404':
+          description: Not found or inaccessible workspace
+        '409':
+          description: Conflict
+        '412':
+          description: Stale If-Match
+        '422':
+          description: Validation failed
+        '428':
+          description: If-Match required
+        '503':
+          description: Service unavailable
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+      - name: offset
+        in: query
+        schema:
+          type: integer
+          minimum: 0
+          maximum: 10000
+  /inventory/assets/{id}/provenance:
+    get:
+      operationId: inventoryAssetProvenance
+      summary: Происхождение данных по полям объекта
+      security:
+      - sessionAuth: []
+      responses:
+        '200':
+          description: Данные из PostgreSQL с проверкой workspace
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: Invalid request or ETag
+        '401':
+          description: Unauthenticated
+        '403':
+          description: Permission denied
+        '404':
+          description: Not found or inaccessible workspace
+        '409':
+          description: Conflict
+        '412':
+          description: Stale If-Match
+        '422':
+          description: Validation failed
+        '428':
+          description: If-Match required
+        '503':
+          description: Service unavailable
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+  /inventory/assets/{id}/conflicts:
+    get:
+      operationId: inventoryAssetConflicts
+      summary: Текущие и опционально разрешённые конфликты
+      security:
+      - sessionAuth: []
+      responses:
+        '200':
+          description: Данные из PostgreSQL с проверкой workspace
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: Invalid request or ETag
+        '401':
+          description: Unauthenticated
+        '403':
+          description: Permission denied
+        '404':
+          description: Not found or inaccessible workspace
+        '409':
+          description: Conflict
+        '412':
+          description: Stale If-Match
+        '422':
+          description: Validation failed
+        '428':
+          description: If-Match required
+        '503':
+          description: Service unavailable
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: include_resolved
+        in: query
+        schema:
+          type: string
+          enum:
+          - '0'
+          - '1'
+  /inventory/assets/{id}/observations:
+    get:
+      operationId: inventoryAssetObservations
+      summary: Полученные наблюдения и результаты обработки
+      security:
+      - sessionAuth: []
+      responses:
+        '200':
+          description: Данные из PostgreSQL с проверкой workspace
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: Invalid request or ETag
+        '401':
+          description: Unauthenticated
+        '403':
+          description: Permission denied
+        '404':
+          description: Not found or inaccessible workspace
+        '409':
+          description: Conflict
+        '412':
+          description: Stale If-Match
+        '422':
+          description: Validation failed
+        '428':
+          description: If-Match required
+        '503':
+          description: Service unavailable
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+  /inventory/observations:
+    post:
+      operationId: inventoryReceiveObservation
+      summary: Идемпотентно принять наблюдение из source=import
+      security:
+      - sessionAuth: []
+      responses:
+        '202':
+          description: Данные сохранены в PostgreSQL и возвращены как JSON
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: Invalid request or ETag
+        '401':
+          description: Unauthenticated
+        '403':
+          description: Permission denied
+        '404':
+          description: Not found or inaccessible workspace
+        '409':
+          description: Conflict
+        '412':
+          description: Stale If-Match
+        '422':
+          description: Validation failed
+        '428':
+          description: If-Match required
+        '503':
+          description: Service unavailable
+      description: Требуется sessionAuth, глобальное RBAC-разрешение, workspace role owner/manager и X-CSRF-Token.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - workspace_id
+              - external_id
+              - event_key
+              - type
+              - fields
+              properties:
+                workspace_id:
+                  type: string
+                  format: uuid
+                source:
+                  type: string
+                  const: import
+                external_id:
+                  type: string
+                  maxLength: 255
+                event_key:
+                  type: string
+                  maxLength: 120
+                type:
+                  type: string
+                  enum:
+                  - server
+                  - hypervisor_node
+                  - cluster
+                  - virtual_machine
+                  - container
+                  - router
+                  - workstation
+                  - other
+                observed_at:
+                  type: string
+                  format: date-time
+                fields:
+                  type: object
+                  minProperties: 1
+                  additionalProperties: false
+                  properties:
+                    name:
+                      type: string
+                    status:
+                      type: string
+                    os_family:
+                      type:
+                      - string
+                      - 'null'
+                    ip_addresses:
+                      type: array
+                      items:
+                        type: string
+                    tags:
+                      type: array
+                      items:
+                        type: string
+                    environment:
+                      type: string
+  /inventory/assets/{id}/overrides:
+    patch:
+      operationId: inventoryOverrideFields
+      summary: Установить ручные полевые переопределения импортного объекта
+      security:
+      - sessionAuth: []
+      responses:
+        '200':
+          description: Данные сохранены в PostgreSQL и возвращены как JSON
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: Invalid request or ETag
+        '401':
+          description: Unauthenticated
+        '403':
+          description: Permission denied
+        '404':
+          description: Not found or inaccessible workspace
+        '409':
+          description: Conflict
+        '412':
+          description: Stale If-Match
+        '422':
+          description: Validation failed
+        '428':
+          description: If-Match required
+        '503':
+          description: Service unavailable
+      description: Требуется sessionAuth, глобальное RBAC-разрешение, workspace role owner/manager и X-CSRF-Token.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - fields
+              properties:
+                fields:
+                  type: object
+                  minProperties: 1
+                  additionalProperties: false
+                  properties:
+                    name:
+                      type: string
+                    status:
+                      type: string
+                    os_family:
+                      type:
+                      - string
+                      - 'null'
+                    ip_addresses:
+                      type: array
+                      items:
+                        type: string
+                    tags:
+                      type: array
+                      items:
+                        type: string
+                    environment:
+                      type: string
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: If-Match
+        in: header
+        required: true
+        schema:
+          type: string
+          pattern: ^"[0-9a-f-]{36}:[1-9][0-9]*"$
+  /inventory/assets/{id}/overrides/{field}:
+    delete:
+      operationId: inventoryClearFieldOverride
+      summary: Снять ручной override с поля
+      security:
+      - sessionAuth: []
+      responses:
+        '200':
+          description: Данные сохранены в PostgreSQL и возвращены как JSON
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: Invalid request or ETag
+        '401':
+          description: Unauthenticated
+        '403':
+          description: Permission denied
+        '404':
+          description: Not found or inaccessible workspace
+        '409':
+          description: Conflict
+        '412':
+          description: Stale If-Match
+        '422':
+          description: Validation failed
+        '428':
+          description: If-Match required
+        '503':
+          description: Service unavailable
+      description: Требуется sessionAuth, глобальное RBAC-разрешение, workspace role owner/manager и X-CSRF-Token.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: field
+        in: path
+        required: true
+        schema:
+          type: string
+          enum:
+          - name
+          - status
+          - os_family
+          - ip_addresses
+          - tags
+          - environment
+      - name: If-Match
+        in: header
+        required: true
+        schema:
+          type: string
+          pattern: ^"[0-9a-f-]{36}:[1-9][0-9]*"$
+  /inventory/assets/{id}/restore-version:
+    post:
+      operationId: inventoryRestoreRevision
+      summary: Создать новую ревизию с безопасными полями исторического manual asset
+      security:
+      - sessionAuth: []
+      responses:
+        '200':
+          description: Данные сохранены в PostgreSQL и возвращены как JSON
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: Invalid request or ETag
+        '401':
+          description: Unauthenticated
+        '403':
+          description: Permission denied
+        '404':
+          description: Not found or inaccessible workspace
+        '409':
+          description: Conflict
+        '412':
+          description: Stale If-Match
+        '422':
+          description: Validation failed
+        '428':
+          description: If-Match required
+        '503':
+          description: Service unavailable
+      description: Требуется sessionAuth, глобальное RBAC-разрешение, workspace role owner/manager и X-CSRF-Token. Arbitrary
+        metadata attributes are not restored.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - revision
+              properties:
+                revision:
+                  type: integer
+                  minimum: 1
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: If-Match
+        in: header
+        required: true
+        schema:
+          type: string
+          pattern: ^"[0-9a-f-]{36}:[1-9][0-9]*"$
 components:
   schemas:
     InventoryRelationship:
