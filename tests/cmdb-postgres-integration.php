@@ -43,7 +43,7 @@ try{
     $pdo->exec('SET search_path TO "'.$schema.'", public');
     foreach(glob($root.'/migrations/pgsql/*.sql')?:[] as $file)copy($file,$dir.'/migrations/'.basename($file));
     $migrator=new MigrationRunner($db,$dir.'/migrations');
-    $ok(count($migrator->run()['applied'])===18,'all 18 migrations applied');
+    $ok(count($migrator->run()['applied'])===count(glob($root.'/migrations/pgsql/*.sql')),'all migrations applied');
     $ok($migrator->run()['applied']===[]&&$migrator->validate()['valid'],'migration checksums/replay');
 
     $createUser=$pdo->prepare("INSERT INTO users(email,name,password_hash) VALUES(:email,'CMDB Owner',:hash) RETURNING id::text");

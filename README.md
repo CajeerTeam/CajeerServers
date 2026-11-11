@@ -406,3 +406,9 @@ owner/manager для изменений и CSRF. **Plaintext не возвращ
 ### Vault 0.3.4 — Secure Access Control & Secret Consumption
 
 Право `vault.credentials.read` открывает только metadata; `vault.credentials.use` отдельно проверяется сервером. `POST /api/v1/vault/credentials/{id}/authorize-use` после CSRF, пароля и свежего TOTP выпускает одноразовое внутреннее разрешение (TTL 120 секунд). Оно связано с текущей сессией, Inventory asset, credential, purpose и версией. **REST никогда не расшифровывает и не возвращает plaintext**; только доверенный серверный адаптер может вызвать `SecretAccessService::consumeForAsset()` с callback, который получает материал на время операции. Подробнее: `docs/Vault-Secret-Access-0.3.4.md`.
+
+### Vault 0.3.5 — Credential Versioning & Rotation
+
+Стадии замены секрета: `POST /api/v1/vault/credentials/{id}/rotation` → оператор проверяет новую учётную запись **вне CajeerServers** → `POST .../rotation/{revision}/activate` с `{"confirmed":true}`. Неиспользованную версию можно отменить. История возвращает только состояние и даты, без ciphertext.
+
+Офлайн-ротация ключа: `php bin/cajeer vault:key:rotate --next-key-file=/private/new.key --confirm-offline`; затем переключить `VAULT_MASTER_KEY_FILE` на новый файл и перезапустить workers. **Не запускать при работающих PHP/queue workers.** Подробности в `docs/Vault-Versioning-Rotation-0.3.5.md`.

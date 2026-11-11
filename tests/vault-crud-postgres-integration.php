@@ -54,7 +54,7 @@ try{
     $pdo->exec('SET search_path TO "'.$schema.'", public');
     foreach(glob($root.'/migrations/pgsql/*.sql')?:[] as $file) copy($file,$dir.'/migrations/'.basename($file));
     $migrations=new MigrationRunner($db,$dir.'/migrations');
-    $ok(count($migrations->run()['applied'])===19,'all 19 production migrations executed');
+    $ok(count($migrations->run()['applied'])===count(glob($root.'/migrations/pgsql/*.sql')),'all migrations executed');
     $ok($migrations->validate()['valid']===true && $migrations->run()['applied']===[],'migration journal idempotent');
     $seed=$pdo->prepare('INSERT INTO users(email,name,password_hash) VALUES(:email,:name,:hash) RETURNING id::text');
     $user=static function(string $name)use($seed):string{

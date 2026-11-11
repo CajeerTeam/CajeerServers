@@ -59,7 +59,7 @@ try{
     foreach(glob($root.'/migrations/pgsql/*.sql')?:[] as $path)
         copy($path,$tmp.'/migrations/'.basename($path));
     $migration=new MigrationRunner($db,$tmp.'/migrations');
-    $ok(count($migration->run()['applied'])===19,'all 19 production migrations applied');
+    $ok(count($migration->run()['applied'])===count(glob($root.'/migrations/pgsql/*.sql')),'all migrations applied');
     $ok($migration->validate()['valid']===true && $migration->run()['applied']===[],'migrations idempotent');
     $password='ci-only-strong-password-never-production-123!';
     $seed=$pdo->prepare('INSERT INTO users(email,name,password_hash,two_factor_enabled) VALUES(:email,:name,:hash,:mfa) RETURNING id::text');

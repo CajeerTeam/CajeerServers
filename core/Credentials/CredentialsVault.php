@@ -29,6 +29,8 @@ final class CredentialsVault
             $blob = $this->crypto->seal(self::CHALLENGE, self::CONTEXT_ID, self::WORKSPACE_ID, self::CONTEXT_TYPE);
             $stmt = $pdo->prepare('INSERT INTO vault_key_verifiers(id,key_id,verifier) VALUES(1,:kid,decode(:blob,\'hex\'))');
             $stmt->execute(['kid' => $keyId, 'blob' => bin2hex($blob)]);
+            $state = $pdo->prepare("INSERT INTO vault_key_state(id,key_id,verifier,generation) VALUES(1,:kid,decode(:blob,'hex'),1)");
+            $state->execute(['kid'=>$keyId,'blob'=>bin2hex($blob)]);
             return ['initialized' => true, 'key_id' => $keyId];
         });
     }
@@ -37,7 +39,7 @@ final class CredentialsVault
     public function check(): array
     {
         $pdo = $this->postgres();
-        $row = $pdo->query('SELECT key_id, encode(verifier,\'hex\') AS blob FROM vault_key_verifiers WHERE id=1')->fetch(PDO::FETCH_ASSOC);
+        $row = $pdo->query('SELECT key_id, encode(verifier,\'hex\') AS blob FROM vault_key_state WHERE id=1')->fetch(PDO::FETCH_ASSOC);
         if (!is_array($row)) throw new RuntimeException('Vault has not been initialized.');
         $keyId = $this->keys->keyId();
         if (!is_string($row['key_id']) || !hash_equals($row['key_id'], $keyId)) {

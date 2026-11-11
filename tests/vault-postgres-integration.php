@@ -54,7 +54,7 @@ try {
         if (!copy($file, $directory . '/migrations/' . basename($file))) throw new RuntimeException('Cannot prepare migrations.');
     }
     $runner = new MigrationRunner($db, $directory . '/migrations');
-    $assert(count($runner->run()['applied']) === 18, 'all 18 migrations applied');
+    $assert(count($runner->run()['applied'])===count(glob($root.'/migrations/pgsql/*.sql')), 'all migrations applied');
     $assert($runner->validate()['valid'] === true, 'migration checksums valid');
     $assert($runner->run()['applied'] === [], 'migration replay idempotent');
 

@@ -493,3 +493,10 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 - [ ] Проверить реальное выполнение PostgreSQL integration и Nuxt E2E на изолированном CI/staging.
 
 **Следующий этап: 0.3.5 — Credential Versioning & Rotation.**
+
+## 0.3.5 — Credential Versioning & Rotation (реализовано)
+
+- [x] Защищённые версии секретов в PostgreSQL с ручной активацией, отказом от повторной pending-версии и конкурентными ETag-проверками.
+- [x] Atomic rewrap DEK для master key (только offline), транзакционный verifier и защита от устаревших процессов на уровне SQL-триггеров.
+- [x] Реальные CLI и REST операции; native smoke и изолированный PostgreSQL-тест.
+- [ ] PostgreSQL 17/18 integration и аварийный restore-test на целевом окружении до production deployment.

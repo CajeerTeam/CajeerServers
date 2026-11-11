@@ -90,3 +90,4 @@ jobs:
           php tests/vault-postgres-integration.php
           php tests/vault-crud-postgres-integration.php
           php tests/vault-access-postgres-integration.php
+          php tests/vault-rotation-postgres-integration.php

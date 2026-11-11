@@ -15,7 +15,7 @@ use Throwable;
 final class CredentialStore
 {
     private const PUBLIC_COLUMNS = <<<'SQL'
-c.id::text,c.workspace_id::text,c.name,c.description,c.type,c.state,c.version,
+c.id::text,c.workspace_id::text,c.name,c.description,c.type,c.state,c.version,c.secret_version,
 c.created_at::text,c.updated_at::text,c.deleted_at::text
 SQL;
 
@@ -50,6 +50,7 @@ SQL;
             $result[$key] = $row[$key] ?? null;
         }
         $result['version'] = (int) $row['version'];
+        $result['secret_version'] = (int) $row['secret_version'];
         $result['etag'] = CredentialInput::etag((string) $row['id'], (int) $row['version']);
         return $result;
     }
@@ -130,6 +131,9 @@ INSERT INTO inventory_credential_scopes(credential_id,workspace_id,scoped_by)
 VALUES(CAST(:id AS uuid),CAST(:ws AS uuid),CAST(:actor AS uuid))
 SQL);
             $scope->execute(['id'=>$id,'ws'=>$workspace,'actor'=>$actor]);
+            $history=$pdo->prepare("INSERT INTO vault_credential_versions(credential_id,secret_version,state,encrypted_payload,activated_at,created_by)
+                VALUES(CAST(:id AS uuid),1,'active',decode(:cipher,'hex'),clock_timestamp(),CAST(:actor AS uuid))");
+            $history->execute(['id'=>$id,'cipher'=>bin2hex($envelope),'actor'=>$actor]);
             $this->audit->record($pdo,$actor,'vault.credential.created','success','credential',$id,[], $requestId);
             return self::public($this->visible($pdo,$actor,$id));
         });
@@ -181,9 +185,18 @@ SQL);
                 }
             } elseif ($action==='secret') {
                 if ($secret===null) throw new RuntimeException('Missing authorized replacement.');
+                if ($row['state']!=='active') throw new HttpException(409,'Credential must be active.','conflict');
+                $pending=$pdo->prepare("SELECT 1 FROM vault_credential_versions WHERE credential_id=CAST(:id AS uuid) AND state='pending'");
+                $pending->execute(['id'=>$id]);
+                if ($pending->fetchColumn()) throw new HttpException(409,'Cancel or activate pending rotation first.','conflict');
                 $serialized = CredentialProfile::encode((string)$row['type'],$secret);
                 $cipher = $this->crypto->seal($serialized,$id,$workspace,(string)$row['type']);
                 $fields[]="encrypted_payload=decode(:cipher,'hex')";
+                $next=$pdo->prepare('SELECT coalesce(max(secret_version),0)+1 FROM vault_credential_versions WHERE credential_id=CAST(:id AS uuid)');
+                $next->execute(['id'=>$id]);
+                $newSecretVersion=(int)$next->fetchColumn();
+                $fields[]="secret_version=:secret_version";
+                $params['secret_version']=$newSecretVersion;
                 $params['cipher']=bin2hex($cipher);
             } else {
                 $fields[]="state='archived'";
@@ -192,6 +205,24 @@ SQL);
             $stmt=$pdo->prepare('UPDATE credentials SET '.implode(',',$fields).' WHERE id=CAST(:id AS uuid) AND version=:version AND deleted_at IS NULL');
             $stmt->execute($params);
             if ($stmt->rowCount()!==1) throw new HttpException(412,'Credential changed during update.','precondition_failed');
+            if ($action==='secret') {
+                $end=$pdo->prepare("UPDATE vault_credential_versions SET state='retired',retired_at=clock_timestamp()
+                    WHERE credential_id=CAST(:id AS uuid) AND state='active'");
+                $end->execute(['id'=>$id]);
+                $next=$pdo->prepare('SELECT secret_version FROM credentials WHERE id=CAST(:id AS uuid)');
+                $next->execute(['id'=>$id]);
+                $secretVersion=(int)$next->fetchColumn();
+                $history=$pdo->prepare("INSERT INTO vault_credential_versions(credential_id,secret_version,state,encrypted_payload,activated_at,created_by)
+                    VALUES(CAST(:id AS uuid),:revision,'active',decode(:cipher,'hex'),clock_timestamp(),CAST(:actor AS uuid))");
+                $history->execute(['id'=>$id,'revision'=>$secretVersion,'cipher'=>$params['cipher'],'actor'=>$actor]);
+            } elseif ($action==='archive') {
+                $history=$pdo->prepare("UPDATE vault_credential_versions SET state='retired',retired_at=clock_timestamp()
+                    WHERE credential_id=CAST(:id AS uuid) AND state='active'");
+                $history->execute(['id'=>$id]);
+                $pending=$pdo->prepare("UPDATE vault_credential_versions SET state='discarded',retired_at=clock_timestamp()
+                    WHERE credential_id=CAST(:id AS uuid) AND state='pending'");
+                $pending->execute(['id'=>$id]);
+            }
             $this->audit->record($pdo,$actor,'vault.credential.'.($action==='metadata'?'updated':($action==='secret'?'secret_replaced':'archived')),
                 'success','credential',$id,[], $requestId);
             if ($action==='archive') {

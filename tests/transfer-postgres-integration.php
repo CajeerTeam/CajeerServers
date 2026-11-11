@@ -47,7 +47,7 @@ try{
     $pdo->exec('SET search_path TO "'.$schema.'", public');
     foreach(glob($root.'/migrations/pgsql/*.sql')?:[] as $file)copy($file,$dir.'/migrations/'.basename($file));
     $runner=new MigrationRunner($db,$dir.'/migrations');
-    $ok(count($runner->run()['applied'])===18,'18 migrations applied');
+    $ok(count($runner->run()['applied'])===count(glob($root.'/migrations/pgsql/*.sql')),'all migrations applied');
     $ok($runner->run()['applied']===[]&&$runner->validate()['valid'],'migration replay and checksums');
     $seed=$pdo->prepare('INSERT INTO users(email,name,password_hash) VALUES(:email,:name,:hash) RETURNING id::text');
     $user=static function(string $name)use($seed):string{

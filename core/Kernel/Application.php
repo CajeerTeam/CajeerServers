@@ -139,6 +139,17 @@ final class Application
         $this->services->singleton(CredentialController::class, fn (ServiceContainer $c): CredentialController => new CredentialController(
             $c->get(AuthenticationService::class), $c->get(Rbac::class), $c->get(CredentialStore::class)
         ));
+        $this->services->singleton(\Cajeer\Servers\Credentials\CredentialVersionService::class,
+            fn (ServiceContainer $c): \Cajeer\Servers\Credentials\CredentialVersionService => new \Cajeer\Servers\Credentials\CredentialVersionService(
+                $c->get(DatabaseManager::class),$c->get(InventoryRepository::class),$c->get(CredentialsVault::class),
+                $c->get(VaultCrypto::class),$c->get(AuditLogger::class)));
+        $this->services->singleton(\Cajeer\Servers\Credentials\CredentialVersionController::class,
+            fn (ServiceContainer $c): \Cajeer\Servers\Credentials\CredentialVersionController => new \Cajeer\Servers\Credentials\CredentialVersionController(
+                $c->get(AuthenticationService::class),$c->get(Rbac::class),$c->get(\Cajeer\Servers\Credentials\CredentialVersionService::class)));
+        $this->services->singleton(\Cajeer\Servers\Credentials\VaultKeyRotation::class,
+            fn (ServiceContainer $c): \Cajeer\Servers\Credentials\VaultKeyRotation => new \Cajeer\Servers\Credentials\VaultKeyRotation(
+                $c->get(DatabaseManager::class),$c->get(VaultCrypto::class),$c->get(VaultMasterKey::class),
+                $c->get(CredentialsVault::class),$c->get(AuditLogger::class)));
         $this->services->singleton(SecretAccessService::class, fn (ServiceContainer $c): SecretAccessService => new SecretAccessService(
             $c->get(DatabaseManager::class), $c->get(InventoryRepository::class), $c->get(Rbac::class),
             $c->get(TwoFactorManager::class), $c->get(RateLimiter::class), $c->get(AuditLogger::class),

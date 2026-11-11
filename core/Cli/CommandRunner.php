@@ -54,7 +54,7 @@ final class CommandRunner
                 'storage:check', 'storage:put', 'storage:get', 'storage:exists', 'storage:delete' => (new InfrastructureCommands($this->app))->run($command, $argv),
                 'health', 'health:live', 'health:ready', 'doctor:deep', 'system:report', 'metrics:render', 'openapi:lint', 'queue:stats', 'scheduler:stats', 'security:prune' => (new OperationalCommands($this->app))->run($command, $argv),
                 'inventory:preflight', 'inventory:constraints', 'inventory:integrity' => (new InventoryCommands($this->app))->run($command, $argv),
-                'vault:key:generate', 'vault:key:status', 'vault:init', 'vault:check', 'vault:probe' => (new VaultCommands($this->app))->run($command, $argv),
+                'vault:key:generate', 'vault:key:status', 'vault:key:rotate', 'vault:init', 'vault:check', 'vault:probe' => (new VaultCommands($this->app))->run($command, $argv),
                 'connector:sync', 'scripts:run', 'update:check' => $this->unavailable($command),
                 default => $this->unknown($command),
             };
@@ -67,7 +67,7 @@ final class CommandRunner
     private function help(): int
     {
         fwrite(STDOUT, <<<'TEXT'
-CajeerServers CLI 0.3.3
+CajeerServers CLI 0.3.5
 
 Рабочие команды:
   help                 Список доступных команд
@@ -91,6 +91,7 @@ CajeerServers CLI 0.3.3
   inventory:integrity [--json] [--deep]  Проверка согласованности CMDB (только чтение)
   vault:key:generate   --output=/private/vault.key; сохраняет ключ только в файл с правами 0600
   vault:key:status     Проверить конфигурацию ключа без обращения к PostgreSQL
+  vault:key:rotate     --next-key-file=/private/new.key --confirm-offline; транзакционное переоборачивание DEK
   vault:init           Однократная регистрация verifier ключа в PostgreSQL после миграций
   vault:check          Проверить ключ и зашифрованный verifier из PostgreSQL
   vault:probe          Транзакционно записать и прочитать зашифрованный тестовый секрет (ROLLBACK)

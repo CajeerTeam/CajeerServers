@@ -1,3 +1,13 @@
+## [0.3.5] — 2026-11-11 — Credential Versioning & Rotation
+
+- PostgreSQL-backed encrypted secret-version history (active/pending/retired/discarded), immutable credential identity and transactionally safe activation.
+- `CredentialVersionService`: stage/activate/cancel, owner/manager workspace authorization, session/RBAC/CSRF, If-Match, redacted responses and audit.
+- Existing Vault create/replace/archive now update version history in the same transaction; pre-existing encrypted records are backfilled without decrypting.
+- `VaultCrypto::rewrap`: authenticated DEK-only key rotation; the data ciphertext and nonce remain unchanged.
+- `VaultKeyRotation`: offline transaction rewraps active, disabled, archived and historical versions and atomically promotes the PostgreSQL verifier. Old processes cannot insert ciphertext with an inactive key.
+- `vault:key:rotate --next-key-file=... --confirm-offline` requires an operator-controlled maintenance window and a separate private key file. After commit, switch VAULT_MASTER_KEY_FILE before restarting workers.
+- New migration 0020, native smoke and isolated PostgreSQL integration; full server-side integration remains unverified in this environment.
+
 ## [0.3.4] — 2026-11-11 — Secure Access Control & Secret Consumption
 
 - Реализован `SecretAccessService`: реальная PostgreSQL-авторизация одноразового использования секрета конкретным серверным адаптером; права `vault.credentials.use` не наследуются из `read`.

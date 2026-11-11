@@ -127,6 +127,15 @@ return static function (Router $router, ServiceContainer $container): void {
                 'additionalProperties'=>false,
             ]);
             $vault->delete('/credentials/{id}',static fn (HttpRequest $r): HttpResponse => $handler()->delete($r));
+            $versions=static fn (): \Cajeer\Servers\Credentials\CredentialVersionController => $container->get(\Cajeer\Servers\Credentials\CredentialVersionController::class);
+            $vault->get('/credentials/{id}/versions',static fn (HttpRequest $r): HttpResponse => $versions()->index($r));
+            $vault->post('/credentials/{id}/rotation',static fn (HttpRequest $r): HttpResponse => $versions()->stage($r),[
+                'required'=>['secret'],'properties'=>['secret'=>[]],'additionalProperties'=>false,
+            ]);
+            $vault->post('/credentials/{id}/rotation/{revision}/activate',static fn (HttpRequest $r): HttpResponse => $versions()->activate($r),[
+                'required'=>['confirmed'],'properties'=>['confirmed'=>['type'=>'boolean']],'additionalProperties'=>false,
+            ]);
+            $vault->post('/credentials/{id}/rotation/{revision}/cancel',static fn (HttpRequest $r): HttpResponse => $versions()->cancel($r));
             // Only grants one short-lived, single-use internal permission. NEVER returns secrets.
             $vault->post('/credentials/{id}/authorize-use',
                 static fn (HttpRequest $r): HttpResponse => $container->get(\Cajeer\Servers\Credentials\SecretAccessController::class)->authorize($r), [

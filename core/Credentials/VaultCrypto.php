@@ -72,6 +72,62 @@ final class VaultCrypto
         }
     }
 
+    /**
+     * Rotate only the per-record wrapped DEK. Payload nonce and ciphertext stay
+     * byte-for-byte identical. Authenticate BOTH AEAD layers before rewriting.
+     * The caller must atomically persist the result in a database transaction.
+     */
+    public function rewrap(string $envelope, string $credentialId, string $workspaceId, string $type,
+                           VaultMasterKey $nextKey): string
+    {
+        $context = self::context($credentialId, $workspaceId, $type);
+        $minimum = 4 + 16 + self::NONCE + self::DEK + self::TAG + self::NONCE + self::TAG;
+        if (strlen($envelope) < $minimum || strlen($envelope) > self::MAX_PLAINTEXT + $minimum
+            || substr($envelope, 0, 4) !== self::HEADER) {
+            throw new RuntimeException('Invalid Vault envelope.');
+        }
+        $old = $this->masterKey->load();
+        $next = $nextKey->load();
+        $oldKek = ''; $newKek = ''; $dek = ''; $verified = '';
+        try {
+            if (hash_equals(VaultMasterKey::identifier($old), VaultMasterKey::identifier($next))) {
+                throw new RuntimeException('Next Vault key must differ from current key.');
+            }
+            if (!hash_equals(hex2bin(VaultMasterKey::identifier($old)), substr($envelope, 4, 16))) {
+                throw new RuntimeException('Vault envelope belongs to another master key.');
+            }
+            $nonceOld = substr($envelope, 20, self::NONCE);
+            $wrappedOld = substr($envelope, 20 + self::NONCE, self::DEK + self::TAG);
+            $dataOffset = 20 + self::NONCE + self::DEK + self::TAG;
+            $dataNonce = substr($envelope, $dataOffset, self::NONCE);
+            $dataCiphertext = substr($envelope, $dataOffset + self::NONCE);
+            $oldKek = sodium_crypto_generichash('cajeerservers:vault:kek:v1', $old, self::DEK);
+            $plainDek = sodium_crypto_aead_xchacha20poly1305_ietf_decrypt(
+                $wrappedOld, 'vault:dek:v1:' . $context, $nonceOld, $oldKek);
+            if (!is_string($plainDek) || strlen($plainDek) !== self::DEK) {
+                throw new RuntimeException('Vault DEK authentication failed.');
+            }
+            $dek = $plainDek;
+            $value = sodium_crypto_aead_xchacha20poly1305_ietf_decrypt(
+                $dataCiphertext, 'vault:data:v1:' . $context, $dataNonce, $dek);
+            if (!is_string($value)) throw new RuntimeException('Vault payload authentication failed.');
+            $verified = $value;
+            $newKek = sodium_crypto_generichash('cajeerservers:vault:kek:v1', $next, self::DEK);
+            $nonceNew = random_bytes(self::NONCE);
+            $wrappedNew = sodium_crypto_aead_xchacha20poly1305_ietf_encrypt(
+                $dek, 'vault:dek:v1:' . $context, $nonceNew, $newKek);
+            return self::HEADER . hex2bin(VaultMasterKey::identifier($next)) . $nonceNew . $wrappedNew
+                . $dataNonce . $dataCiphertext;
+        } finally {
+            if ($verified !== '') sodium_memzero($verified);
+            if ($dek !== '') sodium_memzero($dek);
+            if ($oldKek !== '') sodium_memzero($oldKek);
+            if ($newKek !== '') sodium_memzero($newKek);
+            sodium_memzero($old);
+            sodium_memzero($next);
+        }
+    }
+
     /** AAD fields are explicit and strongly typed; no free-form untrusted AAD serialization. */
     private static function context(string $credentialId, string $workspaceId, string $type): string
     {

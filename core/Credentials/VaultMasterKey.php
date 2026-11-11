@@ -91,6 +91,12 @@ final class VaultMasterKey
         }
     }
 
+    /** Read a separately staged rotation key with the same ownership and mode checks. */
+    public static function fromPrivateFile(string $path): self
+    {
+        return new self(self::readPrivateKeyFile($path));
+    }
+
     /** Creates a key file exclusively; never writes a raw key to stdout or logs. */
     public static function generatePrivateFile(string $path): void
     {

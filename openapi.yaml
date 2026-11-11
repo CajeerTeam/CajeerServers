@@ -1,8 +1,8 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.3.4
-  description: 'CajeerServers 0.3.4: session-bound, one-time step-up authorizations for trusted internal credential usage. HTTP never returns plaintext.'
+  version: 0.3.5
+  description: 'CajeerServers 0.3.5: encrypted credential versions, explicit staged activation and offline master-key rewrapping. HTTP never returns plaintext.'
 servers:
 - url: /api/v1
 security: []
@@ -4805,6 +4805,125 @@ paths:
         '422': {$ref: '#/components/responses/UnprocessableEntity'}
         '428': {description: If-Match обязателен}
         '503': {$ref: '#/components/responses/ServiceUnavailable'}
+  /vault/credentials/{id}/versions:
+    get:
+      operationId: listVaultCredentialVersions
+      summary: Encrypted secret version metadata (no ciphertext/plaintext)
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      responses:
+        '200': {description: Version metadata only}
+        '401': {description: Authentication required}
+        '403': {description: Permission denied}
+        '404': {description: Credential not found}
+  /vault/credentials/{id}/rotation:
+    post:
+      operationId: stageVaultCredentialRotation
+      summary: Stage a new encrypted secret version for later explicit activation
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      - name: If-Match
+        in: header
+        required: true
+        schema: {type: string}
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [secret]
+              additionalProperties: false
+              properties:
+                secret: {description: Typed secret payload; encrypted before persistence}
+      responses:
+        '201': {description: Pending encrypted version created; no secrets returned}
+        '401': {description: Authentication required}
+        '403': {description: Permission denied}
+        '409': {description: Rotation already pending or credential not active}
+        '412': {description: Stale ETag}
+        '422': {description: Invalid profile}
+        '428': {description: Missing If-Match}
+  /vault/credentials/{id}/rotation/{revision}/activate:
+    post:
+      operationId: activateVaultCredentialRotation
+      summary: Explicitly activate a staged secret after independent external validation
+      description: Confirmation is an operator attestation, not an automatic remote check.
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      - name: revision
+        in: path
+        required: true
+        schema: {type: integer, minimum: 1}
+      - name: If-Match
+        in: header
+        required: true
+        schema: {type: string}
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [confirmed]
+              additionalProperties: false
+              properties:
+                confirmed: {type: boolean, const: true}
+      responses:
+        '200': {description: Activated version, retired previous, no secrets returned}
+        '409': {description: Pending version missing}
+        '412': {description: Stale ETag}
+        '422': {description: Confirmation required}
+  /vault/credentials/{id}/rotation/{revision}/cancel:
+    post:
+      operationId: cancelVaultCredentialRotation
+      summary: Discard staged version without activating it
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      - name: revision
+        in: path
+        required: true
+        schema: {type: integer, minimum: 1}
+      - name: If-Match
+        in: header
+        required: true
+        schema: {type: string}
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema: {type: string}
+      responses:
+        '200': {description: Pending version discarded, no secrets returned}
+        '409': {description: No pending version}
+        '412': {description: Stale ETag}
   /vault/credentials/{id}/authorize-use:
     post:
       operationId: authorizeInternalVaultCredentialUse

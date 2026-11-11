@@ -55,7 +55,11 @@ final class ReleaseVerifier
                   'migrations/pgsql/0018_encrypted_credentials_crud.sql', 'core/Credentials/CredentialInput.php',
                   'core/Credentials/CredentialStore.php', 'core/Credentials/CredentialController.php',
                   'tests/vault-crud-smoke.php', 'core/Credentials/CredentialProfile.php',
-                  'tests/vault-profiles-smoke.php'] as $file) {
+                  'tests/vault-profiles-smoke.php',
+                  'migrations/pgsql/0020_vault_versioning_rotation.sql',
+                  'core/Credentials/VaultKeyRotation.php', 'core/Credentials/CredentialVersionService.php',
+                  'core/Credentials/CredentialVersionController.php',
+                  'tests/vault-rotation-smoke.php'] as $file) {
             $check('source:' . $file, is_file($this->root . '/' . $file) && is_readable($this->root . '/' . $file), 'Required source file is available.');
         }
         // Strict deployment checks are intentionally not bypassed by the kernel's native autoload fallback.

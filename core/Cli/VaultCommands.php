@@ -24,6 +24,28 @@ final class VaultCommands
             fwrite(STDOUT, "Vault key file created with 0600 permissions. Configure VAULT_MASTER_KEY_FILE.\n");
             return 0;
         }
+        if ($command === 'vault:key:rotate') {
+            $path = null;
+            $confirmed = false;
+            $json = false;
+            foreach ($args as $arg) {
+                if (str_starts_with($arg, '--next-key-file=')) $path = substr($arg,16);
+                elseif ($arg === '--confirm-offline') $confirmed = true;
+                elseif ($arg === '--json') $json = true;
+                else { fwrite(STDERR, "Unsupported vault rotation argument.\n"); return 2; }
+            }
+            if (!$confirmed || !$path || !str_starts_with($path,'/')) {
+                fwrite(STDERR, "Usage: vault:key:rotate --next-key-file=/private/staged.key --confirm-offline [--json]\n");
+                return 2;
+            }
+            // The explicit maintenance acknowledgement cannot be silently bypassed.
+            // Run only with HTTP/queue workers stopped and a tested DB/key backup.
+            $next=VaultMasterKey::fromPrivateFile($path);
+            $result=$this->app->container()->get(\Cajeer\Servers\Credentials\VaultKeyRotation::class)->rotate($next);
+            if ($json) fwrite(STDOUT, json_encode($result, JSON_THROW_ON_ERROR|JSON_PRETTY_PRINT)."\n");
+            else fwrite(STDOUT, "Vault key envelopes rewrapped and committed. SWITCH VAULT_MASTER_KEY_FILE to the staged key before restarting workers.\n");
+            return 0;
+        }
         if ($args !== [] && $args !== ['--json']) {
             fwrite(STDERR, "Usage: cajeer $command [--json]\n");
             return 2;
