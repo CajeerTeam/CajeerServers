@@ -1,3 +1,12 @@
+## [0.3.4] — 2026-11-11 — Secure Access Control & Secret Consumption
+
+- Реализован `SecretAccessService`: реальная PostgreSQL-авторизация одноразового использования секрета конкретным серверным адаптером; права `vault.credentials.use` не наследуются из `read`.
+- Защита: активная серверная сессия, workspace owner/manager, существующая привязка credential к объекту и назначению, пароль и свежий неповторяемый TOTP, PostgreSQL rate limit (8/15 минут).
+- Одноразовые разрешения живут 120 секунд, привязаны к session/user/workspace/asset/credential/purpose/version и атомарно погашаются до дешифрования. Отзыв или изменение credential инвалидирует старые разрешения.
+- HTTP `POST /api/v1/vault/credentials/{id}/authorize-use` не возвращает plaintext; `consumeForAsset()` доступен только внутреннему PHP-коду с trusted callback. Audit успешного/отклонённого доступа и cleanup grant records.
+- Добавлена миграция `0019_vault_secret_access.sql`, проверки негативных сценариев, PostgreSQL integration и OpenAPI.
+- Production gate по-прежнему требует реальных PostgreSQL/Redis, PHP 8.4/8.5, Composer/npm и браузерного E2E; локальное прохождение smoke не заменяет их.
+
 ## [0.3.3] — 2026-11-11 — Credential Profiles & Validation
 
 - Вместо заглушки CredentialProfile реализован исполняемый валидатор девяти типов credentials с точными обязательными и разрешёнными полями, проверкой SSH private key, SNMPv3 auth/privacy и Proxmox token ID.

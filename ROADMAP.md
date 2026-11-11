@@ -482,3 +482,14 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 - [ ] Подтверждение PostgreSQL/CI/production E2E и lock-файлов на целевом стенде.
 
 **Следующий этап: 0.3.4 — Secure Access Control & Secret Consumption.**
+
+### 0.3.4 — Secure Access Control & Secret Consumption (код реализован)
+
+- [x] Отдельный `vault.credentials.use` с deny-by-default RBAC.
+- [x] Fresh password + TOTP step-up с DB-based throttling и anti-replay.
+- [x] One-use, short-lived grants в PostgreSQL по session / asset / credential / purpose / version.
+- [x] `SecretAccessService::consumeForAsset` для trusted server-side adapters; plaintext никогда не выходит через HTTP.
+- [x] Проверка активного credential, workspace, привязки и scope перед каждым использованием, транзакционный аудит и cleanup.
+- [ ] Проверить реальное выполнение PostgreSQL integration и Nuxt E2E на изолированном CI/staging.
+
+**Следующий этап: 0.3.5 — Credential Versioning & Rotation.**

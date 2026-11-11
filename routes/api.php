@@ -127,6 +127,18 @@ return static function (Router $router, ServiceContainer $container): void {
                 'additionalProperties'=>false,
             ]);
             $vault->delete('/credentials/{id}',static fn (HttpRequest $r): HttpResponse => $handler()->delete($r));
+            // Only grants one short-lived, single-use internal permission. NEVER returns secrets.
+            $vault->post('/credentials/{id}/authorize-use',
+                static fn (HttpRequest $r): HttpResponse => $container->get(\Cajeer\Servers\Credentials\SecretAccessController::class)->authorize($r), [
+                    'required'=>['asset_id','purpose','password','totp'],
+                    'properties'=>[
+                        'asset_id'=>['type'=>'string','format'=>'uuid'],
+                        'purpose'=>['type'=>'string','minLength'=>1,'maxLength'=>64],
+                        'password'=>['type'=>'string','minLength'=>1,'maxLength'=>1024],
+                        'totp'=>['type'=>'string','minLength'=>6,'maxLength'=>6,'pattern'=>'^[0-9]{6}$'],
+                    ],'additionalProperties'=>false,
+                ]);
+
         });
         $routes->group('/admin', static function (Router $admin) use ($container): void {
             $controller = static fn (): AdminController => $container->get(AdminController::class);

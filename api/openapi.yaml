@@ -1,8 +1,8 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.3.3
-  description: 'CajeerServers 0.3.3: validated SSH, WinRM, Proxmox, VMmanager and SNMP credential profiles with encrypted structured payloads. No secret is exposed by metadata APIs.'
+  version: 0.3.4
+  description: 'CajeerServers 0.3.4: session-bound, one-time step-up authorizations for trusted internal credential usage. HTTP never returns plaintext.'
 servers:
 - url: /api/v1
 security: []
@@ -4804,6 +4804,66 @@ paths:
         '412': {description: Устаревший ETag}
         '422': {$ref: '#/components/responses/UnprocessableEntity'}
         '428': {description: If-Match обязателен}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+  /vault/credentials/{id}/authorize-use:
+    post:
+      operationId: authorizeInternalVaultCredentialUse
+      summary: Authorize one internal use of an attached credential after fresh MFA
+      description: >-
+        Requires authenticated PHP session, CSRF, vault.credentials.use, workspace owner/manager,
+        active matching asset binding and purpose, current password and fresh one-time TOTP.
+        Permission expires after 120 seconds, is bound to the credential version, and is
+        consumed exactly once by a trusted server-side SecretAccessService call.
+        Neither plaintext nor a reusable token is returned. There is deliberately NO
+        external HTTP endpoint to decrypt, consume or reveal a credential.
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [asset_id, purpose, password, totp]
+              properties:
+                asset_id: {type: string, format: uuid}
+                purpose: {type: string, enum: [api, ssh, winrm, snmp, custom]}
+                password: {type: string, writeOnly: true, minLength: 1, maxLength: 1024}
+                totp: {type: string, writeOnly: true, pattern: '^[0-9]{6}$'}
+      responses:
+        '200':
+          description: One-use permission saved; no secret returned
+          headers:
+            Cache-Control: {schema: {type: string}}
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    additionalProperties: false
+                    required: [authorized, expires_in]
+                    properties:
+                      authorized: {type: boolean, const: true}
+                      expires_in: {type: integer, const: 120}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {description: Asset or credential is not accessible}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+        '429': {description: Too many step-up attempts}
         '503': {$ref: '#/components/responses/ServiceUnavailable'}
 components:
   schemas:

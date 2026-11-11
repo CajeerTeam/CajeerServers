@@ -63,6 +63,7 @@ final class OperationalStats
             'security_rate_limits' => 'expires_at',
             'auth_sessions' => 'expires_at',
             'webhook_events' => 'received_at',
+            'vault_use_grants' => 'expires_at',
         ];
         $result = [];
         return $this->db->transaction(function (PDO $pdo) use ($tables, $days, $limit, $apply, &$result): array {
