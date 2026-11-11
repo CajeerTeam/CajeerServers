@@ -17,6 +17,7 @@ use Cajeer\Servers\Http\Exception\HttpException;
 use Cajeer\Servers\Inventory\CredentialBindingService;
 use Cajeer\Servers\Inventory\InventoryRepository;
 use Cajeer\Servers\Inventory\InventoryService;
+use Cajeer\Servers\Inventory\HistoryService;
 use Cajeer\Servers\Security\Rbac;
 if(getenv('CAJEER_PG_TEST')!=='1'||!preg_match('/^cajeer_test_[a-z0-9_]+$/D',getenv('CAJEER_PG_TEST_DATABASE')?:'')){
     fwrite(STDERR,"REFUSED: CAJEER_PG_TEST=1 and disposable cajeer_test_* database required.\n");exit(2);
@@ -97,6 +98,32 @@ try {
     $reject(409,fn()=>$store->archive($admin,$token['id'],$token['version']),'credential cannot be archived while bound to connector');
     $metadata=$connector->resolveActive($admin,$id,'api');
     $ok($metadata['credential_id']===$token['id'] && !isset($metadata['encrypted_payload'],$metadata['secret']),'trusted resolution is metadata-only');
+    $reject(409,fn()=>$connector->runtimeContext($admin,$id,2),'remote execution requires matching Inventory binding');
+    $bindingSvc->attach($admin,$asset['id'],$token['id'],'api');
+    $context=$connector->runtimeContext($admin,$id,2);
+    $ok($context['asset_id']===$asset['id'] && $context['credential_id']===$token['id'],'dual binding authorizes live execution');
+    $reject(412,fn()=>$connector->runtimeContext($admin,$id,1),'remote execution refuses stale target');
+    $history=new HistoryService($db,$repo,$inventory,$audit);
+    $observation=static fn(string $external,string $type,string $name):array=>[
+        'workspace_id'=>$ws,'external_id'=>'proxmox:'.$id.':'.$external,
+        'event_key'=>'pve.'.bin2hex(random_bytes(16)),
+        'type'=>$type,'fields'=>['name'=>$name,'status'=>'online']];
+    $results=$history->observeMany($admin,[
+        $observation('node:pve-one','hypervisor_node','pve-one'),
+        $observation('qemu:500','virtual_machine','test-vm')]);
+    $ok(count($results)===2 && $results[0]['outcome']==='created' && $results[1]['outcome']==='created',
+        'atomic Proxmox discovery stored in Inventory using observation engine');
+    $duplicate=$history->observeMany($admin,[$observation('qemu:500','virtual_machine','test-vm')]);
+    $ok($duplicate[0]['outcome']==='unchanged' || $duplicate[0]['outcome']==='stale',
+        'stable external identity prevents duplicate assets');
+    $reject(409,fn()=>$history->observeMany($admin,[
+        $observation('node:rollback','hypervisor_node','rollback'),
+        $observation('node:rollback','container','should-not-exist')]),
+        'type mismatch rolls back the entire discovered batch');
+    $stmt=$pdo->prepare("SELECT count(*) FROM inventory_assets WHERE workspace_id=:ws AND external_id=:external");
+    $stmt->execute(['ws'=>$ws,'external'=>'proxmox:'.$id.':node:rollback']);
+    $ok((int)$stmt->fetchColumn()===0,'failed Proxmox import leaves no partial assets');
+
     $disabled=$store->update($admin,$token['id'],$token['version'],['status'=>'disabled']);
     $reject(404,fn()=>$connector->resolveActive($admin,$id,'api'),'revoked secret unusable');
     $sqlReject(fn()=>$pdo->prepare("INSERT INTO connector_credential_bindings(workspace_id,connector_id,credential_id,purpose) VALUES(:ws,:id,:cred,'api')")
@@ -111,6 +138,15 @@ try {
     $reject(409,fn()=>$connector->bind($admin,$id,$token['id'],'api',4),'disabled target cannot receive new binding');
     $connector->delete($admin,$id,4);
     $ok($connector->list($admin,$ws)===[],'connector target deleted after detaching');
+    $asset2=$inventory->create($admin,['workspace_id'=>$ws,'type'=>'server','name'=>'Second target']);
+    $second=$connector->create($admin,['workspace_id'=>$ws,'provider'=>'proxmox','name'=>'PVE-02',
+        'endpoint_host'=>'pve-02.internal','endpoint_port'=>8006,'asset_id'=>$asset2['id']]);
+    $link2=$connector->bind($admin,$second['id'],$token['id'],'api',1,null,true);
+    $ok($connector->runtimeContext($admin,$second['id'],2)['asset_id']===$asset2['id'],
+        'one transaction binds the connector and its Inventory asset');
+    $connector->unbind($admin,$second['id'],$link2['id'],2);
+    $connector->delete($admin,$second['id'],3);
+
     $ok((int)$pdo->query("SELECT count(*) FROM audit_log WHERE action LIKE 'connector.%'")->fetchColumn()>=4,'audit records real target and binding events');
     echo "PASS: $checks PostgreSQL Vault workspace/Inventory/Connector bindings integration assertions.\n";
 }catch(Throwable $e){$failed=true;fwrite(STDERR,'FAIL vault-bindings-postgres: '.$e::class.': '.$e->getMessage()."\n");}

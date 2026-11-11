@@ -16,6 +16,7 @@ final class ConnectorBindingController
         private readonly AuthenticationService $auth,
         private readonly Rbac $rbac,
         private readonly ConnectorBindingService $service,
+        private readonly ConnectorRuntimeService $runtime,
     ) {}
 
     private function actor(HttpRequest $r,string $permission,bool $write=false):string
@@ -81,8 +82,30 @@ final class ConnectorBindingController
     {
         $actor=$this->actor($r,'connectors.credentials.manage',true);$id=self::id($r);
         $b=$r->attribute('json');
-        return HttpResponse::json(['data'=>$this->service->bind($actor,$id,$b['credential_id'],$b['purpose'],self::version($r,$id),self::rid($r))],201,
+        $withAsset=($b['attach_to_asset']??false)===true;
+        if ($withAsset) $this->rbac->requirePermission($this->auth->authenticate($r,sessionOnly:true),'inventory.credentials.manage');
+        return HttpResponse::json(['data'=>$this->service->bind($actor,$id,$b['credential_id'],$b['purpose'],self::version($r,$id),self::rid($r),$withAsset)],201,
             ['Cache-Control'=>'private, no-store']);
+    }
+    public function inspect(HttpRequest $r):HttpResponse
+    {
+        $principal=$this->auth->authenticate($r,sessionOnly:true);
+        $this->auth->requireCsrf($r,$principal);
+        $this->rbac->requirePermission($principal,'connectors.credentials.manage');
+        $this->rbac->requirePermission($principal,'vault.credentials.use');
+        return HttpResponse::json(['data'=>$this->runtime->run($principal,self::id($r),
+            self::version($r,self::id($r)),false,self::rid($r))],200,
+            ['Cache-Control'=>'private, no-store','Pragma'=>'no-cache']);
+    }
+    public function sync(HttpRequest $r):HttpResponse
+    {
+        $principal=$this->auth->authenticate($r,sessionOnly:true);
+        $this->auth->requireCsrf($r,$principal);
+        foreach (['connectors.credentials.manage','vault.credentials.use','inventory.assets.create','inventory.assets.update'] as $scope)
+            $this->rbac->requirePermission($principal,$scope);
+        return HttpResponse::json(['data'=>$this->runtime->run($principal,self::id($r),
+            self::version($r,self::id($r)),true,self::rid($r))],200,
+            ['Cache-Control'=>'private, no-store','Pragma'=>'no-cache']);
     }
     public function unbind(HttpRequest $r):HttpResponse
     {

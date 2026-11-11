@@ -1,3 +1,13 @@
+## [0.3.7] — 2026-11-11 — Workspace / Inventory / Connector Bindings (production execution path)
+
+- Вместо заглушки ProxmoxConnector — реальный TLS-verified API клиент для `/nodes` и `/cluster/resources?type=vm`, с проверкой форматов, ограничениями объёма и запретом redirects.
+- Реальная цепочка Workspace → connector target → scoped Vault credential → Inventory credential binding → одноразовый MFA grant → server-side token consumption → remote discovery.
+- `ConnectorRuntimeService` и защищённые POST `/inspect` / `/sync`; результат только в виде счётчиков, без сырого HTTP или секретов.
+- Групповая атомарная синхронизация наблюдений через HistoryService в PostgreSQL: создаются/обновляются Inventory nodes, VMs и containers, применяются стабильные identity и provenance, ошибки откатывают batch.
+- Nuxt UI позволяет прикрепить Inventory asset, привязать Vault credential и выдать отдельную Inventory привязку в той же транзакции, выполнить step-up и запуск реального API.
+- Обновлены OpenAPI (включая исправление ошибочного уровня вложенности существующих connector paths), версия приложения, проверки и документация.
+- Native smoke tests: 27 комплектов, включая новый Proxmox; проверен реальный TLS handshake к изолированному HTTPS стенду и отказ без доверенного CA. PostgreSQL live integration и frontend build/E2E в этой среде не запускались; другие provider runtimes остаются недоступными.
+
 ## [0.3.6] — 2026-11-11 — Workspace / Inventory / Connector Bindings
 
 - Реальные PostgreSQL CRUD для workspace-scoped connector target configurations, статус, host/port, asset link, optimistic ETag, аудит.

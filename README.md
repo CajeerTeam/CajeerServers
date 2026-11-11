@@ -1,6 +1,19 @@
 # CajeerServers
 
-**CajeerServers** — русскоязычная self-hosted веб-оболочка для наблюдения и управления инфраструктурой. Это **не ОС**, не прошивка и не замена Proxmox/VMmanager. Для будущих версий предусмотрен сбор данных через API, собственные скрипты, webhooks, collectors и интеграции без обязательных системных агентов.
+**CajeerServers** — русскоязычная self-hosted веб-оболочка для наблюдения и управления инфраструктурой. Это **не ОС**, не прошивка и не замена Proxmox/VMmanager. В 0.3.7 доступна работающая read-only интеграция Proxmox VE через HTTPS; остальные коннекторы находятся на других стадиях реализации.
+
+## Версия 0.3.7 — Workspace / Inventory / Connector Bindings (Proxmox runtime)
+
+Добавлены не декларации, а исполняемые операции: Proxmox VE HTTPS API с проверкой CA, одноразовый Vault secret grant после пароля+TOTP, `POST /api/v1/connectors/targets/{id}/inspect` и `/sync`, реальные результаты в workspace Inventory с History/Provenance/Reconciliation. Поддерживаются узлы, QEMU VM и LXC containers, стабильный external_id, отказ от частичного импорта через PostgreSQL-транзакцию, защита ETag/CSRF/RBAC и отсутствие plaintext в REST. В `/connectors` можно выбрать asset и одновременно связать credential с Inventory в одной транзакции.
+
+```bash
+php tests/proxmox-runtime-smoke.php
+php tests/vault-bindings-smoke.php
+php scripts/verify-release.php
+node admin/tests/static-check.mjs
+```
+
+[Инструкция по настоящему подключению Proxmox и Inventory](docs/Proxmox-Workspace-Inventory-0.3.7.md). Внешние коннекторы VMmanager/SSH/WinRM/SNMP ещё **не реализованы для удалённого исполнения**; для них доступны только metadata bindings. PostgreSQL integration, Nuxt build и браузерный E2E требуют проверки на отдельном staging; наличие исходного кода тестов не означает их прохождения.
 
 ## Версия 0.3.0 — Inventory / CMDB Stable Integration
 

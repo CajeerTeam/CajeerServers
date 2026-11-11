@@ -510,4 +510,14 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 - [x] Native smoke suite and isolated PostgreSQL/Playwright test sources.
 - [ ] Production validation on real PostgreSQL 17/18, PHP 8.4/8.5, Nuxt build and browser E2E.
 
-**Next: 0.3.7 — Secret Audit, Redaction & Monitoring.**
+### 0.3.7 — Workspace / Inventory / Connector Bindings (исполнимый runtime)
+
+- [x] Read-only Proxmox API: verified TLS CA, request timeouts, bounded responses, no redirects, no secret leaks.
+- [x] Single-use MFA Vault grant for the selected Workspace connector and Inventory credential/asset binding.
+- [x] Real inspect/sync endpoints with RBAC, CSRF, ETag and Nuxt workflow.
+- [x] Transactional CMDB reconciliation of Proxmox nodes / QEMU VMs / LXC containers with stable identities.
+- [x] Native tests and HTTPS loopback integration checks.
+- [ ] Real PostgreSQL 17/18 integration, Nuxt production build, Playwright E2E and independent production rollout validation.
+- [ ] Runtime drivers for VMmanager, SSH, WinRM, SNMP, custom (0.3.7 implements Proxmox only).
+
+**Next: 0.3.8 — Secret Audit, Redaction & Monitoring.**

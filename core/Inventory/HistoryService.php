@@ -90,8 +90,20 @@ final class HistoryService
         return ['data'=>$rows];
     }
 
+    /** Atomically reconcile a bounded discovery batch using the same validation and provenance engine. */
+    public function observeMany(string $actor,array $events,?string $requestId=null,bool $nested=false):array
+    {
+        if (count($events)<1 || count($events)>1800)throw new HttpException(422,'Invalid discovery batch size.','validation_failed');
+        foreach ($events as $event) ObservationInput::normalize($event);
+        return $this->db->transaction(function(PDO $pdo)use($actor,$events,$requestId):array {
+            $result=[];
+            foreach ($events as $event) $result[]=$this->observe($actor,$event,$requestId,true);
+            return $result;
+        },attempts:$nested?1:2);
+    }
+
     /** Ingest one idempotent observation from an explicitly untrusted 'import' source. @return array<string,mixed> */
-    public function observe(string $actor,array $input,?string $requestId=null):array
+    public function observe(string $actor,array $input,?string $requestId=null,bool $nested=false):array
     {
         $event=ObservationInput::normalize($input);
         return $this->db->transaction(function(PDO $pdo)use($actor,$event,$requestId):array{
@@ -171,7 +183,7 @@ SQL);
             $this->audit->record($pdo,$actor,'inventory.observation.received','success','inventory_asset',$assetId,
                 ['source'=>'import','outcome'=>$outcome,'applied_fields'=>$applied,'conflicts'=>$conflicted],$requestId);
             return ['id'=>$id,'asset_id'=>$assetId,'outcome'=>$outcome,'applied_fields'=>$applied,'conflicted_fields'=>$conflicted,'duplicate'=>false];
-        },attempts:2);
+        },attempts:$nested?1:2);
     }
 
     private function setProvenance(PDO $pdo,string $asset,string $field,string $mode,string $source,string $actor,?string $when):void

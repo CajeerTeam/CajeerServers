@@ -57,6 +57,8 @@ use Cajeer\Servers\Inventory\TransferController;
 use Cajeer\Servers\Inventory\CredentialBindingService;
 use Cajeer\Servers\Connector\ConnectorBindingService;
 use Cajeer\Servers\Connector\ConnectorBindingController;
+use Cajeer\Servers\Connector\ConnectorRuntimeService;
+use Cajeer\Servers\Connector\ProxmoxConnector;
 use Cajeer\Servers\Workspace\WorkspaceService;
 use Cajeer\Servers\Workspace\WorkspaceController;
 use Cajeer\Servers\Logging\JsonLogger;
@@ -285,8 +287,14 @@ final class Application
             $c->get(DatabaseManager::class),$c->get(InventoryRepository::class),$c->get(AuditLogger::class)));
         $this->services->singleton(ConnectorBindingService::class, fn (ServiceContainer $c): ConnectorBindingService => new ConnectorBindingService(
             $c->get(DatabaseManager::class),$c->get(InventoryRepository::class),$c->get(AuditLogger::class)));
+        $this->services->singleton(ProxmoxConnector::class, fn (): ProxmoxConnector => new ProxmoxConnector());
+        $this->services->singleton(ConnectorRuntimeService::class, fn (ServiceContainer $c): ConnectorRuntimeService => new ConnectorRuntimeService(
+            $c->get(DatabaseManager::class),$c->get(InventoryRepository::class),$c->get(ConnectorBindingService::class),
+            $c->get(SecretAccessService::class),$c->get(HistoryService::class),$c->get(AuditLogger::class),
+            $c->get(ProxmoxConnector::class),
+            ($ca=$c->get(ConfigRepository::class)->get('connectors.proxmox_ca_file',''))!==''?(string)$ca:null));
         $this->services->singleton(ConnectorBindingController::class, fn (ServiceContainer $c): ConnectorBindingController => new ConnectorBindingController(
-            $c->get(AuthenticationService::class),$c->get(Rbac::class),$c->get(ConnectorBindingService::class)));
+            $c->get(AuthenticationService::class),$c->get(Rbac::class),$c->get(ConnectorBindingService::class),$c->get(ConnectorRuntimeService::class)));
         $this->services->singleton(TransferController::class, fn (ServiceContainer $c): TransferController => new TransferController(
             $c->get(AuthenticationService::class),$c->get(Rbac::class),$c->get(TransferService::class),$c->get(CredentialBindingService::class)));
         $this->services->singleton(WorkspaceService::class, fn (ServiceContainer $c): WorkspaceService => new WorkspaceService(

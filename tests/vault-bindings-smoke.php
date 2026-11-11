@@ -59,6 +59,9 @@ foreach(['connector_targets','connector_credential_bindings','cajeer_credential_
     $ok(str_contains($sql,$needle),'schema includes '.$needle);
 foreach(['connectors.targets.read','connectors.targets.manage','connectors.credentials.read','connectors.credentials.manage'] as $scope)
     $ok(in_array($scope,Rbac::PERMISSIONS,true),'RBAC permission '.$scope);
+$spec=file_get_contents($root.'/api/openapi.yaml');
+$ok(str_contains($spec,'  /connectors/targets/{id}/sync:') && !preg_match('~^/connectors/targets~m',$spec),
+    'OpenAPI connector operations belong inside paths, not at root');
 $ok(str_contains(file_get_contents($root.'/core/Credentials/CredentialStore.php'),'connector_credential_bindings'),
     'Vault archive checks active connector bindings');
 $ok(str_contains(file_get_contents($root.'/core/Inventory/CredentialBindingService.php'),'BindingPolicy::allows'),
@@ -67,7 +70,7 @@ putenv('APP_ENV=local');putenv('APP_URL=http://127.0.0.1:8080');
 $app=(new Application($root))->boot();
 try {
     $router=$app->container()->get(Router::class);$routes=$router->routes();
-    $ok(count($routes)===135,'new protected routes are registered');
+    $ok(count($routes)===137,'new protected routes are registered');
     $ok($app->container()->get(ConnectorBindingService::class) instanceof ConnectorBindingService,'connector service registered');
     $ok($app->container()->get(ConnectorBindingController::class) instanceof ConnectorBindingController,'connector controller registered');
     $ok($app->container()->get(CredentialBindingService::class) instanceof CredentialBindingService,'inventory binding service registered');
@@ -76,7 +79,9 @@ try {
         'DELETE /api/v1/connectors/targets/{id}','GET /api/v1/connectors/targets/{id}/credential-bindings',
         'POST /api/v1/connectors/targets/{id}/credential-bindings',
         'DELETE /api/v1/connectors/targets/{id}/credential-bindings/{bindingId}',
-        'GET /api/v1/inventory/credentials/scopes'] as $route){
+        'GET /api/v1/inventory/credentials/scopes',
+        'POST /api/v1/connectors/targets/{id}/inspect',
+        'POST /api/v1/connectors/targets/{id}/sync'] as $route){
         [$method,$path]=explode(' ',$route,2);
         $ok(count(array_filter($routes,static fn($r)=>$r['path']===$path&&in_array($method,$r['methods'],true)))===1,'route '.$route);
     }

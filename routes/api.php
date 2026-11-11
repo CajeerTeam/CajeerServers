@@ -287,8 +287,7 @@ return static function (Router $router, ServiceContainer $container): void {
             ]);
             $transfer->delete('/assets/{id}/credential-bindings/{bindingId}',static fn(HttpRequest $r):HttpResponse=>$controller()->detach($r));
         });
-        // 0.3.6: persisted, workspace-isolated connector target configurations and typed Vault bindings.
-        // This is not remote connector execution: no passwords or encrypted bytes are ever returned.
+        // 0.3.7: workspace-isolated connector targets and executable, MFA-gated Proxmox discovery.
         $routes->group('/connectors', static function (Router $connectors) use ($container): void {
             $handler=static fn(): \Cajeer\Servers\Connector\ConnectorBindingController => $container->get(\Cajeer\Servers\Connector\ConnectorBindingController::class);
             $create=[
@@ -317,10 +316,13 @@ return static function (Router $router, ServiceContainer $container): void {
             $connectors->post('/targets/{id}/credential-bindings',static fn(HttpRequest $r):HttpResponse=>$handler()->bind($r),[
                 'required'=>['credential_id','purpose'],
                 'properties'=>['credential_id'=>['type'=>'string','format'=>'uuid'],
-                    'purpose'=>['type'=>'string','enum'=>['api','ssh','winrm','snmp','custom']]],
+                    'purpose'=>['type'=>'string','enum'=>['api','ssh','winrm','snmp','custom']],
+                    'attach_to_asset'=>['type'=>'boolean']],
                 'additionalProperties'=>false,
             ]);
             $connectors->delete('/targets/{id}/credential-bindings/{bindingId}',static fn(HttpRequest $r):HttpResponse=>$handler()->unbind($r));
+            $connectors->post('/targets/{id}/inspect',static fn(HttpRequest $r):HttpResponse=>$handler()->inspect($r));
+            $connectors->post('/targets/{id}/sync',static fn(HttpRequest $r):HttpResponse=>$handler()->sync($r));
         });
         // Inventory topology and typed asset relationships. PostgreSQL owns integrity and cycle detection.
         $routes->group('/inventory', static function (Router $graph) use ($container): void {
