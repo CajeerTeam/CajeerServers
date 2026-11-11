@@ -1,8 +1,8 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.3.0
-  description: 'CajeerServers 0.3.0: read-only CMDB integrity inspection, durable import dispatch and stable Inventory/IPAM/Topology/History integration. Session-protected diagnostics, workspace RBAC and CSRF. No provider connectors or remote infrastructure commands.'
+  version: 0.3.1
+  description: 'CajeerServers 0.3.1: read-only CMDB integrity inspection, durable import dispatch and stable Inventory/IPAM/Topology/History integration. Session-protected diagnostics, workspace RBAC and CSRF. No provider connectors or remote infrastructure commands.'
 servers:
 - url: /api/v1
 security: []

@@ -19,6 +19,9 @@ use Cajeer\Servers\Auth\AuthController;
 use Cajeer\Servers\Auth\SessionCookie;
 use Cajeer\Servers\Audit\AuditLogger;
 use Cajeer\Servers\Security\SecretBox;
+use Cajeer\Servers\Credentials\VaultMasterKey;
+use Cajeer\Servers\Credentials\VaultCrypto;
+use Cajeer\Servers\Credentials\CredentialsVault;
 use Cajeer\Servers\Security\RateLimiter;
 use Cajeer\Servers\Security\Rbac;
 use Cajeer\Servers\Security\TwoFactorManager;
@@ -119,6 +122,11 @@ final class Application
         ));
         $this->services->singleton(MigrationRunner::class, fn (ServiceContainer $container): MigrationRunner => new MigrationRunner(
             $container->get(DatabaseManager::class), $this->basePath('migrations/pgsql'),
+        ));
+        $this->services->singleton(VaultMasterKey::class, fn (): VaultMasterKey => new VaultMasterKey());
+        $this->services->singleton(VaultCrypto::class, fn (ServiceContainer $c): VaultCrypto => new VaultCrypto($c->get(VaultMasterKey::class)));
+        $this->services->singleton(CredentialsVault::class, fn (ServiceContainer $c): CredentialsVault => new CredentialsVault(
+            $c->get(DatabaseManager::class), $c->get(VaultCrypto::class), $c->get(VaultMasterKey::class)
         ));
         $this->services->singleton(InventoryReadiness::class, fn (ServiceContainer $container): InventoryReadiness => new InventoryReadiness(
             $container->get(DatabaseManager::class),

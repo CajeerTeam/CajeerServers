@@ -455,3 +455,6 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 - [ ] Действительные `composer.lock` и `admin/package-lock.json` и успешный strict production gate.
 
 **Следующий этап: 0.4.0 — Credentials Vault.**
+
+### 0.3.1 — Vault Cryptography & Master Key Management
+Реализован отдельный корневой ключ, envelope encryption, verifier в PostgreSQL, CLI и native/Pg tests. Создание, ротация и UI credentials запланированы на 0.3.2–0.3.9.

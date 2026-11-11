@@ -5,6 +5,8 @@ namespace Cajeer\Servers\Release;
 
 use Cajeer\Servers\Database\DatabaseManager;
 use Cajeer\Servers\Database\MigrationRunner;
+use Cajeer\Servers\Credentials\CredentialsVault;
+use Cajeer\Servers\Credentials\VaultMasterKey;
 use Cajeer\Servers\Installer\InstallState;
 use Cajeer\Servers\Inventory\InventoryReadiness;
 use Cajeer\Servers\Inventory\CmdbIntegrity;
@@ -112,6 +114,10 @@ SQL)->fetchColumn();
             $this->probe($checks, 'cmdb_integrity', fn (): bool => $this->app->container()
                 ->get(CmdbIntegrity::class)->inspect(true)['ok'] === true,
                 'CMDB integrity violations detected in Inventory, IPAM, topology, history, imports or credentials.');
+            $this->probe($checks, 'vault_key', fn (): bool => strlen($this->app->container()->get(VaultMasterKey::class)->keyId()) === 32,
+                'An independent, valid Vault master key must be configured securely.');
+            $this->probe($checks, 'vault_verifier', fn (): bool => $this->app->container()->get(CredentialsVault::class)->check()['ok'] === true,
+                'Vault key must match its PostgreSQL verifier.');
             $this->probe($checks, 'dependencies', fn (): bool => $this->app->container()->get(Diagnostics::class)->run()['ok'] === true,
                 'Required PostgreSQL, Redis, queue, scheduler and storage must pass readiness checks.');
         }

@@ -1,3 +1,12 @@
+## [0.3.1] — 2026-11-11 — Vault Cryptography & Master Key Management
+
+- Реальный `VaultCrypto`: XChaCha20-Poly1305, отдельные DEK для каждого envelope, привязка UUID credential / workspace / type через AAD.
+- Независимый `VAULT_MASTER_KEY` / приватный `VAULT_MASTER_KEY_FILE` (0600), без fallback на `APP_KEY`.
+- Одноразовая регистрация verifier в PostgreSQL и криптографическая проверка ключа; DB-триггеры блокируют изменение verifier.
+- Исполняемые CLI `vault:key:generate`, `vault:key:status`, `vault:init`, `vault:check`, `vault:probe` (транзакционный roundtrip с rollback).
+- Native crypto-smoke, изолированный PostgreSQL-интеграционный тест и GitHub Actions job; plaintext API и ротация отложены до разграничения прав.
+- В этой среде нет PostgreSQL / `pdo_pgsql`: реальная БД должна пройти integration в GitHub Actions или на отдельном тестовом стенде.
+
 ## [0.3.0] — 2026-11-10 — Inventory / CMDB Stable Integration
 
 ### Added

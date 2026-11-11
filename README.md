@@ -377,3 +377,7 @@ Native smoke-tests выполняются без Composer. GitHub CI прове�
 - `GET /api/v1/inventory/tags`, `/groups`, `/assets` и UI `/catalog`, `/inventory`.
 - Миграция `migrations/pgsql/0013_inventory_catalog_search.sql`, `docs/Inventory-Catalog-Search.md`.
 - Полный production-gate требует PostgreSQL integration, Nuxt build и browser E2E.
+
+### Vault 0.3.1: криптографический runtime
+
+Секреты Vault шифруются независимым ключом. Пример выпуска: `php bin/cajeer vault:key:generate --output=/etc/cajeerservers/vault.key`; настройте приватный `VAULT_MASTER_KEY_FILE`, примените `php bin/cajeer migrate`, затем `php bin/cajeer vault:init` однократно и `php bin/cajeer vault:check`. `vault:probe` выполняет реальный шифрованный roundtrip в PostgreSQL с гарантированным ROLLBACK. Полные инструкции — `docs/Vault-Cryptography-0.3.1.md`. Обычный HTTP API **не раскрывает** секреты.

@@ -48,7 +48,10 @@ final class ReleaseVerifier
                   'core/Inventory/TransferService.php', 'core/Inventory/CredentialBindingService.php',
                   'core/Inventory/TransferController.php', 'admin/pages/transfer.vue',
                   'core/Inventory/CmdbIntegrity.php', 'docs/CMDB-0.3.0.md',
-                  'migrations/pgsql/0016_cmdb_stability.sql'] as $file) {
+                  'migrations/pgsql/0016_cmdb_stability.sql',
+                  'migrations/pgsql/0017_vault_key_verifier.sql', 'core/Credentials/VaultMasterKey.php',
+                  'core/Credentials/VaultCrypto.php', 'core/Credentials/CredentialsVault.php',
+                  'core/Cli/VaultCommands.php', 'tests/vault-crypto-smoke.php'] as $file) {
             $check('source:' . $file, is_file($this->root . '/' . $file) && is_readable($this->root . '/' . $file), 'Required source file is available.');
         }
         // Strict deployment checks are intentionally not bypassed by the kernel's native autoload fallback.
