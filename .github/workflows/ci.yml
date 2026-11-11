@@ -92,3 +92,17 @@ jobs:
           php tests/vault-access-postgres-integration.php
           php tests/vault-rotation-postgres-integration.php
           php tests/vault-bindings-postgres-integration.php
+      - name: PostgreSQL client version for encrypted backup/restore
+        run: |
+          # Match the postgres:18 service. A missing client must fail the integration job.
+          sudo install -d -m 0755 /etc/apt/keyrings
+          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /etc/apt/keyrings/postgresql.gpg
+          . /etc/os-release
+          echo "deb [signed-by=/etc/apt/keyrings/postgresql.gpg] https://apt.postgresql.org/pub/repos/apt ${VERSION_CODENAME}-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-client-18
+      - name: Encrypted disaster recovery real PostgreSQL roundtrip
+        env:
+          PG_DUMP_BINARY: /usr/lib/postgresql/18/bin/pg_dump
+          PG_RESTORE_BINARY: /usr/lib/postgresql/18/bin/pg_restore
+        run: php tests/backup-postgres-integration.php

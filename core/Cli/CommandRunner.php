@@ -55,6 +55,7 @@ final class CommandRunner
                 'health', 'health:live', 'health:ready', 'doctor:deep', 'system:report', 'metrics:render', 'openapi:lint', 'queue:stats', 'scheduler:stats', 'security:prune' => (new OperationalCommands($this->app))->run($command, $argv),
                 'inventory:preflight', 'inventory:constraints', 'inventory:integrity' => (new InventoryCommands($this->app))->run($command, $argv),
                 'vault:key:generate', 'vault:key:status', 'vault:key:rotate', 'vault:init', 'vault:check', 'vault:probe' => (new VaultCommands($this->app))->run($command, $argv),
+                'backup:key:generate', 'backup:create', 'backup:verify', 'backup:restore' => (new BackupCommands($this->app))->run($command, $argv),
                 'connector:sync', 'scripts:run', 'update:check' => $this->unavailable($command),
                 default => $this->unknown($command),
             };
@@ -67,7 +68,7 @@ final class CommandRunner
     private function help(): int
     {
         fwrite(STDOUT, <<<'TEXT'
-CajeerServers CLI 0.3.7
+CajeerServers CLI 0.3.8
 
 Рабочие команды:
   help                 Список доступных команд
@@ -95,6 +96,15 @@ CajeerServers CLI 0.3.7
   vault:init           Однократная регистрация verifier ключа в PostgreSQL после миграций
   vault:check          Проверить ключ и зашифрованный verifier из PostgreSQL
   vault:probe          Транзакционно записать и прочитать зашифрованный тестовый секрет (ROLLBACK)
+  backup:key:generate --output=/private/backup.key  Создать автономный ключ шифрования 0600
+  backup:create --output=/secure/backup.cjdr [--key-file=/private/backup.key] [--db-only]
+                      Потоковый шифрованный pg_dump, файлы и секреты для полного DR
+  backup:verify --archive=/secure/backup.cjdr [--key-file=/private/backup.key]
+                      Проверить AEAD целиком и SHA-256 каждого объекта/дампа
+  backup:restore --archive=/secure/backup.cjdr --target-db=NEW_EMPTY_DB
+                 --confirm-target=NEW_EMPTY_DB --offline
+                 --storage-target=/new/storage --recovery-target=/private/recovered
+                      Только offline restore в пустую PostgreSQL DB и новые каталоги
   release:check        Проверить метаданные, runtime и обязательные части релиза
   release:check --strict [--json]  Проверить production DB, миграции, Redis, Nuxt build и lockfiles
   database:check       Проверить реальное подключение к БД

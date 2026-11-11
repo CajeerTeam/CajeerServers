@@ -1,3 +1,12 @@
+## [0.3.8] — 2026-11-11 — Encrypted Backup & Disaster Recovery (CLI execution)
+
+- Операторские `backup:key:generate`, `backup:create`, `backup:verify`, `backup:restore` и реальные legacy CLI wrappers вместо `placeholder`.
+- Потоковая резервная копия PostgreSQL custom-format (`pg_dump` через pipe), local storage, `.env` и настроенных Vault/App ключей в одном authenticated libsodium XChaCha20-Poly1305 secretstream; отдельный 0600 backup-key, без открытого SQL временного файла.
+- AEAD-проверка всех фреймов и финального тега, SHA-256/размеры по файлам и SQL-дампу, защита от подмены/обрезки, path traversal и symlinks, bounded chunks; атомарное эксклюзивное опубликование архива после проверки.
+- Offline восстановление после full preflight: только новая пустая PostgreSQL БД, новая директория файлов и приватная директория конфигурации; `pg_restore --single-transaction --exit-on-error`, SSH/HTTP endpoints не открываются; SQL-ошибки откатываются, а при неоднозначном COMMIT восстановленные файлы сохраняются для ручной проверки.
+- Unit/native smoke и PostgreSQL CI live backup/restore integration (скрипт добавлен; в среде генерации без `pdo_pgsql`/PostgreSQL не выполнялся). Обновлены версия Nuxt/OpenAPI, release verifier и эксплуатационная инструкция.
+- Границы: только PostgreSQL + LocalDisk, без S3 snapshot, PITR/WAL и автоматического failover; storage quiesce обеспечивает оператор. Нельзя объявлять полноценный production disaster recovery без внешнего restore drill.
+
 ## [0.3.7] — 2026-11-11 — Workspace / Inventory / Connector Bindings (production execution path)
 
 - Вместо заглушки ProxmoxConnector — реальный TLS-verified API клиент для `/nodes` и `/cluster/resources?type=vm`, с проверкой форматов, ограничениями объёма и запретом redirects.

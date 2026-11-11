@@ -59,7 +59,10 @@ final class ReleaseVerifier
                   'migrations/pgsql/0020_vault_versioning_rotation.sql',
                   'core/Credentials/VaultKeyRotation.php', 'core/Credentials/CredentialVersionService.php',
                   'core/Credentials/CredentialVersionController.php',
-                  'tests/vault-rotation-smoke.php'] as $file) {
+                  'tests/vault-rotation-smoke.php',
+                  'core/Backup/BackupService.php', 'core/Backup/PostgresStream.php', 'core/Backup/EncryptedArchive.php', 'core/Backup/ArchiveWriter.php',
+                  'core/Backup/BackupKey.php', 'core/Cli/BackupCommands.php', 'tests/backup-smoke.php',
+                  'tests/backup-postgres-integration.php'] as $file) {
             $check('source:' . $file, is_file($this->root . '/' . $file) && is_readable($this->root . '/' . $file), 'Required source file is available.');
         }
         // Strict deployment checks are intentionally not bypassed by the kernel's native autoload fallback.

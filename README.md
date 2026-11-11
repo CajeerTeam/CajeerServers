@@ -1,6 +1,10 @@
 # CajeerServers
 
-**CajeerServers** — русскоязычная self-hosted веб-оболочка для наблюдения и управления инфраструктурой. Это **не ОС**, не прошивка и не замена Proxmox/VMmanager. В 0.3.7 доступна работающая read-only интеграция Proxmox VE через HTTPS; остальные коннекторы находятся на других стадиях реализации.
+**CajeerServers** — русскоязычная self-hosted веб-оболочка для наблюдения и управления инфраструктурой. Это **не ОС**, не прошивка и не замена Proxmox/VMmanager. В 0.3.8 добавлены шифрованные CLI-backups и offline recovery; в 0.3.7 реализована read-only интеграция Proxmox VE через HTTPS; остальные коннекторы находятся на других стадиях реализации.
+
+## Версия 0.3.8 — Encrypted Backup & Disaster Recovery
+
+Рабочие operator-only команды `backup:key:generate`, `backup:create`, `backup:verify`, `backup:restore`: потоковый зашифрованный `pg_dump` без открытого SQL-диска, проверка AEAD/SHA-256, локальных файлов и recovery secrets, offline `pg_restore` только в пустую PostgreSQL БД с отдельными новыми каталогами. Полный recovery требует остановки фоновых writers. Native smoke есть; реальное тестирование PostgreSQL — отдельный integration сценарий и не подтверждается без внешней БД. [Инструкция, точные команды и ограничения](docs/Encrypted-Backup-Disaster-Recovery-0.3.8.md). Не реализованы PITR/WAL, S3 object backup, кластерное восстановление и автоматический failover.
 
 ## Версия 0.3.7 — Workspace / Inventory / Connector Bindings (Proxmox runtime)
 

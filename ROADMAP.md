@@ -521,3 +521,12 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 - [ ] Runtime drivers for VMmanager, SSH, WinRM, SNMP, custom (0.3.7 implements Proxmox only).
 
 **Next: 0.3.8 — Secret Audit, Redaction & Monitoring.**
+
+### 0.3.8 — Encrypted Backup & Disaster Recovery (implemented CLI scope)
+
+- [x] Streaming PostgreSQL custom archive authenticated encryption, per-file + DB checksums, offline key management.
+- [x] Full backup of LocalDisk files and configured recovery keys; byte-for-byte integrity check.
+- [x] Explicit operator-only, isolated empty-database restore and new staging targets with one SQL transaction.
+- [x] Negative native crypto tests, real PostgreSQL integration test source and CLI help/documentation.
+- [ ] PITR/WAL, S3 object backups, multi-node orchestrated recovery, HA failover and retention scheduler (future releases).
+- [ ] Confirm real PostgreSQL integration/restore drill in dedicated infrastructure before production promotion.
