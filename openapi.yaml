@@ -1,8 +1,8 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.3.9
-  description: 'CajeerServers 0.3.9: Credentials Vault Admin UI and real browser E2E; existing secured Vault REST APIs, Encrypted Backup, and Inventory/Proxmox APIs.'
+  version: 0.4.0
+  description: 'CajeerServers 0.4.0: Credentials Vault stable integration, verified pending-secret Proxmox rotations with MFA and short-lived database proofs.'
 servers:
 - url: /api/v1
 security: []
@@ -4833,7 +4833,7 @@ paths:
         required: true
         schema: {type: string, format: uuid}
       responses:
-        '200': {description: Version metadata only}
+        '200': {description: Version metadata only; pending rows include required_targets, validated_targets, activation_ready}
         '401': {description: Authentication required}
         '403': {description: Permission denied}
         '404': {description: Credential not found}
@@ -4877,8 +4877,13 @@ paths:
   /vault/credentials/{id}/rotation/{revision}/activate:
     post:
       operationId: activateVaultCredentialRotation
-      summary: Explicitly activate a staged secret after independent external validation
-      description: Confirmation is an operator attestation, not an automatic remote check.
+      summary: Activate a staged secret after mandatory Proxmox verification (when bound)
+      description: >-
+        For active Proxmox connector targets bound to this credential, confirmed=true
+        is NOT sufficient. Every target needs a successful server-side pending-secret
+        validation via POST /connectors/targets/{id}/validate-rotation within the last
+        10 minutes, for the current credential/target versions. Without such targets,
+        the operator confirmation remains the only explicit validation attestation.
       security:
       - sessionAuth: []
       parameters:
@@ -4910,7 +4915,7 @@ paths:
                 confirmed: {type: boolean, const: true}
       responses:
         '200': {description: Activated version, retired previous, no secrets returned}
-        '409': {description: Pending version missing}
+        '409': {description: Pending version missing or fresh Proxmox proof is absent}
         '412': {description: Stale ETag}
         '422': {description: Confirmation required}
   /vault/credentials/{id}/rotation/{revision}/cancel:
@@ -5444,6 +5449,63 @@ paths:
           description: Требуется If-Match
         '502':
           description: Удалённое подключение или TLS проверка не прошли
+  /connectors/targets/{id}/validate-rotation:
+    post:
+      operationId: validatePendingProxmoxCredential
+      summary: Проверить ожидающую версию секрета через реальный Proxmox API
+      description: >-
+        Требует активной MFA-сессии и одноразового grant, выданного через
+        POST /vault/credentials/{id}/authorize-use. Читает исключительно
+        зашифрованную pending-версию, делает проверенный HTTPS запрос к Proxmox,
+        не изменяет Inventory и не возвращает секрет. Успех сохраняется на
+        10 минут и привязан к версиям credential и connector target. Только
+        после подтверждения всех активных Proxmox targets разрешена активация.
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      - name: If-Match
+        in: header
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [revision]
+              properties:
+                revision:
+                  type: integer
+                  minimum: 1
+              additionalProperties: false
+      responses:
+        '200':
+          description: Подтверждённая реальная проверка с безопасными счётчиками; без plaintext
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Коннектор или ожидающая версия изменены, либо отсутствует двойная привязка
+        '412':
+          description: Устаревшая версия коннектора
+        '428':
+          description: If-Match обязателен
+        '502':
+          description: Неверный секрет, TLS ошибка или удалённый API недоступен
   /connectors/targets/{id}/sync:
     post:
       operationId: syncProxmoxInventory

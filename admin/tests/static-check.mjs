@@ -64,4 +64,8 @@ ok(read('pages/vault.vue').includes('/vault/credentials') && read('pages/vault.v
 ok(read('pages/vault.vue').includes('If-Match') && read('pages/vault.vue').includes('vaultSecretPayload'), 'Vault writes use optimistic concurrency and validated profiles')
 ok(read('layouts/default.vue').includes('/vault') && read('composables/inventoryNavigation.ts').includes('vault'), 'Vault navigation keeps workspace')
 ok(existsSync(new URL('tests/e2e/vault-ui.spec.ts',root)), 'Vault real staging E2E specification exists')
+ok(read('pages/connectors.vue').includes('/validate-rotation') && read('pages/connectors.vue').includes('/authorize-use'),
+  'pending rotation executes real MFA->connector validation without plaintext response')
+ok(read('pages/vault.vue').includes('activation_ready') && read('pages/vault.vue').includes('validated_targets'),
+  'Vault Admin UI requires fresh server-side validation proof')
 console.log(`Admin static checks: ${passed} PASS`)

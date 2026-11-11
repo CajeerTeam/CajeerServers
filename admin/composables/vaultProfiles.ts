@@ -28,6 +28,9 @@ export interface VaultVersion {
   created_at: string
   activated_at: string | null
   retired_at: string | null
+  required_targets?: number
+  validated_targets?: number
+  activation_ready?: boolean
 }
 
 const enums: Record<string, string[]> = {

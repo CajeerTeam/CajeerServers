@@ -70,7 +70,7 @@ putenv('APP_ENV=local');putenv('APP_URL=http://127.0.0.1:8080');
 $app=(new Application($root))->boot();
 try {
     $router=$app->container()->get(Router::class);$routes=$router->routes();
-    $ok(count($routes)===137,'new protected routes are registered');
+    $ok(count($routes)===138,'new protected routes are registered');
     $ok($app->container()->get(ConnectorBindingService::class) instanceof ConnectorBindingService,'connector service registered');
     $ok($app->container()->get(ConnectorBindingController::class) instanceof ConnectorBindingController,'connector controller registered');
     $ok($app->container()->get(CredentialBindingService::class) instanceof CredentialBindingService,'inventory binding service registered');
@@ -81,6 +81,7 @@ try {
         'DELETE /api/v1/connectors/targets/{id}/credential-bindings/{bindingId}',
         'GET /api/v1/inventory/credentials/scopes',
         'POST /api/v1/connectors/targets/{id}/inspect',
+        'POST /api/v1/connectors/targets/{id}/validate-rotation',
         'POST /api/v1/connectors/targets/{id}/sync'] as $route){
         [$method,$path]=explode(' ',$route,2);
         $ok(count(array_filter($routes,static fn($r)=>$r['path']===$path&&in_array($method,$r['methods'],true)))===1,'route '.$route);

@@ -6,7 +6,15 @@ require dirname(__DIR__).'/core/autoload.php';
 use Cajeer\Servers\Audit\AuditLogger;
 use Cajeer\Servers\Config\ConfigRepository;
 use Cajeer\Servers\Connector\ConnectorBindingService;
+use Cajeer\Servers\Connector\ConnectorRuntimeService;
+use Cajeer\Servers\Connector\ProxmoxConnector;
+use Cajeer\Servers\Credentials\SecretAccessService;
+use Cajeer\Servers\Auth\TokenCodec;
+use Cajeer\Servers\Security\SecretBox;
+use Cajeer\Servers\Security\RateLimiter;
+use Cajeer\Servers\Security\TwoFactorManager;
 use Cajeer\Servers\Credentials\CredentialStore;
+use Cajeer\Servers\Credentials\CredentialVersionService;
 use Cajeer\Servers\Credentials\CredentialsVault;
 use Cajeer\Servers\Credentials\VaultCrypto;
 use Cajeer\Servers\Credentials\VaultMasterKey;
@@ -102,8 +110,86 @@ try {
     $bindingSvc->attach($admin,$asset['id'],$token['id'],'api');
     $context=$connector->runtimeContext($admin,$id,2);
     $ok($context['asset_id']===$asset['id'] && $context['credential_id']===$token['id'],'dual binding authorizes live execution');
-    $reject(412,fn()=>$connector->runtimeContext($admin,$id,1),'remote execution refuses stale target');
+
+    // 0.4.0: real PostgreSQL validation/activation gate. A staged Proxmox
+    // secret is never activated merely on a client-provided confirmed=true.
+    $versions=new CredentialVersionService($db,$repo,$vault,$crypto,$audit);
+    $pending=$versions->stage($admin,$token['id'],$token['version'],[
+        'token_id'=>'root@pam!sync','token_secret'=>'rotated-test-secret-value-123456']);
+    $ok($pending['state']==='pending' && $pending['version']===2,'staging persists a pending encrypted version');
+    $historyRows=$versions->history($admin,$token['id'])['data'];
+    $pendingRow=array_values(array_filter($historyRows,static fn(array $r):bool=>$r['state']==='pending'))[0];
+    $ok($pendingRow['required_targets']===1 && $pendingRow['validated_targets']===0 && !$pendingRow['activation_ready'],
+        'real connector binding makes verified activation mandatory');
+    $reject(409,fn()=>$versions->activate($admin,$token['id'],2,$pending['secret_version'],true),
+        'manual confirmation cannot bypass missing remote validation');
+    $reject(409,fn()=>$versions->markValidated($admin,$token['id'],$pending['secret_version'],1,$id,2),
+        'stale credential revision cannot be recorded as proof');
+    $reject(409,fn()=>$versions->markValidated($admin,$token['id'],$pending['secret_version'],2,$id,1),
+        'stale connector revision cannot be recorded as proof');
+    // Exercise the full trusted path: MFA -> one-use grant -> pending decrypt ->
+    // Proxmox discovery adapter -> durable validation proof. The test transport
+    // uses synthetic API responses; production transport is real verified HTTPS.
+    $password='test-only-not-production-123!';
+    $pdo->prepare('UPDATE users SET two_factor_enabled=true WHERE id=CAST(:actor AS uuid)')->execute(['actor'=>$admin]);
+    $securityKey=new SecretBox('test-app-key-separate-from-vault-'.bin2hex(random_bytes(20)));
+    $rateLimiter=new RateLimiter($securityKey);
+    $mfa=new TwoFactorManager($db,$securityKey,$audit,$rateLimiter);
+    $totpKey=random_bytes(20);
+    $encryptedTotp=$securityKey->seal(TwoFactorManager::base32($totpKey),'mfa:'.$admin);
+    $pdo->prepare("INSERT INTO user_mfa(user_id,secret_ciphertext,enabled_at)
+        VALUES(CAST(:id AS uuid),decode(:cipher,'hex'),now())")
+        ->execute(['id'=>$admin,'cipher'=>bin2hex($encryptedTotp)]);
+    $session=TokenCodec::issue('cs1');
+    $pdo->prepare("INSERT INTO auth_sessions(id,user_id,secret_hash,csrf_hash,expires_at,mfa_verified)
+        VALUES(CAST(:session AS uuid),CAST(:actor AS uuid),:hash,:csrf,now()+interval '1 hour',true)")
+        ->execute(['session'=>$session['id'],'actor'=>$admin,'hash'=>$session['hash'],'csrf'=>hash('sha256','test-csrf')]);
+    $principal=['mode'=>'session','id'=>$session['id'],'user'=>['id'=>$admin],'mfa_verified'=>true];
+    $access=new SecretAccessService($db,$repo,$rbac,$mfa,$rateLimiter,$audit,$vault,$crypto);
+    $remoteCalls=0;
+    $transport=static function(string $url,string $authorization,?string $caFile)use(&$remoteCalls,$ok):string {
+        $ok(str_contains($authorization,'rotated-test-secret-value-123456'),
+            'remote adapter receives staged plaintext, not the old active secret');
+        $remoteCalls++;
+        if (str_ends_with($url,'/api2/json/nodes'))return json_encode(['data'=>[['node'=>'pve-one','status'=>'online']]]);
+        return json_encode(['data'=>[['type'=>'qemu','node'=>'pve-one','vmid'=>500,'status'=>'running','name'=>'vm-500']]]);
+    };
     $history=new HistoryService($db,$repo,$inventory,$audit);
+    $runtime=new ConnectorRuntimeService($db,$repo,$connector,$access,$history,$audit,
+        new ProxmoxConnector($transport),null,$versions);
+    $reject(403,fn()=>$runtime->validatePending($principal,$id,2,$pending['secret_version']),
+        'remote validation cannot run without a fresh MFA grant');
+    $totp=TwoFactorManager::totp($totpKey,time());
+    $ok($access->authorize($principal,$asset['id'],$token['id'],'api',$password,$totp)['authorized'],
+        'real password and TOTP issue scoped one-time grant');
+    $countBefore=(int)$pdo->query('SELECT count(*) FROM inventory_assets')->fetchColumn();
+    $proof=$runtime->validatePending($principal,$id,2,$pending['secret_version']);
+    $ok($proof['validated'] && $proof['validated_targets']===1 && $remoteCalls===2,
+        'pending secret checked by real connector code and proof stored');
+    $ok((int)$pdo->query('SELECT count(*) FROM inventory_assets')->fetchColumn()===$countBefore,
+        'validation does not write to inventory');
+    $reject(403,fn()=>$runtime->validatePending($principal,$id,2,$pending['secret_version']),
+        'validation cannot replay a consumed Vault grant');
+    $historyRows=$versions->history($admin,$token['id'])['data'];
+    $pendingRow=array_values(array_filter($historyRows,static fn(array $r):bool=>$r['state']==='pending'))[0];
+    $ok($pendingRow['activation_ready']===true && $pendingRow['validated_targets']===1,'history reflects real server-side proof');
+    // Ten-minute expiry is enforced by PostgreSQL, not by the browser UI.
+    $pdo->exec("UPDATE vault_rotation_validations SET validated_at=clock_timestamp()-interval '11 minutes'");
+    $reject(409,fn()=>$versions->activate($admin,$token['id'],2,$pending['secret_version'],true),
+        'expired connector validation cannot activate pending credential');
+    $expired=array_values(array_filter($versions->history($admin,$token['id'])['data'],
+        static fn(array $r):bool=>$r['state']==='pending'))[0];
+    $ok($expired['validated_targets']===0 && !$expired['activation_ready'],
+        'API history shows expired proof as invalid');
+    $pdo->exec('UPDATE vault_rotation_validations SET validated_at=clock_timestamp()');
+    $ok($versions->activate($admin,$token['id'],2,$pending['secret_version'],true)['state']==='active',
+        'validated pending secret atomically replaces active version');
+    $token=$store->show($admin,$token['id']);
+    $ok($token['version']===3 && $token['secret_version']===$pending['secret_version'],
+        'active credential revision and active secret revision remain synchronized');
+    $ok((int)$pdo->query('SELECT count(*) FROM vault_rotation_validations')->fetchColumn()===0,
+        'proof metadata removed after atomic activation');
+    $reject(412,fn()=>$connector->runtimeContext($admin,$id,1),'remote execution refuses stale target');
     $observation=static fn(string $external,string $type,string $name):array=>[
         'workspace_id'=>$ws,'external_id'=>'proxmox:'.$id.':'.$external,
         'event_key'=>'pve.'.bin2hex(random_bytes(16)),

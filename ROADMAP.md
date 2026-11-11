@@ -539,3 +539,12 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 - [x] Playwright browser-to-API-to-PostgreSQL staging test sources с созданием и удалением синтетических secrets; негативные viewer/RBAC проверки при наличии отдельного viewer аккаунта.
 - [x] Native UI contract, static checks, release metadata и инструкция.
 - [ ] Nuxt npm ci/typecheck/build, browser E2E и PostgreSQL integration на отдельном staging с настоящим Vault key; строгий release gate без настоящих composer/npm locks не пройден.
+
+### 0.4.0 — Credentials Vault Stable Integration (рабочий код)
+
+- [x] Remote validation of staged Proxmox credential через MFA, реальный HTTPS connector и dual Vault/Inventory binding.
+- [x] Реальные короткоживущие PostgreSQL proof records, оптимистические revisions, transactional activation gate и безопасная cleanup.
+- [x] `/vault` + `/connectors` управляют процессом без plaintext и с fail-closed RBAC/CSRF.
+- [x] Native smoke и сценарий live PostgreSQL MFA → pending decrypt → Proxmox adapter → proof → activation.
+- [ ] Подтвердить PostgreSQL integration, реальный Proxmox endpoint, Nuxt build/typecheck и browser E2E на изолированном staging.
+- [ ] Добавить lock-файлы, сформированные настоящими Composer/npm dependency resolvers, и выполнить strict release check.

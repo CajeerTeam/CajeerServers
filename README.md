@@ -1,6 +1,10 @@
 # CajeerServers
 
-**CajeerServers** — русскоязычная self-hosted веб-оболочка для наблюдения и управления инфраструктурой. Это **не ОС**, не прошивка и не замена Proxmox/VMmanager. В 0.3.9 добавлена работающая админ-панель Credentials Vault с browser E2E для изолированного staging; в 0.3.8 добавлены шифрованные CLI-backups и offline recovery; в 0.3.7 реализована read-only интеграция Proxmox VE через HTTPS; остальные коннекторы находятся на других стадиях реализации.
+**CajeerServers** — русскоязычная self-hosted веб-оболочка для наблюдения и управления инфраструктурой. Это **не ОС**, не прошивка и не замена Proxmox/VMmanager. В 0.4.0 добавлена реальная серверная проверка ожидающей версии Credentials Vault через Proxmox с MFA и блокировкой активации без proof; в 0.3.9 добавлена работающая админ-панель Credentials Vault с browser E2E для изолированного staging; в 0.3.8 добавлены шифрованные CLI-backups и offline recovery; в 0.3.7 реализована read-only интеграция Proxmox VE через HTTPS; остальные коннекторы находятся на других стадиях реализации.
+
+## Версия 0.4.0 — Credentials Vault Stable Integration
+
+Активация ожидающей версии Vault, привязанной к активному Proxmox Connector, теперь требует проверенного удалённого HTTPS-подключения новым секретом (серверный MFA grant, read-only discovery, привязанная к ETag краткоживущая PostgreSQL proof-запись, повторная проверка состояния перед COMMIT). `/connectors` позволяет проверить новую версию, `/vault` отображает статус и блокирует неподтверждённую активацию. Прямое раскрытие секрета из REST отсутствует. [Инструкция и ограничения](docs/Credentials-Vault-Stable-Integration-0.4.0.md).
 
 ## Версия 0.3.9 — Credentials Vault Admin UI & E2E
 

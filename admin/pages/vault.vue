@@ -207,6 +207,10 @@ async function applySecret() {
 async function changeRotation(revision: number, action: 'activate' | 'cancel') {
   const item = selected.value
   if (!item || !canUpdate.value || item.state !== 'active') return
+  if (action === 'activate' && pending.value?.activation_ready === false) {
+    error.value = 'Не все активные Proxmox-коннекторы проверили новую версию. Выполните проверку в разделе «Коннекторы».'
+    return
+  }
   if (action === 'activate' && !confirmation.value) { error.value = 'Требуется подтверждение внешней проверки новой версии.'; return }
   if (action === 'cancel' && !confirm('Отменить ожидающую версию секрета?')) return
   await runMutation(async () => {
@@ -362,10 +366,15 @@ onMounted(() => { void init() })
         </section>
         <section v-if="canUpdate && pending && selected.state === 'active'" class="section-gap" data-testid="vault-pending">
           <h3>Ожидающая версия №{{ pending.secret_version }}</h3>
-          <p class="muted">Активация не проверяет удалённый сервер автоматически. Перед подтверждением проверьте новый секрет вне этой панели.</p>
-          <label class="vault-checkbox"><input v-model="confirmation" type="checkbox" /> Я проверил новую версию во внешней системе и подтверждаю активацию.</label>
+          <p v-if="pending.required_targets" class="muted" data-testid="vault-validation-progress">
+            Проверено активных Proxmox-коннекторов: {{ pending.validated_targets || 0 }} из {{ pending.required_targets }}.
+            Проверки действительны 10 минут и сбрасываются при изменении credential или привязки.
+            <NuxtLink :to="inventoryContextUrl('connectors', workspace)">Проверить новую версию через Proxmox API</NuxtLink>.
+          </p>
+          <p v-else class="muted">Активных привязанных Proxmox-коннекторов нет. Проверьте новый секрет вне панели до ручного подтверждения.</p>
+          <label class="vault-checkbox"><input v-model="confirmation" type="checkbox" /> Подтверждаю активацию новой версии.</label>
           <div class="inline-actions">
-            <button type="button" class="btn primary" :disabled="busy || !confirmation" @click="changeRotation(pending.secret_version, 'activate')">Активировать версию</button>
+            <button type="button" class="btn primary" :disabled="busy || !confirmation || pending.activation_ready === false" @click="changeRotation(pending.secret_version, 'activate')">Активировать версию</button>
             <button type="button" class="btn" :disabled="busy" @click="changeRotation(pending.secret_version, 'cancel')">Отменить ротацию</button>
           </div>
         </section>

@@ -4,6 +4,7 @@ namespace Cajeer\Servers\Connector;
 
 use Cajeer\Servers\Audit\AuditLogger;
 use Cajeer\Servers\Credentials\SecretAccessService;
+use Cajeer\Servers\Credentials\CredentialVersionService;
 use Cajeer\Servers\Database\DatabaseManager;
 use Cajeer\Servers\Http\Exception\HttpException;
 use Cajeer\Servers\Inventory\HistoryService;
@@ -23,7 +24,43 @@ final class ConnectorRuntimeService
         private readonly AuditLogger $audit,
         private readonly ProxmoxConnector $proxmox,
         private readonly ?string $caFile = null,
+        private readonly ?CredentialVersionService $versions = null,
     ) {}
+
+    /**
+     * Check a *pending* Vault rotation against the actual Proxmox HTTPS API.
+     * This is a read-only operation: no CMDB update or plaintext HTTP response.
+     * A fresh MFA grant is spent exactly once and proof is written only after
+     * the remote API has returned a valid, nonempty node inventory.
+     *
+     * @param array<string,mixed> $principal
+     */
+    public function validatePending(array $principal, string $targetId, int $version, int $revision,
+                                    ?string $requestId=null): array
+    {
+        if ($revision < 1) throw new HttpException(422,'Invalid pending revision.','validation_failed');
+        if ($this->versions===null) throw new HttpException(503,'Vault validation is not configured.','vault_unavailable');
+        $actor=$principal['user']['id']??null;
+        if (!is_string($actor)) throw new HttpException(403,'Invalid session.','session_required');
+        $target=$this->bindings->runtimeContext($actor,$targetId,$version);
+        $items=[];
+        try {
+            $this->access->consumePendingForAsset($principal,$target['asset_id'],$target['credential_id'],'api',
+                $revision,function(string $secret,string $type) use($target,&$items):void {
+                    $items=$this->proxmox->discover($target['endpoint_host'],$target['endpoint_port'],$type,$secret,$this->caFile);
+                    if (count(array_filter($items,static fn(array $i):bool=>$i['type']==='hypervisor_node'))===0)
+                        throw new \RuntimeException('Remote API returned no Proxmox nodes.');
+                },$requestId);
+        } catch (Throwable $e) {
+            if ($e instanceof HttpException) throw $e;
+            throw new HttpException(502,'Pending credential could not authenticate to the remote Proxmox API.','connector_validation_failed');
+        }
+        $proof=$this->versions->markValidated($actor,$target['credential_id'],$revision,
+            $target['credential_version'],$targetId,$version,$requestId);
+        return ['validated'=>true,'connector_id'=>$targetId,'credential_id'=>$target['credential_id'],
+            'secret_version'=>$revision,'discovered'=>count($items),
+            'required_targets'=>$proof['required'],'validated_targets'=>$proof['validated']];
+    }
 
     /** @param array<string,mixed> $principal */
     public function run(array $principal, string $targetId, int $version, bool $sync, ?string $requestId=null): array

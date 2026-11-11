@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { apiError } from '~/composables/useApi'
 import { inventoryContextUrl, selectWorkspace } from '~/composables/inventoryNavigation'
+import type { VaultVersion } from '~/composables/vaultProfiles'
 const api=useApi(), auth=useAuth(),route=useRoute()
 type Workspace={id:string;name:string;role:string}
 type Target={id:string;workspace_id:string;provider:string;name:string;endpoint_host:string;endpoint_port:number;state:string;asset_id:string|null;version:number;etag:string}
@@ -11,6 +12,7 @@ const workspaces=ref<Workspace[]>([]),workspace=ref(''),targets=ref<Target[]>([]
 const selected=ref(''),busy=ref(false),message=ref(''),error=ref('')
 const assets=ref<Asset[]>([]),assetSelection=ref(''),attachToAsset=ref(true)
 const stepup=reactive({password:'',totp:''})
+const pendingVersions=ref<VaultVersion[]>([])
 const lastRun=ref<{mode:string;discovered:number;types:Record<string,number>;outcomes?:Record<string,number>}|null>(null)
 const form=reactive({name:'',provider:'proxmox',endpoint_host:'',endpoint_port:8006,asset_id:''})
 const binding=reactive({credential_id:'',purpose:'api'})
@@ -23,6 +25,8 @@ const canBind=computed(()=>auth.can('connectors.credentials.manage')&&canManage.
 const canListBindings=computed(()=>auth.can('connectors.credentials.read'))
 const canRun=computed(()=>canBind.value&&auth.can('vault.credentials.use')&&active.value?.provider==='proxmox'&&active.value?.state==='active')
 const canSync=computed(()=>canRun.value&&auth.can('inventory.assets.create')&&auth.can('inventory.assets.update'))
+const canValidate=computed(()=>canRun.value&&auth.can('vault.credentials.read')&&auth.can('vault.credentials.update'))
+const pendingRotation=computed(()=>pendingVersions.value.find(v=>v.state==='pending')||null)
 const apiBinding=computed(()=>bindings.value.find(b=>b.purpose==='api'&&b.state==='active')||null)
 const active=computed(()=>targets.value.find(t=>t.id===selected.value)||null)
 const scopeCredentials=computed(()=>credentials.value.filter(c=>c.state==='active'))
@@ -33,7 +37,7 @@ async function init(){if(!canRead.value)return
   try{workspaces.value=(await api.get<{data:Workspace[]}>('/workspaces')).data;workspace.value=selectWorkspace(workspaces.value,route.query.workspace_id);await load()}
   catch(e){fail(e)}
 }
-async function load(){targets.value=[];bindings.value=[];credentials.value=[];assets.value=[];lastRun.value=null;selected.value='';if(!workspace.value||!canRead.value)return
+async function load(){targets.value=[];bindings.value=[];credentials.value=[];assets.value=[];pendingVersions.value=[];lastRun.value=null;selected.value='';stepup.password='';stepup.totp='';if(!workspace.value||!canRead.value)return
   reset()
   try{
     targets.value=(await api.get<{data:Target[]}>(`/connectors/targets?workspace_id=${workspace.value}`)).data
@@ -41,8 +45,15 @@ async function load(){targets.value=[];bindings.value=[];credentials.value=[];as
     if(auth.can('inventory.assets.read')) assets.value=(await api.get<{data:Asset[]}>(`/inventory/assets?workspace_id=${workspace.value}&limit=100&offset=0`)).data
   }catch(e){fail(e)}
 }
-async function open(target:Target){selected.value=target.id;assetSelection.value=target.asset_id||'';bindings.value=[];lastRun.value=null;reset();if(!canListBindings.value)return
-  try{bindings.value=(await api.get<{data:Binding[]}>(`/connectors/targets/${target.id}/credential-bindings`)).data}
+async function open(target:Target){selected.value=target.id;assetSelection.value=target.asset_id||'';bindings.value=[];pendingVersions.value=[];lastRun.value=null;stepup.password='';stepup.totp='';reset();if(!canListBindings.value)return
+  try{const loaded=(await api.get<{data:Binding[]}>(`/connectors/targets/${target.id}/credential-bindings`)).data
+    if(selected.value!==target.id)return
+    bindings.value=loaded
+    const activeApi=loaded.find(b=>b.purpose==='api'&&b.state==='active')
+    if(activeApi&&auth.can('vault.credentials.read')){
+      const versions=(await api.get<{data:VaultVersion[]}>(`/vault/credentials/${activeApi.credential_id}/versions`)).data
+      if(selected.value===target.id)pendingVersions.value=versions
+    }
   catch(e){fail(e)}
 }
 watch(()=>form.provider,(provider)=>{const item=providers.find(p=>p.id===provider);if(item){form.endpoint_port=item.port;binding.purpose=item.purpose}})
@@ -93,6 +104,19 @@ async function executeRemote(sync:boolean){
       'POST',`/connectors/targets/${item.id}/${sync?'sync':'inspect'}`,undefined,true,versionHeaders(item))
     lastRun.value=result.data
     message.value=sync?'Инвентаризация завершена.':'Удалённая проверка завершена.'
+  }catch(e){fail(e)}finally{stepup.password='';stepup.totp='';busy.value=false}
+}
+async function validatePendingRotation(){
+  const item=active.value,credential=apiBinding.value,revision=pendingRotation.value?.secret_version
+  if(!item||!credential||!item.asset_id||!revision||!canValidate.value)return
+  busy.value=true;reset()
+  try{
+    await api.write('POST',`/vault/credentials/${credential.credential_id}/authorize-use`,{
+      asset_id:item.asset_id,purpose:'api',password:stepup.password,totp:stepup.totp})
+    const result=await api.write<{data:{validated:boolean;validated_targets:number;required_targets:number}}>(
+      'POST',`/connectors/targets/${item.id}/validate-rotation`,{revision},true,versionHeaders(item))
+    pendingVersions.value=(await api.get<{data:VaultVersion[]}>(`/vault/credentials/${credential.credential_id}/versions`)).data
+    message.value=`Новая версия проверена через Proxmox API. Подтверждено ${result.data.validated_targets} из ${result.data.required_targets} коннекторов.`
   }catch(e){fail(e)}finally{stepup.password='';stepup.totp='';busy.value=false}
 }
 onMounted(init)
@@ -161,8 +185,12 @@ onMounted(init)
           <label>TOTP (6 цифр) <input v-model="stepup.totp" type="text" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required /></label>
           <button class="btn" type="submit" :disabled="busy">Проверить Proxmox API</button>
           <button v-if="canSync" class="btn" type="button" :disabled="busy" @click="executeRemote(true)">Синхронизировать Inventory</button>
+          <button v-if="canValidate && pendingRotation" class="btn primary" type="button" :disabled="busy || !stepup.password || !/^[0-9]{6}$/.test(stepup.totp)" data-testid="connector-validate-pending" @click="validatePendingRotation">
+            Проверить новую версию №{{ pendingRotation.secret_version }}
+          </button>
         </form>
         <p v-else>Для выполнения операции выберите asset, привяжите активный API credential и проверьте права на использование Vault.</p>
+        <p v-if="pendingRotation && canValidate" class="muted">Проверка ожидающего секрета использует одноразовое MFA-разрешение, не изменяет Inventory и сохраняет в Vault только подтверждение успешного подключения. После проверки активируйте версию в <NuxtLink :to="inventoryContextUrl('vault',workspace)">Vault</NuxtLink>.</p>
         <div v-if="lastRun" role="status">
           <p>Обнаружено объектов: {{lastRun.discovered}}. Узлы: {{lastRun.types.hypervisor_node}}, VM: {{lastRun.types.virtual_machine}}, контейнеры: {{lastRun.types.container}}.</p>
           <p v-if="lastRun.outcomes">Создано: {{lastRun.outcomes.created}}, обновлено: {{lastRun.outcomes.applied}}, без изменений: {{lastRun.outcomes.unchanged}}, конфликтов: {{lastRun.outcomes.conflicted}}.</p>

@@ -178,6 +178,32 @@ SQL);
     public function consumeForAsset(array $principal, string $asset, string $credential,
                                    string $purpose, callable $trustedConsumer, ?string $requestId = null): void
     {
+        $this->consumeInternal($principal, $asset, $credential, $purpose, $trustedConsumer, null, $requestId);
+    }
+
+    /**
+     * Use a pending, encrypted revision solely for a trusted, read-only connector
+     * validation. Requires the same MFA grant as active secret consumption and
+     * atomically consumes that grant. Pending plaintext never reaches the HTTP API.
+     *
+     * @param array<string,mixed> $principal
+     * @param callable(string,string):void $trustedConsumer
+     */
+    public function consumePendingForAsset(array $principal, string $asset, string $credential,
+                                          string $purpose, int $revision, callable $trustedConsumer,
+                                          ?string $requestId = null): void
+    {
+        if ($revision < 1) {
+            throw new HttpException(422, 'Invalid pending revision.', 'validation_failed');
+        }
+        $this->consumeInternal($principal, $asset, $credential, $purpose, $trustedConsumer, $revision, $requestId);
+    }
+
+    /** @param array<string,mixed> $principal */
+    private function consumeInternal(array $principal, string $asset, string $credential,
+                                     string $purpose, callable $trustedConsumer,
+                                     ?int $pendingRevision, ?string $requestId): void
+    {
         [$actor,$session]=self::identity($principal);
         $asset=self::uuid($asset); $credential=self::uuid($credential);
         if (preg_match('/^[a-z][a-z0-9_.-]{0,63}$/D',$purpose)!==1) {
@@ -185,7 +211,7 @@ SQL);
         }
         $this->vault->check();
         try {
-            $material=$this->db->transaction(function(PDO $pdo) use ($principal,$actor,$session,$asset,$credential,$purpose,$requestId):array {
+            $material=$this->db->transaction(function(PDO $pdo) use ($principal,$actor,$session,$asset,$credential,$purpose,$pendingRevision,$requestId):array {
             $this->liveSession($pdo,$principal);
             $this->rbac->requirePermission($principal,'vault.credentials.use',$pdo);
             $binding=$this->binding($pdo,$actor,$asset,$credential,$purpose,true);
@@ -201,8 +227,15 @@ SQL);
             $claim->execute(['session'=>$session,'actor'=>$actor,'asset'=>$asset,'cred'=>$credential,
                 'ws'=>$binding['workspace'],'purpose'=>$purpose,'version'=>$binding['version']]);
             if (!$claim->fetchColumn()) throw new HttpException(403,'Fresh step-up authorization required.','step_up_required');
-            $stmt=$pdo->prepare('SELECT encode(encrypted_payload,\'hex\') FROM credentials WHERE id=CAST(:id AS uuid)');
-            $stmt->execute(['id'=>$credential]);
+            if ($pendingRevision === null) {
+                $stmt=$pdo->prepare('SELECT encode(encrypted_payload,\'hex\') FROM credentials WHERE id=CAST(:id AS uuid)');
+                $stmt->execute(['id'=>$credential]);
+            } else {
+                $stmt=$pdo->prepare("SELECT encode(encrypted_payload,'hex') FROM vault_credential_versions
+                    WHERE credential_id=CAST(:id AS uuid) AND secret_version=:revision AND state='pending'
+                    FOR SHARE");
+                $stmt->execute(['id'=>$credential,'revision'=>$pendingRevision]);
+            }
             $hex=$stmt->fetchColumn();
             if (!is_string($hex) || ($cipher=hex2bin($hex))===false) throw new RuntimeException('Invalid encrypted credential.');
             // Return ciphertext only across transaction boundary; no plaintext in DB/queue.

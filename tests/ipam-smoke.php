@@ -64,7 +64,7 @@ $app=null;
 try {
     $app=(new Application($root))->boot();
     $routes=$app->container()->get(Router::class)->routes();
-    $ok(count($routes)===137,'137 routes, including IPAM');
+    $ok(count($routes)===138,'138 routes, including IPAM');
     foreach(['/api/v1/ipam/networks','/api/v1/ipam/interfaces','/api/v1/ipam/addresses',
         '/api/v1/ipam/addresses/{id}/assign','/api/v1/ipam/addresses/{id}/unassign'] as $route) {
         $ok(in_array($route,array_column($routes,'path'),true),'registered '.$route);

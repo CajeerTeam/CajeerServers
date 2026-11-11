@@ -36,6 +36,9 @@ for (const [pattern,label] of [
   ['canDelete','role + permission for archive'],
   ['canUpdate','role + permission for mutation'],
   ['confirmation','operator attestation'],
+  ['activation_ready','server-side Proxmox proof gate'],
+  ['validated_targets','display validation progress'],
+  ["inventoryContextUrl('connectors', workspace)",'link to remote validation'],
 ]) ok(page.includes(pattern), label)
 ok(!page.includes('localStorage') && !page.includes('sessionStorage'), 'no local persistent secret storage')
 ok(!page.includes('console.log') && !page.includes('JSON.stringify(secret'), 'no logging secret')

@@ -60,6 +60,7 @@ final class ReleaseVerifier
                   'core/Credentials/VaultKeyRotation.php', 'core/Credentials/CredentialVersionService.php',
                   'core/Credentials/CredentialVersionController.php',
                   'tests/vault-rotation-smoke.php',
+                  'migrations/pgsql/0022_vault_validated_rotation.sql', 'tests/vault-stable-smoke.php',
                   'core/Backup/BackupService.php', 'core/Backup/PostgresStream.php', 'core/Backup/EncryptedArchive.php', 'core/Backup/ArchiveWriter.php',
                   'core/Backup/BackupKey.php', 'core/Cli/BackupCommands.php', 'tests/backup-smoke.php',
                   'tests/backup-postgres-integration.php', 'admin/pages/vault.vue',

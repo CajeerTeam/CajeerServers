@@ -292,7 +292,8 @@ final class Application
             $c->get(DatabaseManager::class),$c->get(InventoryRepository::class),$c->get(ConnectorBindingService::class),
             $c->get(SecretAccessService::class),$c->get(HistoryService::class),$c->get(AuditLogger::class),
             $c->get(ProxmoxConnector::class),
-            ($ca=$c->get(ConfigRepository::class)->get('connectors.proxmox_ca_file',''))!==''?(string)$ca:null));
+            ($ca=$c->get(ConfigRepository::class)->get('connectors.proxmox_ca_file',''))!==''?(string)$ca:null,
+            $c->get(\Cajeer\Servers\Credentials\CredentialVersionService::class)));
         $this->services->singleton(ConnectorBindingController::class, fn (ServiceContainer $c): ConnectorBindingController => new ConnectorBindingController(
             $c->get(AuthenticationService::class),$c->get(Rbac::class),$c->get(ConnectorBindingService::class),$c->get(ConnectorRuntimeService::class)));
         $this->services->singleton(TransferController::class, fn (ServiceContainer $c): TransferController => new TransferController(

@@ -1,3 +1,12 @@
+## [0.4.0] — 2026-11-11 — Credentials Vault Stable Integration
+
+- Реальная проверка **pending**-секрета Proxmox через уже реализованный TLS-verified connector: отдельный session/MFA/CSRF/RBAC HTTP маршрут, потребление одноразового grant, read-only discovery; без plaintext REST и без записи в Inventory.
+- PostgreSQL миграция `0022_vault_validated_rotation.sql` сохраняет только безопасные сведения о прошедшем удалённую проверку credential/connector; proof действителен 10 минут и привязан к обоим optimistic revisions.
+- Транзакционная блокировка активации стадии при отсутствии действительного proof хотя бы для одного активного Proxmox connector; другие типы остаются с явным внешним подтверждением. При активации и отмене proof удаляется.
+- `/vault` показывает прогресс проверок и не позволяет активировать ожидающую версию без готовности; `/connectors` выполняет password+TOTP step-up, реальную read-only валидацию и обновляет статус.
+- Новые native и расширенные PostgreSQL-интеграционные тесты: запрет произвольного client success, неприменение stale revision, single-use grant, safe transport result, отсутствие CMDB side effects, ETag и повторная проверка.
+- **Ограничение:** В среде сборки нет PostgreSQL `pdo_pgsql`, Nuxt зависимостей и достоверных lock-файлов. Полный PostgreSQL roundtrip/production build/browser E2E необходимо выполнить на staging до promotion; тестовые сценарии не равны подтверждённому production release.
+
 ## [0.3.9] — 2026-11-11 — Credentials Vault Admin UI & E2E
 
 - Реальная Nuxt страница `/vault`: workspace-specific safe metadata list с пагинацией; создание девяти типов credentials из backend профилей; изменение метаданных и active/disabled состояния, немедленная write-only замена секретов, двухфазная stage/activate/cancel ротация и архивирование. Ни существующий ciphertext, ни plaintext не выводятся в интерфейс.

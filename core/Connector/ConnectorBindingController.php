@@ -97,6 +97,23 @@ final class ConnectorBindingController
             self::version($r,self::id($r)),false,self::rid($r))],200,
             ['Cache-Control'=>'private, no-store','Pragma'=>'no-cache']);
     }
+    /** Real remote verification of a pending credential. No inventory writes. */
+    public function validateRotation(HttpRequest $r):HttpResponse
+    {
+        $principal=$this->auth->authenticate($r,sessionOnly:true);
+        $this->auth->requireCsrf($r,$principal);
+        foreach (['connectors.credentials.manage','vault.credentials.use','vault.credentials.update'] as $scope)
+            $this->rbac->requirePermission($principal,$scope);
+        $body=$r->attribute('json');
+        $revision=$body['revision']??null;
+        if (!is_int($revision) || $revision<1)
+            throw new HttpException(422,'Invalid pending revision.','validation_failed');
+        $id=self::id($r);
+        return HttpResponse::json(['data'=>$this->runtime->validatePending($principal,$id,
+            self::version($r,$id),$revision,self::rid($r))],200,
+            ['Cache-Control'=>'private, no-store','Pragma'=>'no-cache']);
+    }
+
     public function sync(HttpRequest $r):HttpResponse
     {
         $principal=$this->auth->authenticate($r,sessionOnly:true);

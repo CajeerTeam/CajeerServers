@@ -322,6 +322,12 @@ return static function (Router $router, ServiceContainer $container): void {
             ]);
             $connectors->delete('/targets/{id}/credential-bindings/{bindingId}',static fn(HttpRequest $r):HttpResponse=>$handler()->unbind($r));
             $connectors->post('/targets/{id}/inspect',static fn(HttpRequest $r):HttpResponse=>$handler()->inspect($r));
+            $connectors->post('/targets/{id}/validate-rotation',
+                static fn(HttpRequest $r):HttpResponse=>$handler()->validateRotation($r),[
+                'required'=>['revision'],
+                'properties'=>['revision'=>['type'=>'integer','minimum'=>1]],
+                'additionalProperties'=>false,
+            ]);
             $connectors->post('/targets/{id}/sync',static fn(HttpRequest $r):HttpResponse=>$handler()->sync($r));
         });
         // Inventory topology and typed asset relationships. PostgreSQL owns integrity and cycle detection.
