@@ -6,6 +6,7 @@ require dirname(__DIR__).'/core/autoload.php';
 use Cajeer\Servers\Audit\AuditLogger;
 use Cajeer\Servers\Config\ConfigRepository;
 use Cajeer\Servers\Credentials\CredentialInput;
+use Cajeer\Servers\Credentials\CredentialProfile;
 use Cajeer\Servers\Credentials\CredentialStore;
 use Cajeer\Servers\Credentials\CredentialsVault;
 use Cajeer\Servers\Credentials\VaultCrypto;
@@ -128,6 +129,40 @@ try{
     $reject(404,fn()=>$bind->scope($admin,$workspace,$id),'archived credential cannot be scoped');
     $query->execute(['id'=>$id]);$archivedCipher=hex2bin((string)$query->fetchColumn());
     $ok($archivedCipher===$newCipher,'encrypted data unchanged after archive');
+    // Real persistence of each 0.3.3 structured format: no plaintext or raw JSON
+    // should be exposed by the metadata API, even after replacement.
+    $profileCases = [
+        'proxmox_api'=>['token_id'=>'root@pam!monitor','token_secret'=>'test-only-very-secret'],
+        'vmmanager_api'=>['token'=>'test-only-very-secret'],
+        'ssh_password'=>['username'=>'operator','password'=>'test-only-very-secret'],
+        'winrm'=>['username'=>'DOMAIN\\svc','password'=>'test-only-very-secret','auth'=>'negotiate'],
+        'snmp_v2c'=>['community'=>'test-only-very-secret'],
+        'snmp_v3'=>['username'=>'monitor','auth_protocol'=>'sha256',
+            'auth_passphrase'=>'test-only-very-secret', 'privacy_protocol'=>'aes128',
+            'privacy_passphrase'=>'test-only-very-secret'],
+    ];
+    $sshKey=openssl_pkey_new(['private_key_bits'=>2048,'private_key_type'=>OPENSSL_KEYTYPE_RSA]);
+    if ($sshKey===false || !openssl_pkey_export($sshKey,$sshPrivate)) throw new RuntimeException('OpenSSL key generation failed');
+    $profileCases['ssh_private_key']=['username'=>'deploy','private_key'=>$sshPrivate];
+    foreach($profileCases as $type=>$secretPayload) {
+        $record=$store->create($admin,['workspace_id'=>$workspace,'name'=>'Integration '.$type,
+            'type'=>$type,'secret'=>$secretPayload]);
+        $profileId=$record['id'];
+        $ok($record['type']===$type && $record['version']===1,'persisted profile '.$type);
+        $encoded=CredentialProfile::encode($type,$secretPayload);
+        $q=$pdo->prepare("SELECT encrypted_payload FROM credentials WHERE id=CAST(:id AS uuid)");
+        $q->execute(['id'=>$profileId]);$persisted=$q->fetchColumn();
+        $ok(is_string($persisted) && $crypto->open($persisted,$profileId,$workspace,$type)===$encoded,
+            'PostgreSQL encrypted payload roundtrip '.$type);
+        $ok(!str_contains(json_encode($store->show($admin,$profileId),JSON_THROW_ON_ERROR),$encoded),
+            'metadata does not expose secret for '.$type);
+        $after=$store->replaceSecret($admin,$profileId,1,$secretPayload);
+        $ok($after['version']===2 && !isset($after['secret']),'structured replacement '.$type);
+        $q->execute(['id'=>$profileId]);$replacement=$q->fetchColumn();
+        $ok(is_string($replacement) && $replacement!==$persisted &&
+            $crypto->open($replacement,$profileId,$workspace,$type)===$encoded,
+            'unique envelope on replacement '.$type);
+    }
     // A direct DB update cannot break the AEAD identity binding, even with incremented version.
     try {
         $pdo->prepare('UPDATE credentials SET workspace_id=CAST(:other AS uuid),version=version+1 WHERE id=CAST(:id AS uuid)')

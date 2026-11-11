@@ -471,3 +471,14 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 - [ ] Проверка PostgreSQL integration, Nuxt build и end-to-end на изолированной инфраструктуре.
 
 **Следующий этап: 0.3.3 — Credential Profiles & Validation.**
+
+### 0.3.3 — Credential Profiles & Validation (код реализован)
+
+- [x] Девять исполняемых профилей с server-side validation, отказами 422 и generic error messages без секретов.
+- [x] Структурированные SSH / WinRM / Proxmox / VMmanager / SNMP payload полностью шифруются; прежние generic/api_token ciphertext совместимы.
+- [x] Реальная интеграция в create и replace-secret с неизменяемыми UUID/workspace/type, ETag, CSRF и RBAC.
+- [x] Защищённый `GET /api/v1/vault/profiles`, OpenAPI 3.1.1, документация и smoke-тесты.
+- [x] PostgreSQL integration-тест расширен на шифрование и замену каждого профиля; выполнение требуется на изолированной PostgreSQL 17/18 БД.
+- [ ] Подтверждение PostgreSQL/CI/production E2E и lock-файлов на целевом стенде.
+
+**Следующий этап: 0.3.4 — Secure Access Control & Secret Consumption.**

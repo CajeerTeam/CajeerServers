@@ -55,6 +55,14 @@ final class CredentialController
         ]);
     }
 
+    /** Read-only profile discovery after successful session authentication and RBAC. */
+    public function profiles(HttpRequest $request): HttpResponse
+    {
+        $this->actor($request, 'vault.credentials.read');
+        return HttpResponse::json(['data'=>CredentialProfile::descriptors()], 200,
+            ['Cache-Control'=>'no-store, private','Pragma'=>'no-cache']);
+    }
+
     public function index(HttpRequest $request):HttpResponse
     {
         $actor=$this->actor($request,'vault.credentials.read');
@@ -90,6 +98,8 @@ final class CredentialController
         $id=self::id($request);
         $version=CredentialInput::version($id,$request->header('If-Match'));
         $body=$request->attribute('json');
+        if (!is_array($body) || array_diff(array_keys($body),['secret']) || !array_key_exists('secret',$body))
+            throw new HttpException(422,'Invalid secret replacement fields.','validation_failed');
         return self::response($this->store->replaceSecret($actor,$id,$version,$body['secret'],self::requestId($request)));
     }
 

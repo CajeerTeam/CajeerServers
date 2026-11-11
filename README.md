@@ -396,5 +396,9 @@ Native smoke-tests выполняются без Composer. GitHub CI прове�
 
 В production эти вызовы требуют HTTPS, действующей серверной сессии, соответствующих RBAC permissions,
 owner/manager для изменений и CSRF. **Plaintext не возвращается ни одним из перечисленных API.**
-Поддерживаются пока `generic_secret` и `api_token`; расширенные типы появятся в 0.3.3.
+Начиная с 0.3.3 поддерживаются структурированные типы Proxmox, VMmanager, SSH, WinRM и SNMP. Подробности: `docs/Vault-Credential-Profiles-0.3.3.md`.
 Подробнее: `docs/Vault-Encrypted-CRUD-0.3.2.md`.
+
+### Vault 0.3.3 — проверяемые credential profiles
+
+`CredentialProfile` валидирует **реальное содержимое** профилей: `generic_secret`, `api_token`, `proxmox_api`, `vmmanager_api`, `ssh_password`, `ssh_private_key`, `winrm`, `snmp_v2c`, `snmp_v3`. Весь профиль шифруется через существующий Vault CJV1; неизвестные и некорректные поля отклоняются, секреты не возвращаются в REST. Доступен защищённый `GET /api/v1/vault/profiles` для получения описаний допустимых полей. Замена секрета сохраняет неизменяемый тип credential и требует ETag/CSRF/прав. Полные инструкции и ограничения: `docs/Vault-Credential-Profiles-0.3.3.md`.

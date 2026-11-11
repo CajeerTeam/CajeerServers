@@ -38,11 +38,7 @@ final class CredentialInput
 
     public static function type(mixed $value): string
     {
-        // Complex SSH, SNMP and platform-specific profiles will be validated in 0.3.3.
-        if (!in_array($value, ['generic_secret', 'api_token'], true)) {
-            throw new HttpException(422, 'Unsupported credential type.', 'validation_failed');
-        }
-        return $value;
+        return CredentialProfile::type($value);
     }
 
     public static function secret(mixed $value): string

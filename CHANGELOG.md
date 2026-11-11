@@ -1,3 +1,11 @@
+## [0.3.3] — 2026-11-11 — Credential Profiles & Validation
+
+- Вместо заглушки CredentialProfile реализован исполняемый валидатор девяти типов credentials с точными обязательными и разрешёнными полями, проверкой SSH private key, SNMPv3 auth/privacy и Proxmox token ID.
+- Существующие create/replace Vault действительно валидируют и зашифровывают полный типизированный payload. Старые строковые `generic_secret` и `api_token` сохраняют прежний формат.
+- Добавлен сессионный RBAC-protected `GET /api/v1/vault/profiles` без выдачи секретов, обновлён OpenAPI 3.1.1.
+- Новые native tests и реальные PostgreSQL-интеграционные сценарии для сохранения и замены типизированных credentials. Подключено к локальному release verification и GitHub Actions.
+- Новых SQL-миграций нет; plaintext API, автоматическая проверка внешних учётных данных и ротация по-прежнему не реализованы.
+
 ## [0.3.2] — 2026-11-11 — Encrypted Credentials CRUD
 
 - Реальный PostgreSQL lifecycle зашифрованных credentials: create, list/show metadata, update, replace, disable, archive.

@@ -100,6 +100,7 @@ return static function (Router $router, ServiceContainer $container): void {
         });
         $routes->group('/vault', static function (Router $vault) use ($container): void {
             $handler=static fn (): \Cajeer\Servers\Credentials\CredentialController => $container->get(\Cajeer\Servers\Credentials\CredentialController::class);
+            $vault->get('/profiles',static fn (HttpRequest $r): HttpResponse => $handler()->profiles($r));
             $vault->get('/credentials',static fn (HttpRequest $r): HttpResponse => $handler()->index($r));
             $vault->post('/credentials',static fn (HttpRequest $r): HttpResponse => $handler()->create($r),[
                 'required'=>['workspace_id','name','type','secret'],
@@ -107,8 +108,9 @@ return static function (Router $router, ServiceContainer $container): void {
                     'workspace_id'=>['type'=>'string','format'=>'uuid'],
                     'name'=>['type'=>'string','minLength'=>1,'maxLength'=>255],
                     'description'=>['type'=>'string','maxLength'=>1024],
-                    'type'=>['type'=>'string','enum'=>['generic_secret','api_token']],
-                    'secret'=>['type'=>'string','minLength'=>1,'maxLength'=>65536],
+                    'type'=>['type'=>'string','enum'=>\Cajeer\Servers\Credentials\CredentialProfile::types()],
+                    // Profile service validates scalar or structured payload, field-level limits, and cross-field rules.
+                    'secret'=>[],
                 ],'additionalProperties'=>false,
             ]);
             $vault->get('/credentials/{id}',static fn (HttpRequest $r): HttpResponse => $handler()->show($r));
@@ -121,7 +123,7 @@ return static function (Router $router, ServiceContainer $container): void {
             ]);
             $vault->put('/credentials/{id}/secret',static fn (HttpRequest $r): HttpResponse => $handler()->replaceSecret($r),[
                 'required'=>['secret'],
-                'properties'=>['secret'=>['type'=>'string','minLength'=>1,'maxLength'=>65536]],
+                'properties'=>['secret'=>[]],
                 'additionalProperties'=>false,
             ]);
             $vault->delete('/credentials/{id}',static fn (HttpRequest $r): HttpResponse => $handler()->delete($r));

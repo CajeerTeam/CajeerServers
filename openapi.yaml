@@ -1,8 +1,8 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.3.2
-  description: 'CajeerServers 0.3.2: Encrypted Credentials CRUD on PostgreSQL, separate Vault master key, workspace-bound AEAD, session/RBAC/CSRF, and secret-free metadata APIs; provider connectors and plaintext API remain unavailable.'
+  version: 0.3.3
+  description: 'CajeerServers 0.3.3: validated SSH, WinRM, Proxmox, VMmanager and SNMP credential profiles with encrypted structured payloads. No secret is exposed by metadata APIs.'
 servers:
 - url: /api/v1
 security: []
@@ -4579,6 +4579,35 @@ paths:
         required: true
         schema:
           type: string
+  /vault/profiles:
+    get:
+      operationId: listVaultCredentialProfiles
+      summary: Получить реально поддерживаемые типы credentials и обязательные поля
+      description: Describes accepted profile field names, never returns values or secrets. Requires authorized server session and vault.credentials.read.
+      security:
+      - sessionAuth: []
+      responses:
+        '200':
+          description: Список поддерживаемых типов credentials и правил полей
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      required: [type, format, required_fields, optional_fields, description]
+                      properties:
+                        type: {type: string}
+                        format: {type: string, enum: [string, object]}
+                        required_fields: {type: array, items: {type: string}}
+                        optional_fields: {type: array, items: {type: string}}
+                        description: {type: string}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
   /vault/credentials:
     get:
       operationId: listVaultCredentials
@@ -4630,8 +4659,8 @@ paths:
                 workspace_id: {type: string, format: uuid}
                 name: {type: string, minLength: 1, maxLength: 255}
                 description: {type: string, maxLength: 1024}
-                type: {type: string, enum: [generic_secret, api_token]}
-                secret: {type: string, minLength: 1, maxLength: 65536, writeOnly: true}
+                type: {type: string, enum: [generic_secret, api_token, proxmox_api, vmmanager_api, ssh_password, ssh_private_key, winrm, snmp_v2c, snmp_v3]}
+                secret: {$ref: '#/components/schemas/VaultSecretInput'}
       responses:
         '201':
           description: Секрет зашифрован и сохранён, возвращены только метаданные
@@ -4762,7 +4791,7 @@ paths:
               additionalProperties: false
               required: [secret]
               properties:
-                secret: {type: string, minLength: 1, maxLength: 65536, writeOnly: true}
+                secret: {$ref: '#/components/schemas/VaultSecretInput'}
       responses:
         '200':
           description: Новый ciphertext сохранён, версия увеличена
@@ -4778,6 +4807,23 @@ paths:
         '503': {$ref: '#/components/responses/ServiceUnavailable'}
 components:
   schemas:
+    VaultSecretInput:
+      description: >-
+        Write-only secret payload. Generic and api_token accept a string for backward
+        compatibility; all other profiles require a strictly allowlisted object.
+        Use GET /vault/profiles for required field names. Server validates the
+        credential type and profile-specific field rules before encrypting.
+      writeOnly: true
+      oneOf:
+      - type: string
+        minLength: 1
+        maxLength: 65536
+      - type: object
+        minProperties: 1
+        maxProperties: 7
+        additionalProperties:
+          type: string
+        description: Structured credential input; unknown fields are rejected by the runtime validator.
     VaultCredential:
       type: object
       additionalProperties: false
@@ -4787,7 +4833,7 @@ components:
         workspace_id: {type: string, format: uuid}
         name: {type: string}
         description: {type: string}
-        type: {type: string, enum: [generic_secret, api_token]}
+        type: {type: string, enum: [generic_secret, api_token, proxmox_api, vmmanager_api, ssh_password, ssh_private_key, winrm, snmp_v2c, snmp_v3]}
         state: {type: string, enum: [active, disabled, archived]}
         version: {type: integer, minimum: 1}
         etag: {type: string}

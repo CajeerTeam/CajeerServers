@@ -110,7 +110,7 @@ SQL;
         $name = CredentialInput::name($input['name']??null);
         $description = CredentialInput::description($input['description']??'');
         $type = CredentialInput::type($input['type']??null);
-        $secret = CredentialInput::secret($input['secret']);
+        $secret = CredentialProfile::encode($type, $input['secret']);
         $this->ensureReady(); // Wrong/uninitialized master key blocks all new writes.
         return $this->db->transaction(function(PDO $pdo) use ($actor,$workspace,$name,$description,$type,$secret,$requestId):array {
             $this->inventory->lockWorkspace($pdo,$workspace);
@@ -142,9 +142,8 @@ SQL);
         return $this->mutate($actor,$id,$version,'metadata',$patch,null,$requestId);
     }
 
-    public function replaceSecret(string $actor,string $id,int $version,string $secret,?string $requestId=null):array
+    public function replaceSecret(string $actor,string $id,int $version,mixed $secret,?string $requestId=null):array
     {
-        $secret = CredentialInput::secret($secret);
         $this->ensureReady();
         return $this->mutate($actor,$id,$version,'secret',[],$secret,$requestId);
     }
@@ -155,7 +154,7 @@ SQL);
     }
 
     /** @param array<string,mixed> $patch */
-    private function mutate(string $actor,string $id,int $version,string $action,array $patch,?string $secret,?string $requestId):array
+    private function mutate(string $actor,string $id,int $version,string $action,array $patch,mixed $secret,?string $requestId):array
     {
         $id = CredentialInput::uuid($id);
         if ($version < 1) throw new HttpException(400,'Invalid credential version.','invalid_precondition');
@@ -182,7 +181,8 @@ SQL);
                 }
             } elseif ($action==='secret') {
                 if ($secret===null) throw new RuntimeException('Missing authorized replacement.');
-                $cipher = $this->crypto->seal($secret,$id,$workspace,(string)$row['type']);
+                $serialized = CredentialProfile::encode((string)$row['type'],$secret);
+                $cipher = $this->crypto->seal($serialized,$id,$workspace,(string)$row['type']);
                 $fields[]="encrypted_payload=decode(:cipher,'hex')";
                 $params['cipher']=bin2hex($cipher);
             } else {
