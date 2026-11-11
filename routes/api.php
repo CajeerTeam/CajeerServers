@@ -273,6 +273,7 @@ return static function (Router $router, ServiceContainer $container): void {
             $transfer->get('/imports/{id}',static fn(HttpRequest $r):HttpResponse=>$controller()->batch($r));
             $transfer->post('/imports/{id}/dispatch',static fn(HttpRequest $r):HttpResponse=>$controller()->dispatch($r));
             $transfer->get('/exports',static fn(HttpRequest $r):HttpResponse=>$controller()->export($r));
+            $transfer->get('/credentials/scopes',static fn(HttpRequest $r):HttpResponse=>$controller()->scopes($r));
             $transfer->post('/credentials/scopes',static fn(HttpRequest $r):HttpResponse=>$controller()->scope($r),[
                 'required'=>['workspace_id','credential_id'],
                 'properties'=>['workspace_id'=>['type'=>'string','format'=>'uuid'],'credential_id'=>['type'=>'string','format'=>'uuid']],
@@ -285,6 +286,41 @@ return static function (Router $router, ServiceContainer $container): void {
                 'additionalProperties'=>false,
             ]);
             $transfer->delete('/assets/{id}/credential-bindings/{bindingId}',static fn(HttpRequest $r):HttpResponse=>$controller()->detach($r));
+        });
+        // 0.3.6: persisted, workspace-isolated connector target configurations and typed Vault bindings.
+        // This is not remote connector execution: no passwords or encrypted bytes are ever returned.
+        $routes->group('/connectors', static function (Router $connectors) use ($container): void {
+            $handler=static fn(): \Cajeer\Servers\Connector\ConnectorBindingController => $container->get(\Cajeer\Servers\Connector\ConnectorBindingController::class);
+            $create=[
+                'required'=>['workspace_id','provider','name','endpoint_host','endpoint_port'],
+                'properties'=>[
+                    'workspace_id'=>['type'=>'string','format'=>'uuid'],
+                    'provider'=>['type'=>'string','enum'=>\Cajeer\Servers\Credentials\BindingPolicy::PROVIDERS],
+                    'name'=>['type'=>'string','minLength'=>1,'maxLength'=>120],
+                    'endpoint_host'=>['type'=>'string','minLength'=>1,'maxLength'=>253],
+                    'endpoint_port'=>['type'=>'integer'],
+                    'asset_id'=>['type'=>'string','format'=>'uuid'],
+                ],'additionalProperties'=>false,
+            ];
+            $connectors->get('/targets',static fn(HttpRequest $r):HttpResponse=>$handler()->index($r));
+            $connectors->post('/targets',static fn(HttpRequest $r):HttpResponse=>$handler()->create($r),$create);
+            $connectors->get('/targets/{id}',static fn(HttpRequest $r):HttpResponse=>$handler()->show($r));
+            $connectors->patch('/targets/{id}',static fn(HttpRequest $r):HttpResponse=>$handler()->update($r),[
+                'properties'=>['name'=>['type'=>'string','maxLength'=>120],
+                    'endpoint_host'=>['type'=>'string','maxLength'=>253],
+                    'endpoint_port'=>['type'=>'integer'],
+                    'state'=>['type'=>'string','enum'=>['active','disabled']],
+                    'asset_id'=>[]], 'additionalProperties'=>false,
+            ]);
+            $connectors->delete('/targets/{id}',static fn(HttpRequest $r):HttpResponse=>$handler()->delete($r));
+            $connectors->get('/targets/{id}/credential-bindings',static fn(HttpRequest $r):HttpResponse=>$handler()->bindings($r));
+            $connectors->post('/targets/{id}/credential-bindings',static fn(HttpRequest $r):HttpResponse=>$handler()->bind($r),[
+                'required'=>['credential_id','purpose'],
+                'properties'=>['credential_id'=>['type'=>'string','format'=>'uuid'],
+                    'purpose'=>['type'=>'string','enum'=>['api','ssh','winrm','snmp','custom']]],
+                'additionalProperties'=>false,
+            ]);
+            $connectors->delete('/targets/{id}/credential-bindings/{bindingId}',static fn(HttpRequest $r):HttpResponse=>$handler()->unbind($r));
         });
         // Inventory topology and typed asset relationships. PostgreSQL owns integrity and cycle detection.
         $routes->group('/inventory', static function (Router $graph) use ($container): void {

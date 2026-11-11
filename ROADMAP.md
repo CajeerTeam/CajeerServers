@@ -500,3 +500,14 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 - [x] Atomic rewrap DEK для master key (только offline), транзакционный verifier и защита от устаревших процессов на уровне SQL-триггеров.
 - [x] Реальные CLI и REST операции; native smoke и изолированный PostgreSQL-тест.
 - [ ] PostgreSQL 17/18 integration и аварийный restore-test на целевом окружении до production deployment.
+
+### 0.3.6 — Workspace / Inventory / Connector Bindings (implemented)
+
+- [x] Transactional connector target CRUD in PostgreSQL with workspace isolation, optimistic ETag and audit.
+- [x] Typed connector-to-Vault credential binding/lookup, never returning secret bytes.
+- [x] Inventory binding purpose validation and DB-level guards for active CJV1 credentials.
+- [x] Secure Nuxt connector configuration UI and OpenAPI 3.1.1.
+- [x] Native smoke suite and isolated PostgreSQL/Playwright test sources.
+- [ ] Production validation on real PostgreSQL 17/18, PHP 8.4/8.5, Nuxt build and browser E2E.
+
+**Next: 0.3.7 — Secret Audit, Redaction & Monitoring.**

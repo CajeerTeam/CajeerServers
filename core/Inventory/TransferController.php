@@ -74,6 +74,11 @@ final class TransferController
             'Cache-Control'=>'no-store, private','X-Content-Type-Options'=>'nosniff',
         ]);
     }
+    public function scopes(HttpRequest $r):HttpResponse
+    {
+        $actor=$this->actor($r,'inventory.credentials.read');
+        return HttpResponse::json(['data'=>$this->credentials->listScopes($actor,self::workspace($r))],200,['Cache-Control'=>'private, no-store']);
+    }
     public function scope(HttpRequest $r):HttpResponse
     {
         $actor=$this->actor($r,'inventory.credentials.scope',true);

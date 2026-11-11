@@ -174,6 +174,9 @@ SQL);
                 $bindings->execute(['id'=>$id]);
                 if ((int)$bindings->fetchColumn() > 0)
                     throw new HttpException(409,'Detach credential from inventory assets before archiving.','conflict');
+                $connectors=$pdo->prepare('SELECT 1 FROM connector_credential_bindings WHERE credential_id=CAST(:id AS uuid) LIMIT 1');
+                $connectors->execute(['id'=>$id]);
+                if ($connectors->fetchColumn()) throw new HttpException(409,'Detach credential from connector targets before archiving.','conflict');
             }
             $fields=['version=version+1','updated_at=clock_timestamp()','updated_by=CAST(:actor AS uuid)'];
             $params=['actor'=>$actor,'id'=>$id,'version'=>$version];

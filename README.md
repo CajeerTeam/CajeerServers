@@ -412,3 +412,7 @@ owner/manager для изменений и CSRF. **Plaintext не возвращ
 Стадии замены секрета: `POST /api/v1/vault/credentials/{id}/rotation` → оператор проверяет новую учётную запись **вне CajeerServers** → `POST .../rotation/{revision}/activate` с `{"confirmed":true}`. Неиспользованную версию можно отменить. История возвращает только состояние и даты, без ciphertext.
 
 Офлайн-ротация ключа: `php bin/cajeer vault:key:rotate --next-key-file=/private/new.key --confirm-offline`; затем переключить `VAULT_MASTER_KEY_FILE` на новый файл и перезапустить workers. **Не запускать при работающих PHP/queue workers.** Подробности в `docs/Vault-Versioning-Rotation-0.3.5.md`.
+
+### Vault 0.3.6 — Workspace / Inventory / Connector Bindings
+
+`core/Connector/ConnectorBindingService.php` выполняет PostgreSQL CRUD конфигураций подключений (workspace, provider, DNS/IP, порт, состояние, optional Inventory asset), `bind/unbind` и безопасное получение metadata-ссылок на credentials. В отличие от будущих Connector SDK эти операции **не делают сетевые подключения**. `CredentialBindingService` проверяет допустимость purpose для типа Vault credential; SQL-триггеры в `0021_vault_connector_bindings.sql` запрещают cross-workspace и несовместимые/неактивные привязки. Отзыв или ротация credential не раскрывает секрет и не пересоздаёт binding; архивирование требует предварительно удалить все привязки. API защищены session/RBAC/CSRF и ETag; Nuxt `/connectors` работает с реальным API. Полные инструкции: `docs/Vault-Workspace-Inventory-Connector-Bindings-0.3.6.md`.

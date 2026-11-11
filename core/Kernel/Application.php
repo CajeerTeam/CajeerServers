@@ -55,6 +55,8 @@ use Cajeer\Servers\Inventory\HistoryController;
 use Cajeer\Servers\Inventory\TransferService;
 use Cajeer\Servers\Inventory\TransferController;
 use Cajeer\Servers\Inventory\CredentialBindingService;
+use Cajeer\Servers\Connector\ConnectorBindingService;
+use Cajeer\Servers\Connector\ConnectorBindingController;
 use Cajeer\Servers\Workspace\WorkspaceService;
 use Cajeer\Servers\Workspace\WorkspaceController;
 use Cajeer\Servers\Logging\JsonLogger;
@@ -281,6 +283,10 @@ final class Application
             $c->get(QueueDriverInterface::class),$c->get(AuditLogger::class),$c->get(Rbac::class)));
         $this->services->singleton(CredentialBindingService::class, fn (ServiceContainer $c): CredentialBindingService => new CredentialBindingService(
             $c->get(DatabaseManager::class),$c->get(InventoryRepository::class),$c->get(AuditLogger::class)));
+        $this->services->singleton(ConnectorBindingService::class, fn (ServiceContainer $c): ConnectorBindingService => new ConnectorBindingService(
+            $c->get(DatabaseManager::class),$c->get(InventoryRepository::class),$c->get(AuditLogger::class)));
+        $this->services->singleton(ConnectorBindingController::class, fn (ServiceContainer $c): ConnectorBindingController => new ConnectorBindingController(
+            $c->get(AuthenticationService::class),$c->get(Rbac::class),$c->get(ConnectorBindingService::class)));
         $this->services->singleton(TransferController::class, fn (ServiceContainer $c): TransferController => new TransferController(
             $c->get(AuthenticationService::class),$c->get(Rbac::class),$c->get(TransferService::class),$c->get(CredentialBindingService::class)));
         $this->services->singleton(WorkspaceService::class, fn (ServiceContainer $c): WorkspaceService => new WorkspaceService(

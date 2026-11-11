@@ -3,6 +3,7 @@ declare(strict_types=1);
 namespace Cajeer\Servers\Inventory;
 
 use Cajeer\Servers\Audit\AuditLogger;
+use Cajeer\Servers\Credentials\BindingPolicy;
 use Cajeer\Servers\Database\DatabaseManager;
 use Cajeer\Servers\Http\Exception\HttpException;
 use PDO;
@@ -20,9 +21,7 @@ final class CredentialBindingService
 
     private static function purpose(mixed $purpose):string
     {
-        if(!is_string($purpose)||preg_match('/^[a-z][a-z0-9_.-]{0,63}$/D',$purpose)!==1)
-            throw new HttpException(422,'Invalid binding purpose.','validation_failed');
-        return $purpose;
+        return BindingPolicy::purpose($purpose);
     }
 
     /** Privileged opt-in enrollment of a *legacy* credential into one workspace; no secret access. */
@@ -57,11 +56,12 @@ final class CredentialBindingService
             if($row===null)throw new HttpException(404,'Asset not found.','not_found');
             $workspace=$row['workspace_id'];$this->repo->lockWorkspace($pdo,$workspace);
             $this->repo->workspaceRole($pdo,$workspace,$actor,true);
-            $check=$pdo->prepare('SELECT 1 FROM inventory_credential_scopes s JOIN credentials c ON c.id=s.credential_id
+            $check=$pdo->prepare('SELECT c.type FROM inventory_credential_scopes s JOIN credentials c ON c.id=s.credential_id
                 WHERE s.workspace_id=:ws AND s.credential_id=:credential AND c.workspace_id=s.workspace_id
-                  AND c.vault_format=\'cjev1\' AND c.state=\'active\' AND c.deleted_at IS NULL');
+                  AND c.vault_format=\'cjev1\' AND c.state=\'active\' AND c.deleted_at IS NULL FOR SHARE OF c');
             $check->execute(['ws'=>$workspace,'credential'=>$credential]);
-            if(!$check->fetchColumn())throw new HttpException(403,'Credential is not scoped to this workspace.','permission_denied');
+            if(!is_string($type=$check->fetchColumn()) || !BindingPolicy::allows($type,$purpose))
+                throw new HttpException(403,'Credential is not permitted for this purpose.','permission_denied');
             $statement=$pdo->prepare(<<<'SQL'
 INSERT INTO inventory_asset_credential_bindings(workspace_id,asset_id,credential_id,purpose,created_by)
 VALUES(CAST(:ws AS uuid),CAST(:asset AS uuid),CAST(:cred AS uuid),:purpose,CAST(:actor AS uuid))
@@ -95,10 +95,24 @@ SQL);
             if($row===null)throw new HttpException(404,'Asset not found.','not_found');
             $workspace=$row['workspace_id'];$this->repo->lockWorkspace($pdo,$workspace);
             $this->repo->workspaceRole($pdo,$workspace,$actor,true);
-            $q=$pdo->prepare('DELETE FROM inventory_asset_credential_bindings WHERE id=:id AND asset_id=:asset AND workspace_id=:ws');
+            $q=$pdo->prepare('DELETE FROM inventory_asset_credential_bindings WHERE id=:id AND asset_id=:asset AND workspace_id=:ws RETURNING credential_id::text,purpose');
             $q->execute(['id'=>$bindingId,'asset'=>$assetId,'ws'=>$workspace]);
-            if($q->rowCount()!==1)throw new HttpException(404,'Binding not found.','not_found');
+            $removed=$q->fetch(PDO::FETCH_ASSOC);
+            if(!is_array($removed))throw new HttpException(404,'Binding not found.','not_found');
+            $grants=$pdo->prepare('DELETE FROM vault_use_grants WHERE asset_id=CAST(:asset AS uuid) AND credential_id=CAST(:cred AS uuid) AND purpose=:purpose');
+            $grants->execute(['asset'=>$assetId,'cred'=>$removed['credential_id'],'purpose'=>$removed['purpose']]);
             $this->audit->record($pdo,$actor,'inventory.credential.unbound','success','inventory_asset',$assetId,[], $requestId);
         });
     }
+
+    /** Workspace-safe list; read-only metadata, no encrypted or decrypted payload. */
+    public function listScopes(string $actor,string $workspace):array
+    {
+        $workspace=self::uuid($workspace);$pdo=$this->db->connection();
+        $this->repo->workspaceRole($pdo,$workspace,$actor);
+        $query=$pdo->prepare('SELECT s.credential_id::text,s.workspace_id::text,c.type,c.state,c.name FROM inventory_credential_scopes s JOIN credentials c ON c.id=s.credential_id AND c.workspace_id=s.workspace_id WHERE s.workspace_id=CAST(:ws AS uuid) AND c.vault_format=\'cjev1\' AND c.deleted_at IS NULL ORDER BY c.name,c.id LIMIT 100');
+        $query->execute(['ws'=>$workspace]);
+        return $query->fetchAll(PDO::FETCH_ASSOC);
+    }
+
 }

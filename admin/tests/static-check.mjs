@@ -55,4 +55,8 @@ ok(read('layouts/default.vue').includes('inventoryContextUrl'), 'sidebar preserv
 ok(existsSync(new URL('tests/e2e/inventory-journey.spec.ts',root)), 'real cross-module E2E staging scenario')
 ok(existsSync(new URL('tests/e2e/import-idempotency.spec.ts',root)), 'import lost-response E2E staging scenario')
 ok(read('pages/index.vue').includes('/admin/cmdb-integrity'), 'CMDB integrity dashboard consumes authenticated API')
+ok(read('pages/connectors.vue').includes('/connectors/targets') && read('pages/connectors.vue').includes('credential-bindings'), 'real connector target and Vault binding UI')
+ok(existsSync(new URL('tests/e2e/connector-bindings.spec.ts',root)), 'real connector bindings E2E staging scenario')
+ok(read('layouts/default.vue').includes('/connectors') && read('composables/inventoryNavigation.ts').includes('connectors'), 'connector navigation retains workspace')
+ok(read('pages/connectors.vue').includes('If-Match') && read('pages/connectors.vue').includes('canBind'), 'connector mutation requires ETag and permissions')
 console.log(`Admin static checks: ${passed} PASS`)

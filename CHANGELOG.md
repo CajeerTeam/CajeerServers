@@ -1,3 +1,12 @@
+## [0.3.6] — 2026-11-11 — Workspace / Inventory / Connector Bindings
+
+- Реальные PostgreSQL CRUD для workspace-scoped connector target configurations, статус, host/port, asset link, optimistic ETag, аудит.
+- Реальные credential bindings для коннекторов: типизированные provider/purpose, FK, привязка к существующему активному Vault credential и запрет cross-workspace.
+- Усилены старые Inventory bindings: типизированное назначение credential, PostgreSQL guard и отзыв одноразовых разрешений при отсоединении.
+- Vault архивирование блокируется при любых живых Inventory или Connector references; ротация сохраняет UUID и связи.
+- Добавлены session-only RBAC/CSRF API, Nuxt `/connectors`, OpenAPI 3.1.1, native smoke, isolated PostgreSQL integration, Playwright staging E2E.
+- Connector remote execution и внешний secret consumption не объявляются реализованными; PostgreSQL/браузерный интеграционный прогон в среде сборки не подтверждён.
+
 ## [0.3.5] — 2026-11-11 — Credential Versioning & Rotation
 
 - PostgreSQL-backed encrypted secret-version history (active/pending/retired/discarded), immutable credential identity and transactionally safe activation.

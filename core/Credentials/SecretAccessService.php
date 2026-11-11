@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Cajeer\Servers\Credentials;
 
 use Cajeer\Servers\Audit\AuditLogger;
+use Cajeer\Servers\Credentials\BindingPolicy;
 use Cajeer\Servers\Database\DatabaseManager;
 use Cajeer\Servers\Http\Exception\HttpException;
 use Cajeer\Servers\Inventory\InventoryRepository;
@@ -45,14 +46,7 @@ final class SecretAccessService
     /** Accepted purposes are deliberately narrower than arbitrary binding labels. */
     public static function allowsPurpose(string $type, string $purpose): bool
     {
-        return in_array($purpose, match ($type) {
-            'api_token', 'proxmox_api', 'vmmanager_api' => ['api'],
-            'ssh_password', 'ssh_private_key' => ['ssh'],
-            'winrm' => ['winrm'],
-            'snmp_v2c', 'snmp_v3' => ['snmp'],
-            'generic_secret' => ['custom'],
-            default => [],
-        }, true);
+        return BindingPolicy::allows($type,$purpose);
     }
 
     /** @param array<string,mixed> $principal */

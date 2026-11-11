@@ -15,7 +15,7 @@ $check = static function (bool $condition, string $label) use (&$count): void {
 };
 $report = (new ReleaseVerifier($root))->verify();
 $check($report['ok'], 'metadata and source match release version');
-$check($report['version'] === '0.3.5', 'current version');
+$check($report['version'] === '0.3.6', 'current version');
 $check(count($report['checks']) >= 10, 'independent release checks');
 $strict = (new ReleaseVerifier($root))->verify(true);
 $check(count($strict['checks']) > count($report['checks']), 'deployment checks add installation and build verification');

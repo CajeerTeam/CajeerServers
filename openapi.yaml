@@ -1,8 +1,8 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.3.5
-  description: 'CajeerServers 0.3.5: encrypted credential versions, explicit staged activation and offline master-key rewrapping. HTTP never returns plaintext.'
+  version: 0.3.6
+  description: 'CajeerServers 0.3.6: persistent connector configurations and typed, workspace-isolated Vault bindings. Secrets are not returned by these APIs.'
 servers:
 - url: /api/v1
 security: []
@@ -4428,6 +4428,22 @@ paths:
           - csv
           - json
   /inventory/credentials/scopes:
+    get:
+      operationId: listWorkspaceCredentialScopes
+      summary: List workspace-scoped Vault credential references and safe metadata
+      description: Requires session, inventory.credentials.read and workspace membership. No secret material.
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: workspace_id
+        in: query
+        required: true
+        schema: {type: string, format: uuid}
+      responses:
+        '200': {description: List of safe credential references}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {description: Workspace unavailable}
     post:
       operationId: scopeCredential
       summary: Explicitly scope existing credential to workspace (owner, privileged)
@@ -4984,6 +5000,409 @@ paths:
         '422': {$ref: '#/components/responses/UnprocessableEntity'}
         '429': {description: Too many step-up attempts}
         '503': {$ref: '#/components/responses/ServiceUnavailable'}
+/connectors/targets:
+  get:
+    operationId: listConnectorTargets
+    summary: List persisted connector target configurations
+    description: Session authentication, server-side RBAC and workspace membership are enforced; mutation requires CSRF. No plaintext
+      or ciphertext is returned.
+    security:
+    - sessionAuth: []
+    parameters:
+    - name: workspace_id
+      in: query
+      required: true
+      schema:
+        type: string
+        format: uuid
+    - name: limit
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+    - name: offset
+      in: query
+      schema:
+        type: integer
+        minimum: 0
+        maximum: 10000
+    responses:
+      '200':
+        description: Authorized safe metadata; no secret bytes
+      '401':
+        $ref: '#/components/responses/Unauthorized'
+      '403':
+        $ref: '#/components/responses/Forbidden'
+      '404':
+        description: Target or workspace unavailable
+      '422':
+        $ref: '#/components/responses/UnprocessableEntity'
+      '503':
+        $ref: '#/components/responses/ServiceUnavailable'
+  post:
+    operationId: createConnectorTarget
+    summary: Persist connector configuration without contacting remote host
+    description: Session authentication, server-side RBAC and workspace membership are enforced; mutation requires CSRF. No plaintext
+      or ciphertext is returned.
+    security:
+    - sessionAuth: []
+    parameters:
+    - name: X-CSRF-Token
+      in: header
+      required: true
+      schema:
+        type: string
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+            - workspace_id
+            - provider
+            - name
+            - endpoint_host
+            - endpoint_port
+            additionalProperties: false
+            properties:
+              workspace_id:
+                type: string
+                format: uuid
+              provider:
+                type: string
+                enum:
+                - proxmox
+                - vmmanager
+                - ssh
+                - winrm
+                - snmp
+                - custom
+              name:
+                type: string
+                minLength: 1
+                maxLength: 120
+              endpoint_host:
+                type: string
+                minLength: 1
+                maxLength: 253
+                description: Hostname or IPv4/IPv6 only, no scheme, userinfo or URL path
+              endpoint_port:
+                type: integer
+                minimum: 1
+                maximum: 65535
+              asset_id:
+                type:
+                - string
+                - 'null'
+                format: uuid
+    responses:
+      '201':
+        description: Resource persisted in PostgreSQL
+      '401':
+        $ref: '#/components/responses/Unauthorized'
+      '403':
+        $ref: '#/components/responses/Forbidden'
+      '404':
+        description: Target or workspace unavailable
+      '409':
+        description: Conflict, invalid credential purpose or linked bindings
+      '422':
+        $ref: '#/components/responses/UnprocessableEntity'
+      '503':
+        $ref: '#/components/responses/ServiceUnavailable'
+/connectors/targets/{id}:
+  get:
+    operationId: getConnectorTarget
+    summary: Read configuration and ETag without secrets
+    description: Session authentication, server-side RBAC and workspace membership are enforced; mutation requires CSRF. No plaintext
+      or ciphertext is returned.
+    security:
+    - sessionAuth: []
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    responses:
+      '200':
+        description: Authorized safe metadata; no secret bytes
+      '401':
+        $ref: '#/components/responses/Unauthorized'
+      '403':
+        $ref: '#/components/responses/Forbidden'
+      '404':
+        description: Target or workspace unavailable
+      '422':
+        $ref: '#/components/responses/UnprocessableEntity'
+      '503':
+        $ref: '#/components/responses/ServiceUnavailable'
+  patch:
+    operationId: updateConnectorTarget
+    summary: Update connector metadata/status using ETag
+    description: Session authentication, server-side RBAC and workspace membership are enforced; mutation requires CSRF. No plaintext
+      or ciphertext is returned.
+    security:
+    - sessionAuth: []
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    - name: X-CSRF-Token
+      in: header
+      required: true
+      schema:
+        type: string
+    - name: If-Match
+      in: header
+      required: true
+      schema:
+        type: string
+        example: '"11111111-1111-4111-8111-111111111111:1"'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            minProperties: 1
+            additionalProperties: false
+            properties:
+              name:
+                type: string
+                minLength: 1
+                maxLength: 120
+              endpoint_host:
+                type: string
+                minLength: 1
+                maxLength: 253
+                description: Hostname or IPv4/IPv6 only, no scheme, userinfo or URL path
+              endpoint_port:
+                type: integer
+                minimum: 1
+                maximum: 65535
+              asset_id:
+                type:
+                - string
+                - 'null'
+                format: uuid
+              state:
+                type: string
+                enum:
+                - active
+                - disabled
+    responses:
+      '200':
+        description: Authorized safe metadata; no secret bytes
+      '400':
+        description: Invalid If-Match header
+      '401':
+        $ref: '#/components/responses/Unauthorized'
+      '403':
+        $ref: '#/components/responses/Forbidden'
+      '404':
+        description: Target or workspace unavailable
+      '409':
+        description: Conflict, invalid credential purpose or linked bindings
+      '412':
+        description: Stale resource version
+      '422':
+        $ref: '#/components/responses/UnprocessableEntity'
+      '428':
+        description: If-Match required
+      '503':
+        $ref: '#/components/responses/ServiceUnavailable'
+  delete:
+    operationId: deleteConnectorTarget
+    summary: Delete target after detaching Vault bindings
+    description: Session authentication, server-side RBAC and workspace membership are enforced; mutation requires CSRF. No plaintext
+      or ciphertext is returned.
+    security:
+    - sessionAuth: []
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    - name: X-CSRF-Token
+      in: header
+      required: true
+      schema:
+        type: string
+    - name: If-Match
+      in: header
+      required: true
+      schema:
+        type: string
+        example: '"11111111-1111-4111-8111-111111111111:1"'
+    responses:
+      '204':
+        description: Binding or target removed
+      '400':
+        description: Invalid If-Match header
+      '401':
+        $ref: '#/components/responses/Unauthorized'
+      '403':
+        $ref: '#/components/responses/Forbidden'
+      '404':
+        description: Target or workspace unavailable
+      '409':
+        description: Conflict, invalid credential purpose or linked bindings
+      '412':
+        description: Stale resource version
+      '428':
+        description: If-Match required
+      '503':
+        $ref: '#/components/responses/ServiceUnavailable'
+/connectors/targets/{id}/credential-bindings:
+  get:
+    operationId: listConnectorCredentialBindings
+    summary: List binding IDs and credential type/state only
+    description: Session authentication, server-side RBAC and workspace membership are enforced; mutation requires CSRF. No plaintext
+      or ciphertext is returned.
+    security:
+    - sessionAuth: []
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    responses:
+      '200':
+        description: Authorized safe metadata; no secret bytes
+      '401':
+        $ref: '#/components/responses/Unauthorized'
+      '403':
+        $ref: '#/components/responses/Forbidden'
+      '404':
+        description: Target or workspace unavailable
+      '422':
+        $ref: '#/components/responses/UnprocessableEntity'
+      '503':
+        $ref: '#/components/responses/ServiceUnavailable'
+  post:
+    operationId: bindConnectorCredential
+    summary: Attach active same-workspace credential with compatible provider/purpose
+    description: Session authentication, server-side RBAC and workspace membership are enforced; mutation requires CSRF. No plaintext
+      or ciphertext is returned.
+    security:
+    - sessionAuth: []
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    - name: X-CSRF-Token
+      in: header
+      required: true
+      schema:
+        type: string
+    - name: If-Match
+      in: header
+      required: true
+      schema:
+        type: string
+        example: '"11111111-1111-4111-8111-111111111111:1"'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+            - credential_id
+            - purpose
+            additionalProperties: false
+            properties:
+              credential_id:
+                type: string
+                format: uuid
+              purpose:
+                type: string
+                enum:
+                - api
+                - ssh
+                - winrm
+                - snmp
+                - custom
+    responses:
+      '201':
+        description: Resource persisted in PostgreSQL
+      '401':
+        $ref: '#/components/responses/Unauthorized'
+      '403':
+        $ref: '#/components/responses/Forbidden'
+      '404':
+        description: Target or workspace unavailable
+      '409':
+        description: Conflict, invalid credential purpose or linked bindings
+      '422':
+        $ref: '#/components/responses/UnprocessableEntity'
+      '503':
+        $ref: '#/components/responses/ServiceUnavailable'
+/connectors/targets/{id}/credential-bindings/{bindingId}:
+  delete:
+    operationId: unbindConnectorCredential
+    summary: Detach binding and bump target version
+    description: Session authentication, server-side RBAC and workspace membership are enforced; mutation requires CSRF. No plaintext
+      or ciphertext is returned.
+    security:
+    - sessionAuth: []
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    - name: bindingId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    - name: X-CSRF-Token
+      in: header
+      required: true
+      schema:
+        type: string
+    - name: If-Match
+      in: header
+      required: true
+      schema:
+        type: string
+        example: '"11111111-1111-4111-8111-111111111111:1"'
+    responses:
+      '204':
+        description: Binding or target removed
+      '400':
+        description: Invalid If-Match header
+      '401':
+        $ref: '#/components/responses/Unauthorized'
+      '403':
+        $ref: '#/components/responses/Forbidden'
+      '404':
+        description: Target or workspace unavailable
+      '409':
+        description: Conflict, invalid credential purpose or linked bindings
+      '412':
+        description: Stale resource version
+      '428':
+        description: If-Match required
+      '503':
+        $ref: '#/components/responses/ServiceUnavailable'
 components:
   schemas:
     VaultSecretInput:
