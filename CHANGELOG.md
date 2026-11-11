@@ -1,3 +1,11 @@
+## [0.3.9] — 2026-11-11 — Credentials Vault Admin UI & E2E
+
+- Реальная Nuxt страница `/vault`: workspace-specific safe metadata list с пагинацией; создание девяти типов credentials из backend профилей; изменение метаданных и active/disabled состояния, немедленная write-only замена секретов, двухфазная stage/activate/cancel ротация и архивирование. Ни существующий ciphertext, ни plaintext не выводятся в интерфейс.
+- Все операции используют PHP session + CSRF, workspace owner/manager и отдельные RBAC permission checks на сервере; `If-Match` из реального ETag, отказ от silent retry при конфликте 412, обновление метаданных после успешной мутации.
+- Новые вводимые secrets очищаются из volatile Vue state после попыток отправки/смены профиля, операции, workspace и страницы. На немедленную замену и активацию требуется явное подтверждение; встроенного reveal/plaintext endpoint нет.
+- Реальный Playwright staging E2E: UI CRUD, typed profile, 412 conflict, disable/enable, rotation/cancel/activation/replacement, archive, отсутствие секрета в metadata REST, workspace isolation, отрицательный viewer-тест. Тесты используют disposable staging и не содержат моков API, выключены запись trace/video/screenshots.
+- Интеграция навигации с `/connectors` и `/transfer`, версия Nuxt/API/CLI, release/static/native checks и документация. **В этом окружении Nuxt build и реальный Playwright/PostgreSQL E2E не запускались.** Отсутствующие lock-файлы не имитируются.
+
 ## [0.3.8] — 2026-11-11 — Encrypted Backup & Disaster Recovery (CLI execution)
 
 - Операторские `backup:key:generate`, `backup:create`, `backup:verify`, `backup:restore` и реальные legacy CLI wrappers вместо `placeholder`.

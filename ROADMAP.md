@@ -530,3 +530,12 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 - [x] Negative native crypto tests, real PostgreSQL integration test source and CLI help/documentation.
 - [ ] PITR/WAL, S3 object backups, multi-node orchestrated recovery, HA failover and retention scheduler (future releases).
 - [ ] Confirm real PostgreSQL integration/restore drill in dedicated infrastructure before production promotion.
+
+### 0.3.9 — Credentials Vault Admin UI & E2E (реализован рабочий UI код)
+
+- [x] Nuxt `/vault`: реальные сессионные API-операции над PostgreSQL credentials, девять профилей, workspace/roles, безопасная пагинация.
+- [x] CRUD метаданных, disable/enable, write-only replace, stage/activate/cancel rotation и архивирование с server ETag + CSRF.
+- [x] Контроль 412 без автоповтора, очистка transient secret values, связи с Inventory и Connector bindings, отсутствие plaintext retrieval.
+- [x] Playwright browser-to-API-to-PostgreSQL staging test sources с созданием и удалением синтетических secrets; негативные viewer/RBAC проверки при наличии отдельного viewer аккаунта.
+- [x] Native UI contract, static checks, release metadata и инструкция.
+- [ ] Nuxt npm ci/typecheck/build, browser E2E и PostgreSQL integration на отдельном staging с настоящим Vault key; строгий release gate без настоящих composer/npm locks не пройден.

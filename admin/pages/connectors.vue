@@ -100,6 +100,7 @@ onMounted(init)
 <template>
   <div>
     <h1>Конфигурации подключений и Vault</h1>
+    <p v-if="auth.can('vault.credentials.read')"><NuxtLink :to="inventoryContextUrl('vault',workspace)">Управление credentials в Vault</NuxtLink></p>
     <p class="page-subtitle">Рабочая интеграция Proxmox VE: проверка API и загрузка узлов, VM и контейнеров в Inventory. Другие провайдеры пока поддерживают только конфигурацию привязок.</p>
     <div v-if="error" class="alert" role="alert">{{error}}</div>
     <div v-if="message" class="alert success" role="status">{{message}}</div>

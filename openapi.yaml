@@ -1,8 +1,8 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.3.8
-  description: 'CajeerServers 0.3.8: encrypted offline PostgreSQL disaster recovery via dedicated CLI, plus existing Workspace/Inventory/Proxmox REST APIs.'
+  version: 0.3.9
+  description: 'CajeerServers 0.3.9: Credentials Vault Admin UI and real browser E2E; existing secured Vault REST APIs, Encrypted Backup, and Inventory/Proxmox APIs.'
 servers:
 - url: /api/v1
 security: []

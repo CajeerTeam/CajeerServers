@@ -21,7 +21,7 @@ test('invalid asset discarded',inventoryContextUrl('catalog',a,'../users'),`/cat
 test('asset URL with workspace',inventoryAssetUrl(b,a),`/inventory/${b}?workspace_id=${a}`)
 test('asset URL without workspace',inventoryAssetUrl(b),`/inventory/${b}`)
 test('invalid asset falls back to list',inventoryAssetUrl(wrong,a),`/inventory?workspace_id=${a}`)
-for(const section of ['inventory','ipam','topology','catalog','history','transfer','workspaces']) {
+for(const section of ['inventory','ipam','topology','catalog','history','transfer','workspaces','vault']) {
   test(`${section} section URL`,inventoryContextUrl(section,a),`/${section}?workspace_id=${a}`)
 }
 console.log(`Inventory navigation contract: ${checks} PASS`)

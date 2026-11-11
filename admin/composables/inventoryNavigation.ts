@@ -1,8 +1,8 @@
 /** Workspace context is carried in URLs, never in localStorage or browser secrets. */
-export type InventorySection = 'inventory' | 'ipam' | 'topology' | 'catalog' | 'history' | 'transfer' | 'workspaces' | 'connectors'
+export type InventorySection = 'inventory' | 'ipam' | 'topology' | 'catalog' | 'history' | 'transfer' | 'workspaces' | 'connectors' | 'vault'
 const sections: Record<InventorySection, string> = {
   inventory: '/inventory', ipam: '/ipam', topology: '/topology', catalog: '/catalog',
-  history: '/history', transfer: '/transfer', workspaces: '/workspaces', connectors: '/connectors',
+  history: '/history', transfer: '/transfer', workspaces: '/workspaces', connectors: '/connectors', vault: '/vault',
 }
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 export function inventoryContextUrl(section: InventorySection, workspaceId?: string, assetId?: string): string {

@@ -119,6 +119,7 @@ onMounted(initialize)
 <template>
   <div>
     <h1>Импорт, экспорт и привязки credentials</h1>
+    <p v-if="auth.can('vault.credentials.read')"><NuxtLink :to="inventoryContextUrl('vault',workspace)">Создание и ротация credentials в Vault</NuxtLink></p>
     <p class="page-subtitle">CSV/JSON: предварительная проверка, очередь и идемпотентная сверка. Секреты не передаются в UI.</p>
     <div v-if="error" class="alert" role="alert">{{error}}</div>
     <div v-if="notice" class="alert success" role="status">{{notice}}</div>

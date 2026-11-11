@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { inventoryContextUrl, queryUuid, type InventorySection } from '~/composables/inventoryNavigation'
 const route = useRoute()
-const sections: InventorySection[] = ['inventory','catalog','history','transfer','ipam','topology','workspaces','connectors']
+const sections: InventorySection[] = ['inventory','catalog','history','transfer','ipam','topology','workspaces','connectors','vault']
 const auth = useAuth()
 const links = computed(() => [
   { to: '/', label: 'Обзор', permission: 'admin.dashboard.read' },
@@ -13,6 +13,7 @@ const links = computed(() => [
   { to: '/ipam', label: 'Сети и IPAM', permission: 'inventory.network.read' },
   { to: '/topology', label: 'Связи и топология', permission: 'inventory.relationships.read' },
   { to: '/connectors', label: 'Конфигурации подключений', permission: 'connectors.targets.read' },
+  { to: '/vault', label: 'Хранилище учётных данных', permission: 'vault.credentials.read' },
   { to: '/tasks', label: 'Очередь и задачи', permission: 'admin.jobs.read' },
   { to: '/scheduler', label: 'Планировщик', permission: 'admin.scheduler.read' },
   { to: '/users', label: 'Пользователи', permission: 'security.users.read' },

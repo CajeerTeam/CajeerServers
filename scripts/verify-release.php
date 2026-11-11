@@ -53,6 +53,7 @@ foreach (['runtime', 'http', 'database', 'installer', 'auth', 'security', 'infra
 }
 $run('Admin frontend static', ['node', 'tests/static-check.mjs'], $root . '/admin');
 $run('Inventory navigation contract', ['node', '--experimental-strip-types', 'tests/navigation-contract.mjs'], $root . '/admin');
+$run('Vault Admin UI contract', ['node', '--experimental-strip-types', 'tests/vault-ui-contract.mjs'], $root . '/admin');
 
 if ($strict) {
     $run('Production release gate', [PHP_BINARY, 'bin/cajeer', 'release:check', '--strict'], $root);
