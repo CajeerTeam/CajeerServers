@@ -98,6 +98,34 @@ return static function (Router $router, ServiceContainer $container): void {
             $security->delete('/webhooks/{id}', static fn (HttpRequest $r): HttpResponse => $handler()->revokeWebhook($r));
             $security->get('/webhooks/events', static fn (HttpRequest $r): HttpResponse => $handler()->webhookEvents($r));
         });
+        $routes->group('/vault', static function (Router $vault) use ($container): void {
+            $handler=static fn (): \Cajeer\Servers\Credentials\CredentialController => $container->get(\Cajeer\Servers\Credentials\CredentialController::class);
+            $vault->get('/credentials',static fn (HttpRequest $r): HttpResponse => $handler()->index($r));
+            $vault->post('/credentials',static fn (HttpRequest $r): HttpResponse => $handler()->create($r),[
+                'required'=>['workspace_id','name','type','secret'],
+                'properties'=>[
+                    'workspace_id'=>['type'=>'string','format'=>'uuid'],
+                    'name'=>['type'=>'string','minLength'=>1,'maxLength'=>255],
+                    'description'=>['type'=>'string','maxLength'=>1024],
+                    'type'=>['type'=>'string','enum'=>['generic_secret','api_token']],
+                    'secret'=>['type'=>'string','minLength'=>1,'maxLength'=>65536],
+                ],'additionalProperties'=>false,
+            ]);
+            $vault->get('/credentials/{id}',static fn (HttpRequest $r): HttpResponse => $handler()->show($r));
+            $vault->patch('/credentials/{id}',static fn (HttpRequest $r): HttpResponse => $handler()->update($r),[
+                'properties'=>[
+                    'name'=>['type'=>'string','minLength'=>1,'maxLength'=>255],
+                    'description'=>['type'=>'string','maxLength'=>1024],
+                    'status'=>['type'=>'string','enum'=>['active','disabled']],
+                ],'additionalProperties'=>false,
+            ]);
+            $vault->put('/credentials/{id}/secret',static fn (HttpRequest $r): HttpResponse => $handler()->replaceSecret($r),[
+                'required'=>['secret'],
+                'properties'=>['secret'=>['type'=>'string','minLength'=>1,'maxLength'=>65536]],
+                'additionalProperties'=>false,
+            ]);
+            $vault->delete('/credentials/{id}',static fn (HttpRequest $r): HttpResponse => $handler()->delete($r));
+        });
         $routes->group('/admin', static function (Router $admin) use ($container): void {
             $controller = static fn (): AdminController => $container->get(AdminController::class);
             $admin->get('/session', static fn (HttpRequest $r): HttpResponse => $controller()->session($r));

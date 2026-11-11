@@ -458,3 +458,16 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 
 ### 0.3.1 — Vault Cryptography & Master Key Management
 Реализован отдельный корневой ключ, envelope encryption, verifier в PostgreSQL, CLI и native/Pg tests. Создание, ротация и UI credentials запланированы на 0.3.2–0.3.9.
+
+
+### 0.3.2 — Encrypted Credentials CRUD (реализовано)
+
+- [x] PostgreSQL encrypted create/list/show/update/replace/archive на отдельном `VAULT_MASTER_KEY`.
+- [x] Отдельные `vault.credentials.read/create/update/delete`, session + CSRF + owner/manager workspace.
+- [x] Секреты принимаются только для создания или замены, не возвращаются в HTTP, metadata, audit и Inventory API.
+- [x] Оптимистичная блокировка `If-Match`, ETag, version+1, безопасный запрет архивации при Inventory bindings.
+- [x] Миграция `0018_encrypted_credentials_crud.sql`; legacy ciphertext не преобразуется и не привязывается без отдельной безопасной процедуры миграции.
+- [x] Native тесты и тест PostgreSQL (требует запуска на отдельном PostgreSQL 17/18 стенде).
+- [ ] Проверка PostgreSQL integration, Nuxt build и end-to-end на изолированной инфраструктуре.
+
+**Следующий этап: 0.3.3 — Credential Profiles & Validation.**

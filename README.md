@@ -381,3 +381,20 @@ Native smoke-tests выполняются без Composer. GitHub CI прове�
 ### Vault 0.3.1: криптографический runtime
 
 Секреты Vault шифруются независимым ключом. Пример выпуска: `php bin/cajeer vault:key:generate --output=/etc/cajeerservers/vault.key`; настройте приватный `VAULT_MASTER_KEY_FILE`, примените `php bin/cajeer migrate`, затем `php bin/cajeer vault:init` однократно и `php bin/cajeer vault:check`. `vault:probe` выполняет реальный шифрованный roundtrip в PostgreSQL с гарантированным ROLLBACK. Полные инструкции — `docs/Vault-Cryptography-0.3.1.md`. Обычный HTTP API **не раскрывает** секреты.
+
+
+### Vault 0.3.2 — зашифрованное хранение credentials
+
+После миграции `0018_encrypted_credentials_crud.sql` и `vault:init` доступны настоящие REST-операции:
+
+- `GET /api/v1/vault/credentials?workspace_id=<uuid>` — список только metadata;
+- `POST /api/v1/vault/credentials` — `workspace_id`, `name`, `type`, `secret`, необязательное `description`;
+- `GET /api/v1/vault/credentials/{id}` — metadata и ETag;
+- `PATCH /api/v1/vault/credentials/{id}` — безопасные metadata / `status` по `If-Match`;
+- `PUT /api/v1/vault/credentials/{id}/secret` — замена секретного содержимого по `If-Match`;
+- `DELETE /api/v1/vault/credentials/{id}` — архивирование с проверкой Inventory bindings.
+
+В production эти вызовы требуют HTTPS, действующей серверной сессии, соответствующих RBAC permissions,
+owner/manager для изменений и CSRF. **Plaintext не возвращается ни одним из перечисленных API.**
+Поддерживаются пока `generic_secret` и `api_token`; расширенные типы появятся в 0.3.3.
+Подробнее: `docs/Vault-Encrypted-CRUD-0.3.2.md`.

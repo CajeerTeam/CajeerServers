@@ -1,3 +1,13 @@
+## [0.3.2] — 2026-11-11 — Encrypted Credentials CRUD
+
+- Реальный PostgreSQL lifecycle зашифрованных credentials: create, list/show metadata, update, replace, disable, archive.
+- Все новые записи шифруются через VaultCrypto с отдельным master key; UUID/workspace/type являются AEAD контекстом.
+- Добавлен Vault REST controller с session-only authentication, CSRF, workspace owner/manager, deny-by-default RBAC, ETag/If-Match.
+- `0018_encrypted_credentials_crud.sql`: метаданные, версия, immutable crypto-context trigger и поддержка legacy-строк без перешифрования.
+- CredentialBindingService запрещает произвольное присвоение legacy-credentials и cross-workspace привязки.
+- Native smoke и изолированный PostgreSQL integration-test включены в GitHub Actions; подтверждение реального PostgreSQL требуется отдельно.
+- Plaintext API, connector secret use, rotation и типизированные SSH/SNMP-профили не включены в 0.3.2.
+
 ## [0.3.1] — 2026-11-11 — Vault Cryptography & Master Key Management
 
 - Реальный `VaultCrypto`: XChaCha20-Poly1305, отдельные DEK для каждого envelope, привязка UUID credential / workspace / type через AAD.

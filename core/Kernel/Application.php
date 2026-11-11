@@ -22,6 +22,8 @@ use Cajeer\Servers\Security\SecretBox;
 use Cajeer\Servers\Credentials\VaultMasterKey;
 use Cajeer\Servers\Credentials\VaultCrypto;
 use Cajeer\Servers\Credentials\CredentialsVault;
+use Cajeer\Servers\Credentials\CredentialStore;
+use Cajeer\Servers\Credentials\CredentialController;
 use Cajeer\Servers\Security\RateLimiter;
 use Cajeer\Servers\Security\Rbac;
 use Cajeer\Servers\Security\TwoFactorManager;
@@ -127,6 +129,13 @@ final class Application
         $this->services->singleton(VaultCrypto::class, fn (ServiceContainer $c): VaultCrypto => new VaultCrypto($c->get(VaultMasterKey::class)));
         $this->services->singleton(CredentialsVault::class, fn (ServiceContainer $c): CredentialsVault => new CredentialsVault(
             $c->get(DatabaseManager::class), $c->get(VaultCrypto::class), $c->get(VaultMasterKey::class)
+        ));
+        $this->services->singleton(CredentialStore::class, fn (ServiceContainer $c): CredentialStore => new CredentialStore(
+            $c->get(DatabaseManager::class), $c->get(InventoryRepository::class),
+            $c->get(CredentialsVault::class), $c->get(VaultCrypto::class), $c->get(AuditLogger::class)
+        ));
+        $this->services->singleton(CredentialController::class, fn (ServiceContainer $c): CredentialController => new CredentialController(
+            $c->get(AuthenticationService::class), $c->get(Rbac::class), $c->get(CredentialStore::class)
         ));
         $this->services->singleton(InventoryReadiness::class, fn (ServiceContainer $container): InventoryReadiness => new InventoryReadiness(
             $container->get(DatabaseManager::class),

@@ -1,8 +1,8 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.3.1
-  description: 'CajeerServers 0.3.1: read-only CMDB integrity inspection, durable import dispatch and stable Inventory/IPAM/Topology/History integration. Session-protected diagnostics, workspace RBAC and CSRF. No provider connectors or remote infrastructure commands.'
+  version: 0.3.2
+  description: 'CajeerServers 0.3.2: Encrypted Credentials CRUD on PostgreSQL, separate Vault master key, workspace-bound AEAD, session/RBAC/CSRF, and secret-free metadata APIs; provider connectors and plaintext API remain unavailable.'
 servers:
 - url: /api/v1
 security: []
@@ -4579,8 +4579,242 @@ paths:
         required: true
         schema:
           type: string
+  /vault/credentials:
+    get:
+      operationId: listVaultCredentials
+      summary: Список метаданных зашифрованных credentials одного доступного workspace
+      description: Requires session, vault.credentials.read and workspace membership. No ciphertext or plaintext.
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: workspace_id
+        in: query
+        required: true
+        schema: {type: string, format: uuid}
+      - name: limit
+        in: query
+        schema: {type: integer, minimum: 1, maximum: 100, default: 50}
+      - name: offset
+        in: query
+        schema: {type: integer, minimum: 0, maximum: 10000, default: 0}
+      responses:
+        '200':
+          description: Метаданные без зашифрованного или открытого секрета
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/VaultCredentialPage'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+    post:
+      operationId: createVaultCredential
+      summary: Создать реальную зашифрованную запись в PostgreSQL
+      description: Requires session, CSRF, vault.credentials.create and workspace owner/manager. HTTPS mandatory in production. Secret is write-only.
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [workspace_id, name, type, secret]
+              properties:
+                workspace_id: {type: string, format: uuid}
+                name: {type: string, minLength: 1, maxLength: 255}
+                description: {type: string, maxLength: 1024}
+                type: {type: string, enum: [generic_secret, api_token]}
+                secret: {type: string, minLength: 1, maxLength: 65536, writeOnly: true}
+      responses:
+        '201':
+          description: Секрет зашифрован и сохранён, возвращены только метаданные
+          headers:
+            ETag:
+              schema: {type: string}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/VaultCredentialResponse'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+  /vault/credentials/{id}:
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    get:
+      operationId: getVaultCredential
+      summary: Метаданные одной доступной записи, без секрета
+      security:
+      - sessionAuth: []
+      responses:
+        '200':
+          description: Метаданные и ETag
+          headers:
+            ETag:
+              schema: {type: string}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/VaultCredentialResponse'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {description: Credential не найден или недоступен}
+    patch:
+      operationId: updateVaultCredential
+      summary: Изменить безопасные метаданные или active/disabled статус
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: If-Match
+        in: header
+        required: true
+        schema: {type: string}
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              minProperties: 1
+              properties:
+                name: {type: string, minLength: 1, maxLength: 255}
+                description: {type: string, maxLength: 1024}
+                status: {type: string, enum: [active, disabled]}
+      responses:
+        '200':
+          description: Обновлённые метаданные
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/VaultCredentialResponse'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {description: Credential не найден}
+        '412': {description: Устаревший ETag}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+        '428': {description: If-Match обязателен}
+    delete:
+      operationId: archiveVaultCredential
+      summary: Архивировать credential, предварительно сняв Inventory-привязки
+      description: Soft-delete с сохранением ciphertext для аудита. Requires session, CSRF, RBAC, workspace owner/manager and If-Match.
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: If-Match
+        in: header
+        required: true
+        schema: {type: string}
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema: {type: string}
+      responses:
+        '200':
+          description: Архивированные метаданные
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/VaultCredentialResponse'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {description: Credential не найден}
+        '409': {description: Активные привязки должны быть сняты}
+        '412': {description: Устаревший ETag}
+        '428': {description: If-Match обязателен}
+  /vault/credentials/{id}/secret:
+    put:
+      operationId: replaceVaultCredentialSecret
+      summary: Заменить шифрованное содержимое credential без раскрытия предыдущего
+      description: Uses existing immutable credential UUID/workspace/type as AEAD associated data. Never returns plaintext.
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      - name: If-Match
+        in: header
+        required: true
+        schema: {type: string}
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [secret]
+              properties:
+                secret: {type: string, minLength: 1, maxLength: 65536, writeOnly: true}
+      responses:
+        '200':
+          description: Новый ciphertext сохранён, версия увеличена
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/VaultCredentialResponse'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {description: Credential не найден}
+        '412': {description: Устаревший ETag}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+        '428': {description: If-Match обязателен}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
 components:
   schemas:
+    VaultCredential:
+      type: object
+      additionalProperties: false
+      required: [id, workspace_id, name, description, type, state, version, etag, created_at, updated_at, deleted_at]
+      properties:
+        id: {type: string, format: uuid}
+        workspace_id: {type: string, format: uuid}
+        name: {type: string}
+        description: {type: string}
+        type: {type: string, enum: [generic_secret, api_token]}
+        state: {type: string, enum: [active, disabled, archived]}
+        version: {type: integer, minimum: 1}
+        etag: {type: string}
+        created_at: {type: string}
+        updated_at: {type: string}
+        deleted_at: {type: [string, 'null']}
+    VaultCredentialResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data: {$ref: '#/components/schemas/VaultCredential'}
+    VaultCredentialPage:
+      type: object
+      additionalProperties: false
+      required: [data, pagination]
+      properties:
+        data:
+          type: array
+          items: {$ref: '#/components/schemas/VaultCredential'}
+        pagination:
+          type: object
+          required: [total, limit, offset]
+          properties:
+            total: {type: integer, minimum: 0}
+            limit: {type: integer, minimum: 1}
+            offset: {type: integer, minimum: 0}
     CmdbIntegrityReport:
       type: object
       required: [ok, checked_at, totals, checks, deep]

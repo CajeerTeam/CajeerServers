@@ -32,8 +32,12 @@ final class CredentialBindingService
         return $this->db->transaction(function(PDO $pdo)use($actor,$workspace,$credential,$requestId):array{
             $this->repo->lockWorkspace($pdo,$workspace);
             if($this->repo->workspaceRole($pdo,$workspace,$actor,true)!=='owner')throw new HttpException(403,'Workspace ownership required.','permission_denied');
-            $cred=$pdo->prepare('SELECT id FROM credentials WHERE id=:id FOR SHARE');$cred->execute(['id'=>$credential]);
-            if(!$cred->fetchColumn())throw new HttpException(404,'Credential not found.','not_found');
+            $cred=$pdo->prepare('SELECT workspace_id::text,vault_format,state,deleted_at FROM credentials WHERE id=:id FOR SHARE');
+            $cred->execute(['id'=>$credential]);
+            $item=$cred->fetch(PDO::FETCH_ASSOC);
+            if(!is_array($item) || $item['vault_format']!=='cjev1' || $item['workspace_id']!==$workspace || $item['deleted_at']!==null)
+                throw new HttpException(404,'Credential not found in this workspace.','not_found');
+            if($item['state']!=='active') throw new HttpException(409,'Credential is not active.','conflict');
             $stmt=$pdo->prepare('INSERT INTO inventory_credential_scopes(credential_id,workspace_id,scoped_by) VALUES(CAST(:cred AS uuid),CAST(:ws AS uuid),CAST(:actor AS uuid)) ON CONFLICT(credential_id) DO NOTHING');
             $stmt->execute(['cred'=>$credential,'ws'=>$workspace,'actor'=>$actor]);
             $row=$pdo->prepare('SELECT workspace_id::text FROM inventory_credential_scopes WHERE credential_id=:id');
@@ -53,7 +57,9 @@ final class CredentialBindingService
             if($row===null)throw new HttpException(404,'Asset not found.','not_found');
             $workspace=$row['workspace_id'];$this->repo->lockWorkspace($pdo,$workspace);
             $this->repo->workspaceRole($pdo,$workspace,$actor,true);
-            $check=$pdo->prepare('SELECT 1 FROM inventory_credential_scopes WHERE workspace_id=:ws AND credential_id=:credential');
+            $check=$pdo->prepare('SELECT 1 FROM inventory_credential_scopes s JOIN credentials c ON c.id=s.credential_id
+                WHERE s.workspace_id=:ws AND s.credential_id=:credential AND c.workspace_id=s.workspace_id
+                  AND c.vault_format=\'cjev1\' AND c.state=\'active\' AND c.deleted_at IS NULL');
             $check->execute(['ws'=>$workspace,'credential'=>$credential]);
             if(!$check->fetchColumn())throw new HttpException(403,'Credential is not scoped to this workspace.','permission_denied');
             $statement=$pdo->prepare(<<<'SQL'

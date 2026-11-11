@@ -10,6 +10,10 @@ use Cajeer\Servers\Database\DatabaseManager;
 use Cajeer\Servers\Database\MigrationRunner;
 use Cajeer\Servers\Http\Exception\HttpException;
 use Cajeer\Servers\Inventory\CredentialBindingService;
+use Cajeer\Servers\Credentials\CredentialStore;
+use Cajeer\Servers\Credentials\VaultCrypto;
+use Cajeer\Servers\Credentials\VaultMasterKey;
+use Cajeer\Servers\Credentials\CredentialsVault;
 use Cajeer\Servers\Inventory\HistoryService;
 use Cajeer\Servers\Inventory\InventoryRepository;
 use Cajeer\Servers\Inventory\InventoryService;
@@ -43,7 +47,7 @@ try{
     $pdo->exec('SET search_path TO "'.$schema.'", public');
     foreach(glob($root.'/migrations/pgsql/*.sql')?:[] as $file)copy($file,$dir.'/migrations/'.basename($file));
     $runner=new MigrationRunner($db,$dir.'/migrations');
-    $ok(count($runner->run()['applied'])===17,'17 migrations applied');
+    $ok(count($runner->run()['applied'])===18,'18 migrations applied');
     $ok($runner->run()['applied']===[]&&$runner->validate()['valid'],'migration replay and checksums');
     $seed=$pdo->prepare('INSERT INTO users(email,name,password_hash) VALUES(:email,:name,:hash) RETURNING id::text');
     $user=static function(string $name)use($seed):string{
@@ -90,10 +94,18 @@ try{
     $json=$transfer->export($admin,$ws,'json');
     $ok(count(json_decode($json,true,16,JSON_THROW_ON_ERROR))===2,'JSON export returns two records');
     $reject(404,fn()=>$transfer->export($outsider,$ws,'json'),'cross-workspace export denied');
-    $cred=$pdo->prepare("INSERT INTO credentials(name,type,encrypted_payload) VALUES('test credential','api',decode(:bytes,'hex')) RETURNING id::text");
-    $cred->execute(['bytes'=>bin2hex(random_bytes(32))]);$credential=$cred->fetchColumn();
-    $reject(403,fn()=>$creds->attach($admin,$asset['id'],$credential,'api'),'unscoped credential cannot bind');
-    $scoped=$creds->scope($admin,$ws,$credential);$ok($scoped['credential_id']===$credential,'existing credential explicitly scoped');
+    // Old unsafely scoped legacy rows cannot be enrolled or attached after Vault is enabled.
+    $legacy=$pdo->prepare("INSERT INTO credentials(name,type,encrypted_payload) VALUES('legacy unverified','api',decode(:bytes,'hex')) RETURNING id::text");
+    $legacy->execute(['bytes'=>bin2hex(random_bytes(32))]);$oldCredential=$legacy->fetchColumn();
+    $reject(404,fn()=>$creds->scope($admin,$ws,$oldCredential),'legacy credential ownership cannot be assumed');
+    $reject(403,fn()=>$creds->attach($admin,$asset['id'],$oldCredential,'api'),'legacy credential cannot bind');
+    $key=new VaultMasterKey('base64:'.base64_encode(random_bytes(32)));
+    $crypto=new VaultCrypto($key);
+    $vault=new CredentialsVault($db,$crypto,$key);$vault->initialize();
+    $store=new CredentialStore($db,$repo,$vault,$crypto,$audit);
+    $created=$store->create($admin,['workspace_id'=>$ws,'name'=>'Current API key','type'=>'api_token','secret'=>'test-only-key-value']);
+    $credential=$created['id'];
+    $scoped=$creds->scope($admin,$ws,$credential);$ok($scoped['credential_id']===$credential,'new credential is automatically scoped and scoped again safely');
     $binding=$creds->attach($admin,$asset['id'],$credential,'api');
     $ok($binding['credential_id']===$credential,'binding inserted with FK and workspace');
     $list=$creds->list($admin,$asset['id']);

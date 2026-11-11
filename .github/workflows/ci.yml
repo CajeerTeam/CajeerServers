@@ -88,3 +88,4 @@ jobs:
           php tests/transfer-postgres-integration.php
           php tests/cmdb-postgres-integration.php
           php tests/vault-postgres-integration.php
+          php tests/vault-crud-postgres-integration.php
