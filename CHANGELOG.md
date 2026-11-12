@@ -1,3 +1,9 @@
+## [0.5.4] — 2026-11-12 — Output Parsers & Data Normalization
+
+- Actual bounded JSON, CSV, key-value and Prometheus text parsers in the script worker; signed parser/output schema and legacy signature compatibility.
+- Typed observations, metrics and events with validation, deduplication within batches and safe failure without partial results.
+- Sample parsing without execution, UI policy selection, normalized Inventory Import download and regression tests.
+
 ## [0.5.3] — 2026-11-12 — Secure Script Execution & Dry Run
 
 - Durable one-shot script executions, MFA, live signature and scope checks, cancellation and history.

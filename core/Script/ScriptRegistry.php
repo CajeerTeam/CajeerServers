@@ -109,7 +109,13 @@ final class ScriptRegistry
         return $this->db->transaction(function(PDO $p)use($principal,$ws,$id,$v,$in){
             $r=$this->executionVersion($p,$principal,$ws,$id,$v,$in);
             try{$channel=ScriptExecutionPolicy::channel($r['manifest'],$r['source']);}catch(HttpException){$channel=null;}
-            return ['valid'=>true,'version_id'=>$v,'source_sha256'=>$r['manifest']['source_sha256'],'execution_enabled'=>$channel!==null && getenv('SCRIPT_EXECUTION_ENABLED')==='true','channel'=>$channel];
+            [$parser,$schema]=ScriptOutputParser::policy($r['manifest']);
+            $result=['valid'=>true,'version_id'=>$v,'source_sha256'=>$r['manifest']['source_sha256'],'execution_enabled'=>$channel!==null && getenv('SCRIPT_EXECUTION_ENABLED')==='true','channel'=>$channel,'parser'=>$parser,'output_schema'=>$schema];
+            if(array_key_exists('sample_output',$in)){
+                if($channel!=='sandbox'||!is_string($in['sample_output']))ScriptVersion::invalid();
+                $result['sample']=(new ScriptOutputParser())->parse($in['sample_output'],$r['manifest']);
+            }
+            return $result;
         });
     }
 }

@@ -105,7 +105,10 @@ final class ScriptExecution
                 if(hrtime(true)>=$deadline)throw new HttpException(503,'Script timed out.','script_timeout');
                 $out=$result['collection']??null;$bytes=strlen(json_encode($out,JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE));
                 if($out===null||$bytes>$v['manifest']['output_limit_bytes'])throw new HttpException(422,'Script output exceeds signed limit.','script_output_limit');
-                $this->finish($p,$r,['output'=>$out,'output_bytes'=>$bytes,'exit_code'=>0]);
+                // The remote snapshot was already validated by ConnectorRegistry. Keep its trusted
+                // identity and completeness; do not reinterpret it as user-authored observations.
+                $normalized=['schema_version'=>1,'schema'=>'observations','complete'=>$out['complete'],'count'=>$out['count'],'observations'=>$out['observations']];
+                $this->finish($p,$r,['output'=>$out,'output_bytes'=>$bytes,'exit_code'=>0,'normalized'=>$normalized]);
             },$scope);
     }
     /** One dedicated worker at a time. Never retry an abandoned script, even if outcome is unknown. */

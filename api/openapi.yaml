@@ -1,8 +1,8 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.5.3
-  description: 'CajeerServers 0.5.3: secure script execution, signed templates and dry-run.'
+  version: 0.5.4
+  description: 'CajeerServers 0.5.4: signed output parsers and typed normalization.'
 servers:
 - url: /api/v1
 security: []
@@ -7942,6 +7942,15 @@ paths:
                   type: integer
                   minimum: 1024
                   maximum: 262144
+                parser:
+                  type: string
+                  enum: [json, csv, key_value, prometheus]
+                  default: json
+                output_schema:
+                  type: string
+                  enum: [document, observations, metrics, events]
+                  default: document
+                  description: Prometheus requires metrics. Non-local versions retain json/document.
               required: []
               additionalProperties: false
               oneOf:
@@ -7961,6 +7970,10 @@ paths:
                     - timeout_seconds
                   - required:
                     - output_limit_bytes
+                  - required:
+                    - parser
+                  - required:
+                    - output_schema
               - required:
                 - language
                 - provider
@@ -8249,7 +8262,7 @@ paths:
   /workspaces/{workspace}/scripts/{id}/versions/{version}/validate:
     post:
       operationId: scriptVersionValidate
-      summary: Validate signature, policy and parameters without execution
+      summary: Validate signature, policy and parameters without execution; optionally parse sample output
       security:
       - sessionAuth: []
       parameters:
@@ -8316,6 +8329,10 @@ paths:
                 parameters:
                   type: object
                   additionalProperties: true
+                sample_output:
+                  type: string
+                  maxLength: 262144
+                  description: Optional local-script stdout sample, parsed with the approved signed policy; never executed or persisted.
               required: []
               additionalProperties: false
   /workspaces/{workspace}/scripts/{id}/versions/{version}/executions:

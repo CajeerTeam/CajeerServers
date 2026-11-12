@@ -67,7 +67,7 @@ final class ScriptRunner
             $cmd=$this->command($file,$manifest);$guard();
             $proc=@proc_open($cmd,[0=>['pipe','r'],1=>['pipe','w'],2=>['pipe','w']],$pipes,$dir,['PATH'=>'/usr/bin:/bin','LANG'=>'C.UTF-8']);
             if (!is_resource($proc)) self::fail('script_sandbox_unavailable');
-            return $this->exchange($proc,$pipes,json_encode((object)$parameters,JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE)."\n",$manifest['timeout_seconds'],$manifest['output_limit_bytes'],$guard);
+            return $this->exchange($proc,$pipes,json_encode((object)$parameters,JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE)."\n",$manifest['timeout_seconds'],$manifest['output_limit_bytes'],$guard,$manifest);
         } finally {
             // Killing bwrap's supervisor also kills its PID namespace (die-with-parent).
             if (is_resource($proc)) { $s=proc_get_status($proc);if($s['running'])proc_terminate($proc,9); }
@@ -78,7 +78,7 @@ final class ScriptRunner
     }
 
     /** Nonblocking bounded duplex I/O. stderr is counted but never persisted. */
-    private function exchange($proc,array &$pipes,string $input,int $seconds,int $limit,callable $guard):array
+    private function exchange($proc,array &$pipes,string $input,int $seconds,int $limit,callable $guard,array $manifest=[]):array
     {
         foreach($pipes as $pipe)stream_set_blocking($pipe,false);
         $deadline=hrtime(true)+$seconds*1_000_000_000;$nextGuard=0;$out='';$total=0;$sent=0;$exit=null;
@@ -97,8 +97,7 @@ final class ScriptRunner
         }
         if($exit!==0)self::fail('script_exit_failed');
         $guard();
-        try{$decoded=json_decode($out,false,32,JSON_THROW_ON_ERROR);}catch(\JsonException){self::fail('script_output_invalid');}
-        if(!is_array($decoded)&&!is_object($decoded))self::fail('script_output_invalid');
-        return ['output'=>$decoded,'output_bytes'=>strlen($out),'exit_code'=>0];
+        $result=(new ScriptOutputParser())->parse($out,$manifest+['output_limit_bytes'=>$limit]);
+        $guard();return $result;
     }
 }

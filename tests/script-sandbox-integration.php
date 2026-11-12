@@ -13,6 +13,12 @@ $reject=function(callable $f,string $code)use($ok){try{$f();}catch(HttpException
 $ok($run('bash','read -r input; printf \'{"bash":true}\'')['output']->bash===true,'real sandbox Bash');
 $ok($run('python','import json,sys; print(json.dumps(json.load(sys.stdin)))',['n'=>42])['output']->n===42,'real sandbox Python');
 $ok($run('powershell','[Console]::In.ReadToEnd() | ConvertFrom-Json | ConvertTo-Json -Compress',['n'=>42],30)['output']->n===42,'real sandbox PowerShell');
+$typed=function(string $language,string $source,string $parser)use($runner){return $runner->run($source,['provider'=>'local','language'=>$language,'timeout_seconds'=>30,'output_limit_bytes'=>4096,'parser'=>$parser,'output_schema'=>'metrics'],[],fn()=>null);};
+$ok($typed('bash','read -r input; printf "metric,value\\nx,1\\n"','csv')['normalized']['metric_samples'][0]['value']===1,'real sandbox CSV');
+$ok($typed('python','import sys; sys.stdin.read(); print("metric=x\\nvalue=2")','key_value')['normalized']['metric_samples'][0]['value']===2,'real sandbox key-value');
+$ok($typed('powershell','[Console]::In.ReadToEnd() | Out-Null; Write-Output "x 3"','prometheus')['normalized']['metric_samples'][0]['value']===3,'real sandbox Prometheus');
+$reject(fn()=>$typed('powershell','[Console]::In.ReadToEnd() | Out-Null; Write-Output "x NaN"','prometheus'),'script_output_invalid');
+
 $outside=tempnam(sys_get_temp_dir(),'cajeer-host-only-');file_put_contents($outside,'host-only');
 $server=stream_socket_server('tcp://127.0.0.1:0',$errno,$err);if(!$server)throw new RuntimeException('test socket failed');$port=(int)substr(strrchr(stream_socket_get_name($server,false),':'),1);putenv('CAJEER_HOST_TEST_SECRET=host-only');
 try{

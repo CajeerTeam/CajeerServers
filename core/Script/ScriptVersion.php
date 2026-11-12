@@ -14,7 +14,7 @@ final class ScriptVersion
     public static function manifest(string $workspace,string $script,string $version,array $input): array
     {
         $workspace=CredentialInput::uuid($workspace);$script=CredentialInput::uuid($script);$version=CredentialInput::uuid($version);
-        if(array_diff(array_keys($input),['language','provider','source','target_ids','parameters','timeout_seconds','output_limit_bytes','id']))self::invalid();
+        if(array_diff(array_keys($input),['language','provider','source','target_ids','parameters','timeout_seconds','output_limit_bytes','id','parser','output_schema']))self::invalid();
         $language=$input['language']??null;$provider=$input['provider']??null;$source=$input['source']??null;
         if(!in_array($language,['bash','python','powershell','connector'],true)||!in_array($provider,['local','ssh','winrm','snmp','proxmox','vmmanager'],true)
             ||!is_string($source)||strlen($source)<1||strlen($source)>65536||!preg_match('//u',$source)||str_contains($source,"\0")) self::invalid();
@@ -39,7 +39,10 @@ final class ScriptVersion
         }
         usort($params,fn($a,$b)=>strcmp($a['name'],$b['name']));
         if($language==='connector') {try{$plan=json_decode($source,true,8,JSON_THROW_ON_ERROR);}catch(\JsonException){self::invalid();}if(!is_array($plan)||count($plan)!==2||($plan['collector']??null)!==$provider.'.inventory'||($plan['operation']??null)!=='inspect'||$params!==[])self::invalid();}
-        return ['format'=>'cajeer.script.v1','workspace_id'=>$workspace,'script_id'=>$script,'version_id'=>$version,'language'=>$language,'provider'=>$provider,'source_sha256'=>hash('sha256',$source),'target_ids'=>$targets,'timeout_seconds'=>$timeout,'output_limit_bytes'=>$output,'parser'=>'json','required_permission'=>'scripts.execute','parameters'=>$params];
+        $parser=array_key_exists('parser',$input)?$input['parser']:'json';$outputSchema=array_key_exists('output_schema',$input)?$input['output_schema']:'document';
+        if(!is_string($parser)||!is_string($outputSchema))self::invalid();
+        ScriptOutputParser::policy(['provider'=>$provider,'parser'=>$parser,'output_schema'=>$outputSchema]);
+        return ['format'=>'cajeer.script.v1','workspace_id'=>$workspace,'script_id'=>$script,'version_id'=>$version,'language'=>$language,'provider'=>$provider,'source_sha256'=>hash('sha256',$source),'target_ids'=>$targets,'timeout_seconds'=>$timeout,'output_limit_bytes'=>$output,'parser'=>$parser,'output_schema'=>$outputSchema,'required_permission'=>'scripts.execute','parameters'=>$params];
     }
     public static function bytes(array $manifest): string {return json_encode($manifest,JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE|JSON_THROW_ON_ERROR);}
     public static function verify(string $bytes,string $source,string $public,string $signature): array
@@ -48,6 +51,7 @@ final class ScriptVersion
         if(!sodium_crypto_sign_verify_detached(hex2bin($signature),$bytes,hex2bin($public)))throw new HttpException(422,'Script signature verification failed.','script_signature_invalid');
         $m=json_decode($bytes,true,32,JSON_THROW_ON_ERROR);
         if(!is_array($m)||($m['format']??null)!=='cajeer.script.v1'||!is_string($m['source_sha256']??null)||!hash_equals($m['source_sha256'],hash('sha256',$source)))throw new HttpException(422,'Script source digest mismatch.','script_signature_invalid');
+        ScriptOutputParser::policy($m);
         return $m;
     }
     public static function parameters(array $manifest,array $values): array

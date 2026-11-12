@@ -98,7 +98,7 @@ try{
     $vp=['mode'=>'session','user'=>['id'=>$viewer]];
     $reject(403,fn()=>$registry->create($vp,$workspace,['name'=>'illegal']),'RBAC denial');
     $key=$registry->addKey($principal,$workspace,['name'=>'offline','public_key'=>$pub]+$step(-30));
-    $version=$registry->addVersion($principal,$workspace,$script['id'],['language'=>'python','provider'=>'local','source'=>'print(42)','parameters'=>[['name'=>'count','type'=>'integer','min'=>1,'max'=>10]]]);
+    $version=$registry->addVersion($principal,$workspace,$script['id'],['language'=>'python','provider'=>'local','source'=>'print(42)','parser'=>'csv','output_schema'=>'metrics','parameters'=>[['name'=>'count','type'=>'integer','min'=>1,'max'=>10]]]);
     $id=$version['id'];$scriptId=$script['id'];
     $reject(409,fn()=>$registry->validate($principal,$workspace,$scriptId,$id,['parameters'=>['count'=>2]]),'draft not executable');
     $reject(422,fn()=>$registry->sign($principal,$workspace,$scriptId,$id,['key_id'=>$key['id'],'signature'=>str_repeat('0',128)]),'wrong signature');
@@ -119,6 +119,10 @@ try{
     $reject(403,fn()=>$registry->addKey($principal,$workspace,['name'=>'replay','public_key'=>$pub]+$step(0)),'TOTP replay denied');
     $ok($registry->validate($principal,$workspace,$scriptId,$id,['parameters'=>['count'=>2]])['valid'],'approved version validates');
     $reject(422,fn()=>$registry->validate($principal,$workspace,$scriptId,$id,['parameters'=>['count'=>99]]),'invalid parameter');
+    $sample=$registry->validate($principal,$workspace,$scriptId,$id,['parameters'=>['count'=>2],'sample_output'=>"metric,value\ncpu,12.5\n"]);
+    $ok($sample['parser']==='csv'&&$sample['sample']['normalized']['metric_samples'][0]['value']===12.5,'approved signed parser preview');
+    $reject(422,fn()=>$registry->validate($principal,$workspace,$scriptId,$id,['parameters'=>['count'=>2],'sample_output'=>"metric,value\ncpu,NaN\n"]),'invalid sample rejected');
+    $ok((int)$pdo->query('SELECT count(*) FROM script_executions')->fetchColumn()===0,'parser preview never enqueues');
     $second=$registry->addVersion($principal,$workspace,$scriptId,['language'=>'bash','provider'=>'local','source'=>'echo 42']);$ok((int)$second['version']===2,'immutable new version');
     try{$pdo->exec("UPDATE script_versions SET source='tampered' WHERE id='$id'");throw new RuntimeException('immutable source mutation accepted');}catch(PDOException $e){$ok($e->getCode()==='P0001','database immutable trigger');}
     $registry->revokeKey($principal,$workspace,$key['id'],$step(30));

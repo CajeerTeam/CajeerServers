@@ -129,7 +129,7 @@ try{
     $reject(404,fn()=>$exec->detail($other,$workspace,$sid,$vid,$job['id']),'other actor cannot read result');
     $count=(int)$pdo->query('SELECT count(*) FROM inventory_assets')->fetchColumn();
     $ok($exec->work(1)===1,'actual worker claims and executes one job');$done=$exec->detail($runner,$workspace,$sid,$vid,$job['id']);
-    $ok($done['state']==='succeeded'&&$done['result']->output->count===2&&$calls===2,'actual signed remote preview result');
+    $ok($done['state']==='succeeded'&&$done['result']->output->count===2&&$done['result']->normalized->count===2&&$done['result']->normalized->schema==='observations'&&$calls===2,'actual signed remote preview result');
     $ok((int)$pdo->query('SELECT count(*) FROM inventory_assets')->fetchColumn()===$count,'no Inventory writes');
     $ok($exec->work(1)===0&&$calls===2,'no replay of completed job');
     $localBody=['mode'=>'execute','parameters'=>[],'password'=>$password,'totp'=>TwoFactorManager::totp($runnerKey,time()+30)];
