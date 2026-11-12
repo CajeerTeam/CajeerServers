@@ -16,7 +16,7 @@ final class ObservationInput
     }
 
     /** @param array<string,mixed> $input @return array{workspace_id:string,source:string,external_id:string,event_key:string,type:string,fields:array<string,mixed>,observed_at:string,payload_hash:string} */
-    public static function normalize(array $input):array
+    public static function normalize(array $input,bool $connector=false):array
     {
         $required=['workspace_id','external_id','event_key','type','fields'];
         foreach($required as $key)if(!array_key_exists($key,$input))self::bad($key);
@@ -27,8 +27,10 @@ final class ObservationInput
         if(!is_string($input['external_id'])||strlen($input['external_id'])>255||trim($input['external_id'])===''||preg_match('/[\x00-\x1f\x7f]/',$input['external_id']))self::bad('external_id');
         if(!is_string($input['event_key'])||preg_match('/^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$/D',$input['event_key'])!==1)self::bad('event_key');
         if(!is_string($input['type'])||!in_array($input['type'],InfrastructureAsset::TYPES,true))self::bad('type');
-        if(!is_array($input['fields'])||array_is_list($input['fields'])||$input['fields']===[]||count($input['fields'])>count(self::FIELDS))self::bad('fields');
-        foreach($input['fields'] as $field=>$value)if(!in_array($field,self::FIELDS,true))self::bad('fields');
+        $allowed=$connector?[...self::FIELDS,'attributes']:self::FIELDS;
+        if(!is_array($input['fields'])||array_is_list($input['fields'])||$input['fields']===[]||count($input['fields'])>count($allowed))self::bad('fields');
+        foreach($input['fields'] as $field=>$value)if(!in_array($field,$allowed,true))self::bad('fields');
+        if(isset($input['fields']['attributes']) && (!is_array($input['fields']['attributes']) || array_keys($input['fields']['attributes'])!==['host_hardware'] || !is_array($input['fields']['attributes']['host_hardware'])))self::bad('attributes');
         $fields=InfrastructureAsset::changes($input['fields']);
         ksort($fields,SORT_STRING);
         if(isset($input['observed_at'])){

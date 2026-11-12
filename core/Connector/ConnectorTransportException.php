@@ -12,7 +12,9 @@ final class ConnectorTransportException extends RuntimeException
         'connector_rate_limited'=>'Remote API is rate limited. Try again later.',
         'connector_unavailable'=>'Remote API is temporarily unavailable.',
         'connector_protocol_error'=>'Remote API returned an unsupported HTTP or JSON response.',
-        'connector_transport_failed'=>'Remote HTTPS connection or TLS verification failed.',
+        'connector_transport_failed'=>'Remote connector connection or transport timed out.',
+        'connector_trust_failed'=>'Remote server identity could not be verified.',
+        'connector_dependency_missing'=>'Required connector transport dependency is unavailable.',
     ];
     public function __construct(public readonly string $category)
     {

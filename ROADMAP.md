@@ -579,3 +579,11 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 - [x] Native smoke и настоящий локальный TLS fixture; PostgreSQL chain добавлен в CI.
 - [ ] Подтвердить PostgreSQL, реальную VMmanager 6 установку и production build/E2E на staging.
 - [ ] 0.4.5 — SSH & WinRM Connectors.
+
+### 0.4.5 — SSH & WinRM Connectors (рабочий код)
+
+- [x] SSH transport с password/private key, pinning и операторским known_hosts; фиксированный Linux collector.
+- [x] WinRM HTTPS Basic с проверкой TLS и фиксированными CIM-запросами; сбор ОС, CPU, RAM, дисков, интерфейсов.
+- [x] Общие health/inspect/sync/validate_rotation, Vault grants, Queue/Scheduler, Registry и Reconciliation; hardware в Inventory с provenance.
+- [x] Native smoke и реальный TLS WSMan fixture; CI SSH fixture и PostgreSQL hardware test.
+- [ ] Подтвердить SSH fixture с установленной зависимостью, реальный Windows Server, PostgreSQL и production build/E2E на staging.

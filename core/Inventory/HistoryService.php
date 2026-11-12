@@ -94,7 +94,7 @@ final class HistoryService
     public function observeMany(string $actor,array $events,?string $requestId=null,bool $nested=false,bool $connector=false):array
     {
         if (count($events)<1 || count($events)>1800)throw new HttpException(422,'Invalid discovery batch size.','validation_failed');
-        foreach ($events as $event) ObservationInput::normalize($event);
+        foreach ($events as $event) ObservationInput::normalize($event,$connector);
         return $this->db->transaction(function(PDO $pdo)use($actor,$events,$requestId,$connector):array {
             $result=[];
             foreach ($events as $event) $result[]=$this->observe($actor,$event,$requestId,true,$connector);
@@ -105,7 +105,7 @@ final class HistoryService
     /** Ingest one idempotent observation from an explicitly untrusted 'import' source. @return array<string,mixed> */
     public function observe(string $actor,array $input,?string $requestId=null,bool $nested=false,bool $connector=false,?string $linkedAsset=null):array
     {
-        $event=ObservationInput::normalize($input);
+        $event=ObservationInput::normalize($input,$connector);
         if (!$connector && (ObservationInput::reserved($event['external_id']) || str_starts_with($event['event_key'],'connector.')))
             throw new HttpException(422,'Connector identity is reserved.','validation_failed');
         if ($linkedAsset!==null && !$connector) throw new \LogicException('Internal connector link required.');
@@ -135,14 +135,14 @@ final class HistoryService
                 $new=InfrastructureAsset::changes($event['fields'],true);
                 $insert=$pdo->prepare(<<<'SQL'
 INSERT INTO inventory_assets(workspace_id,type,source,external_id,name,status,os_family,ip_addresses,tags,attributes,environment)
-VALUES (CAST(:ws AS uuid),:type,'import',:external,:name,:status,:os,CAST(:ips AS jsonb),CAST(:tags AS jsonb),'{}'::jsonb,:env) RETURNING id::text
+VALUES (CAST(:ws AS uuid),:type,'import',:external,:name,:status,:os,CAST(:ips AS jsonb),CAST(:tags AS jsonb),CAST(:attrs AS jsonb),:env) RETURNING id::text
 SQL);
                 $insert->execute(['ws'=>$ws,'type'=>$event['type'],'external'=>$event['external_id'],'name'=>$new['name'],'status'=>$new['status'],
                     'os'=>$new['os_family'],'ips'=>json_encode($new['ip_addresses'],JSON_THROW_ON_ERROR),
-                    'tags'=>json_encode($new['tags'],JSON_THROW_ON_ERROR),'env'=>$new['environment']]);
+                    'tags'=>json_encode($new['tags'],JSON_THROW_ON_ERROR),'attrs'=>json_encode($new['attributes']===[]?(object)[]:$new['attributes'],JSON_THROW_ON_ERROR),'env'=>$new['environment']]);
                 $assetId=$insert->fetchColumn();if(!is_string($assetId))throw new \RuntimeException('Observation insert failed.');
                 $created=true;$outcome='created';$applied=array_keys($event['fields']);
-                foreach(ObservationInput::FIELDS as $field)$this->setProvenance($pdo,$assetId,$field,'observed','import',$actor,$event['observed_at']);
+                foreach(array_unique([...ObservationInput::FIELDS,...array_keys($event['fields'])]) as $field)$this->setProvenance($pdo,$assetId,$field,'observed','import',$actor,$event['observed_at']);
             }else{
                 $asset=$this->repo->find($pdo,$actor,$assetId,true,true);
                 if($asset===null || $asset['workspace_id']!==$ws || ($linkedAsset===null && ($asset['source']!=='import' || $asset['external_id']!==$event['external_id'])) || ($linkedAsset!==null && $asset['source']!=='manual' && ($asset['source']!=='import' || $asset['external_id']!==$event['external_id'])))throw new HttpException(409,'Asset identity changed.','conflict');
@@ -158,12 +158,12 @@ SQL);
                     foreach($event['fields'] as $field=>$value){
                         $modeStmt->execute(['id'=>$assetId,'field'=>$field]);$mode=$modeStmt->fetchColumn();
                         if($mode==='manual'){
-                            if($asset[$field]!==$value){
+                            if(($field==='attributes'?($asset[$field]['host_hardware']??null)!=$value['host_hardware']:$asset[$field]!==$value)){
                                 $conflicted[]=$field;
                                 $this->recordConflict($pdo,$assetId,$ws,$field,$value,$event['observed_at']);
                             }else{$this->resolveConflict($pdo,$assetId,$field);}
                         }else{
-                            if($asset[$field]!==$value){$patch[$field]=$value;$applied[]=$field;}
+                            if(($field==='attributes'?($asset[$field]['host_hardware']??null)!=$value['host_hardware']:$asset[$field]!==$value)){$patch[$field]=$field==='attributes'?InfrastructureAsset::changes(['attributes'=>array_replace($asset[$field],$value)])['attributes']:$value;$applied[]=$field;}
                             $this->setProvenance($pdo,$assetId,$field,'observed','import',$actor,$event['observed_at']);
                             $this->resolveConflict($pdo,$assetId,$field);
                         }

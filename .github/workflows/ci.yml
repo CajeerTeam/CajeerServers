@@ -28,10 +28,16 @@ jobs:
           node-version: '22'
       - name: Native PHP + Admin static verification
         run: php scripts/verify-release.php
-      - name: Connector HTTPS protocol integration
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: SSH transport dependencies
+        run: python3 -m pip install -r core/Connector/agents/requirements.txt
+      - name: Connector HTTPS and host protocol integration
         run: |
           python3 tests/connector-https-integration.py
           python3 tests/vmmanager-https-integration.py
+          python3 tests/host-transport-integration.py --ssh
       - name: Verify dependency lockfiles are present
         run: |
           test -s composer.lock
@@ -97,6 +103,7 @@ jobs:
           php tests/vault-rotation-postgres-integration.php
           php tests/vault-bindings-postgres-integration.php
           php tests/connector-reconciliation-postgres-integration.php
+          php tests/host-hardware-postgres-integration.php
           python3 tests/vmmanager-https-integration.py --postgres
       - name: PostgreSQL client version for encrypted backup/restore
         run: |

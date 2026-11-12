@@ -61,6 +61,9 @@ use Cajeer\Servers\Connector\ConnectorRuntimeService;
 use Cajeer\Servers\Connector\ConnectorExecutionService;
 use Cajeer\Servers\Connector\ProxmoxConnector;
 use Cajeer\Servers\Connector\VmmanagerConnector;
+use Cajeer\Servers\Connector\HostTransport;
+use Cajeer\Servers\Connector\LinuxConnector;
+use Cajeer\Servers\Connector\WindowsConnector;
 use Cajeer\Servers\Connector\EndpointPolicy;
 use Cajeer\Servers\Connector\HttpsTransport;
 use Cajeer\Servers\Integration\ConnectorRegistry;
@@ -300,7 +303,13 @@ final class Application
             null,($ca=$c->get(ConfigRepository::class)->get('connectors.proxmox_ca_file',''))!==''?(string)$ca:null,$c->get(HttpsTransport::class)));
         $this->services->singleton(VmmanagerConnector::class, fn (ServiceContainer $c): VmmanagerConnector => new VmmanagerConnector(
             $c->get(HttpsTransport::class),($ca=$c->get(ConfigRepository::class)->get('connectors.vmmanager_ca_file',''))!==''?(string)$ca:null));
-        $this->services->singleton(ConnectorRegistry::class, fn (ServiceContainer $c): ConnectorRegistry => new ConnectorRegistry($c->get(ProxmoxConnector::class),$c->get(VmmanagerConnector::class)));
+        $this->services->singleton(HostTransport::class, fn (ServiceContainer $c): HostTransport => new HostTransport(
+            $c->get(EndpointPolicy::class), (string)$c->get(ConfigRepository::class)->get('connectors.python','/usr/bin/python3'),
+            ($known=$c->get(ConfigRepository::class)->get('connectors.ssh_known_hosts',''))!==''?(string)$known:null,
+            ($ca=$c->get(ConfigRepository::class)->get('connectors.winrm_ca_file',''))!==''?(string)$ca:null));
+        $this->services->singleton(LinuxConnector::class, fn (ServiceContainer $c): LinuxConnector => new LinuxConnector($c->get(HostTransport::class)));
+        $this->services->singleton(WindowsConnector::class, fn (ServiceContainer $c): WindowsConnector => new WindowsConnector($c->get(HostTransport::class)));
+        $this->services->singleton(ConnectorRegistry::class, fn (ServiceContainer $c): ConnectorRegistry => new ConnectorRegistry($c->get(ProxmoxConnector::class),$c->get(VmmanagerConnector::class),$c->get(LinuxConnector::class),$c->get(WindowsConnector::class)));
         $this->services->singleton(ConnectorRuntimeService::class, fn (ServiceContainer $c): ConnectorRuntimeService => new ConnectorRuntimeService(
             $c->get(DatabaseManager::class),$c->get(InventoryRepository::class),$c->get(ConnectorBindingService::class),
             $c->get(SecretAccessService::class),$c->get(HistoryService::class),$c->get(AuditLogger::class),

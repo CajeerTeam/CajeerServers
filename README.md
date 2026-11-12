@@ -1,6 +1,10 @@
 # CajeerServers
 
-**CajeerServers** — русскоязычная self-hosted веб-оболочка для наблюдения и управления инфраструктурой. Это **не ОС**, не прошивка и не замена Proxmox/VMmanager. В 0.4.0 добавлена реальная серверная проверка ожидающей версии Credentials Vault через Proxmox с MFA и блокировкой активации без proof; в 0.3.9 добавлена работающая админ-панель Credentials Vault с browser E2E для изолированного staging; в 0.3.8 добавлены шифрованные CLI-backups и offline recovery; в 0.3.7 реализована read-only интеграция Proxmox VE через HTTPS; в 0.4.4 добавлена read-only интеграция VMmanager 6; остальные коннекторы находятся на других стадиях реализации.
+**CajeerServers** — русскоязычная self-hosted веб-оболочка для наблюдения и управления инфраструктурой. Это **не ОС**, не прошивка и не замена Proxmox/VMmanager. В 0.4.0 добавлена реальная серверная проверка ожидающей версии Credentials Vault через Proxmox с MFA и блокировкой активации без proof; в 0.3.9 добавлена работающая админ-панель Credentials Vault с browser E2E для изолированного staging; в 0.3.8 добавлены шифрованные CLI-backups и offline recovery; в 0.3.7 реализована read-only интеграция Proxmox VE через HTTPS; в 0.4.4 добавлена read-only интеграция VMmanager 6; в 0.4.5 добавлены рабочие SSH и WinRM драйверы; SNMP и custom остаются следующими этапами.
+
+## Версия 0.4.5 — SSH & WinRM Connectors
+
+Рабочие read-only драйверы Linux SSH и Windows WinRM через общий Registry, Vault, Queue, Scheduler и Reconciliation. SSH с проверкой known_hosts и password/private key; WinRM Basic только через TLS с проверкой сертификата. ОС, CPU, RAM, диски и интерфейсы сохраняются в Inventory (`attributes.host_hardware`) без перезаписи ручных данных. Требуются Python и Paramiko для SSH, а на Windows — настроенный HTTPS listener. [Установка, безопасность, тесты](docs/SSH-WinRM-Connectors-0.4.5.md).
 
 ## Версия 0.4.4 — HTTP Connector & VMmanager Integration
 
@@ -111,7 +115,7 @@ CAJEER_PG_TEST=1 CAJEER_PG_TEST_DATABASE=cajeer_test_history \
 containers, routers, workstations), фильтрация/пагинация, workspace-aware RBAC,
 CSRF, атомарный audit, versioned ETag/If-Match, мягкое удаление и восстановление.
 Рабочий Nuxt `/inventory` получает и сохраняет данные исключительно через PHP API.
-Изменения источников Proxmox/VMmanager вручную заблокированы.
+Изменения источников Proxmox/VMmanager/SSH/WinRM вручную заблокированы.
 
 ```bash
 php bin/cajeer migrate

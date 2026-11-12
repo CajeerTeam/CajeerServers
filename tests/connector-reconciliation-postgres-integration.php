@@ -22,7 +22,7 @@ try{
     $db=new DatabaseManager(new ConfigRepository($root.'/config'),new ConnectionFactory(),['driver'=>'pgsql','host'=>getenv('CAJEER_PG_TEST_HOST')?:'127.0.0.1','port'=>getenv('CAJEER_PG_TEST_PORT')?:'5432','database'=>getenv('CAJEER_PG_TEST_DATABASE'),'username'=>getenv('CAJEER_PG_TEST_USERNAME')?:'cajeer','password'=>getenv('CAJEER_PG_TEST_PASSWORD')?:'','sslmode'=>getenv('CAJEER_PG_TEST_SSLMODE')?:'prefer']);
     $pdo=$db->connection();$ok((int)$pdo->query("SELECT current_setting('server_version_num')")->fetchColumn()>=170000,'PG17+');
     $pdo->exec('CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public');$pdo->exec('CREATE SCHEMA "'.$schema.'"');$created=true;$pdo->exec('SET search_path TO "'.$schema.'", public');
-    foreach(glob($root.'/migrations/pgsql/*.sql') as $file)if(!str_starts_with(basename($file),'0024_'))copy($file,$dir.'/'.basename($file));
+    foreach(glob($root.'/migrations/pgsql/*.sql') as $file)if(!str_starts_with(basename($file),'0024_')&&!str_starts_with(basename($file),'0025_'))copy($file,$dir.'/'.basename($file));
     $runner=new MigrationRunner($db,$dir);$runner->run();
     $actor=(string)$pdo->query("INSERT INTO users(email,name,password_hash) VALUES('reconcile@example.invalid','Reconcile','test-only') RETURNING id::text")->fetchColumn();
     $ws=(string)$pdo->query("SELECT id::text FROM workspaces WHERE slug='default'")->fetchColumn();

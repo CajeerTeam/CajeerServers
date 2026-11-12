@@ -23,7 +23,7 @@ final class CredentialProfile
         'vmmanager_api' => ['fields'=>['token'], 'optional'=>[], 'note'=>'VMmanager API token'],
         'ssh_password' => ['fields'=>['username','password'], 'optional'=>[], 'note'=>'SSH user and password'],
         'ssh_private_key' => ['fields'=>['username','private_key'], 'optional'=>['passphrase'], 'note'=>'SSH private key (PEM / OpenSSH)'],
-        'winrm' => ['fields'=>['username','password'], 'optional'=>['auth'], 'note'=>'WinRM / PowerShell credentials'],
+        'winrm' => ['fields'=>['username','password'], 'optional'=>['auth'], 'note'=>'WinRM / PowerShell credentials (0.4.5 runtime: auth=basic over verified HTTPS)'],
         'snmp_v2c' => ['fields'=>['community'], 'optional'=>[], 'note'=>'SNMP v2c community'],
         'snmp_v3' => ['fields'=>['username','auth_protocol','auth_passphrase'], 'optional'=>['privacy_protocol','privacy_passphrase'], 'note'=>'SNMPv3 authNoPriv or authPriv'],
     ];

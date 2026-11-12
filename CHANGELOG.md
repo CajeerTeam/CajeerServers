@@ -1,3 +1,10 @@
+## [0.4.5] — 2026-11-12 — SSH & WinRM Connectors
+
+- Реальные Linux SSH (password / private key, known_hosts до авторизации) и Windows WinRM (Basic только проверенный HTTPS) через Registry, Vault, rotation proof, Queue/Scheduler и Reconciliation.
+- Фиксированные read-only коллекторы: Linux Python `/proc`, `lsblk`, `ip`; Windows PowerShell/CIM через WSMan Create/Command/Receive/Delete. Секреты передаются helper только через stdin, сетевой endpoint pinning, ограничение времени и размера, без произвольных команд.
+- Миграция 0025: аппаратные данные `attributes.host_hardware`, стабильный hash machine identity, merge с ручными attributes, ручные hardware override защищены; карточка Inventory показывает данные. PostgreSQL regression добавлен в CI.
+- Локальные smoke и WinRM TLS fixture пройдены; полный SSH fixture требует установленного Paramiko, PostgreSQL и Windows staging остаются обязательными для подтверждения эксплуатации.
+
 ## [0.4.4] — 2026-11-12 — HTTP Connector & VMmanager Integration
 
 - Рабочий VMmanager 6 API v3 driver (Hosting/Infrastructure), `x-xsrf-token` из Vault, KVM/LXD, health, inspect, sync и pending rotation. DI Registry исполняет Proxmox и VMmanager; существующий Queue/Scheduler и Reconciliation работают без специальных VMmanager ветвей.

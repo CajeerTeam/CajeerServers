@@ -8,7 +8,7 @@ const auth = useAuth()
 type Asset = {
   id:string; workspace_id:string; owner_user_id:string|null; name:string; type:string; status:string;
   source:string; external_id:string|null; os_family:string|null; environment:string;
-  ip_addresses:string[]; tags:string[]; version:number; etag:string; deleted_at:string|null; updated_at:string;
+  ip_addresses:string[]; tags:string[]; attributes:Record<string,unknown>; version:number; etag:string; deleted_at:string|null; updated_at:string;
 }
 type Workspace = { id:string; name:string; role:'owner'|'manager'|'viewer' }
 type Relation = { id:string; source_asset_id:string; target_asset_id:string; kind:string }
@@ -20,6 +20,17 @@ const asset = ref<Asset|null>(null)
 const workspace = ref<Workspace|null>(null)
 const relations = ref<Relation[]>([]), interfaces = ref<Interface[]>([]), addresses = ref<Address[]>([])
 const revisions = ref<Revision[]>([]), bindings = ref<Binding[]>([])
+type HostHardware = {os_name:string;os_version:string;cpu_count:number;memory_bytes:number;disks:{name:string;size_bytes:number}[];interfaces:{name:string;addresses:string[]}[]}
+const hardware = computed<HostHardware|null>(() => {
+  const value = asset.value?.attributes?.host_hardware
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const h = value as Partial<HostHardware>
+  if (typeof h.os_name !== 'string' || typeof h.os_version !== 'string' || typeof h.cpu_count !== 'number' || typeof h.memory_bytes !== 'number') return null
+  if (!Array.isArray(h.disks) || !Array.isArray(h.interfaces)) return null
+  if (!h.disks.every(d=>d && typeof d.name==='string' && typeof d.size_bytes==='number') || !h.interfaces.every(i=>i && typeof i.name==='string' && Array.isArray(i.addresses) && i.addresses.every(a=>typeof a==='string'))) return null
+  return h as HostHardware
+})
+const gib = (bytes:number) => (bytes / 1073741824).toLocaleString('ru-RU',{maximumFractionDigits:2}) + ' ГиБ'
 const busy = ref(false), saving = ref(false), error = ref(''), notice = ref('')
 const relatedErrors = ref<string[]>([])
 const form = reactive({name:'',status:'unknown',environment:'unassigned',os_family:''})
@@ -128,6 +139,21 @@ onMounted(load)
           <div><dt>Теги</dt><dd>{{asset.tags.join(', ')||'—'}}</dd></div>
         </dl>
         <div class="inline-actions"><NuxtLink v-for="link in detailLinks" :key="link.to" :to="link.to" class="btn">{{link.title}}</NuxtLink></div>
+      </section>
+      <section v-if="hardware" class="panel">
+        <h2>Обнаруженное оборудование</h2>
+        <p class="page-subtitle">Последние принятые сведения SSH / WinRM. Интерфейсы ниже не изменяют ручной IPAM.</p>
+        <dl class="inventory-details">
+          <div><dt>ОС</dt><dd>{{ hardware.os_name }} · {{ hardware.os_version }}</dd></div>
+          <div><dt>Логические CPU</dt><dd>{{ hardware.cpu_count }}</dd></div>
+          <div><dt>RAM</dt><dd>{{ gib(hardware.memory_bytes) }}</dd></div>
+        </dl>
+        <h3>Диски</h3>
+        <ul v-if="hardware.disks.length"><li v-for="disk in hardware.disks" :key="disk.name">{{ disk.name }} · {{ gib(disk.size_bytes) }}</li></ul>
+        <p v-else class="muted">Нет обнаруженных дисков.</p>
+        <h3>Сетевые интерфейсы</h3>
+        <ul v-if="hardware.interfaces.length"><li v-for="nic in hardware.interfaces" :key="nic.name">{{ nic.name }} · {{ nic.addresses.join(', ') || 'без IP' }}</li></ul>
+        <p v-else class="muted">Нет обнаруженных интерфейсов.</p>
       </section>
       <section v-if="canEdit" class="panel">
         <h2>Редактирование объекта</h2>

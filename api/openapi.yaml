@@ -1,8 +1,8 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.4.4
-  description: 'CajeerServers 0.4.4: VMmanager 6 API v3 and shared secure HTTPS transport.'
+  version: 0.4.5
+  description: 'CajeerServers 0.4.5: SSH and WinRM read-only host inventory with trusted transports.'
 servers:
 - url: /api/v1
 security: []
@@ -6156,7 +6156,7 @@ paths:
     post:
       operationId: inspectProxmoxConnector
       summary: Выполнить discovery зарегистрированного драйвера и получить сводку Inventory
-      description: Использует одноразовый Vault grant после отдельного password+TOTP step-up; нужен связанный активный Inventory asset и две credential bindings. Секреты и сырой ответ не выдаются. TLS peer и CA проверяются. Proxmox VE и VMmanager 6 API v3 исполняются через общий Registry.
+      description: Использует одноразовый Vault grant после отдельного password+TOTP step-up; нужен связанный активный Inventory asset и две credential bindings. Секреты и сырой ответ не выдаются. TLS peer и CA проверяются. Proxmox VE, VMmanager 6, SSH и WinRM исполняются через общий Registry. SSH проверяет known_hosts; WinRM требует Basic поверх проверенного HTTPS.
       security:
       - sessionAuth: []
       parameters:
@@ -6260,7 +6260,7 @@ paths:
     post:
       operationId: syncProxmoxInventory
       summary: Выполнить discovery зарегистрированного драйвера и атомарно синхронизировать Inventory
-      description: Требует MFA grant и permissions inventory.assets.create/update. Импортирует данные Proxmox или VMmanager 6 в PostgreSQL через ReconciliationService и HistoryService с устойчивыми external_id и provenance. Ничего не удаляет при исчезновении объекта.
+      description: Требует MFA grant и permissions inventory.assets.create/update. Импортирует данные Proxmox, VMmanager 6, SSH или WinRM в PostgreSQL через ReconciliationService и HistoryService с устойчивыми external_id и provenance. Ничего не удаляет при исчезновении объекта.
       security:
       - sessionAuth: []
       parameters:

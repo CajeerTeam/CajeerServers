@@ -1,0 +1,2 @@
+# Install into an operator-owned virtual environment, not the PHP web root.
+paramiko>=5.0.1,<6
