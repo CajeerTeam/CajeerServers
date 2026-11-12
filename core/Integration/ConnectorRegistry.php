@@ -6,6 +6,7 @@ use Cajeer\Servers\Connector\ConnectorInterface;
 use Cajeer\Servers\Connector\ConnectorManifest;
 use Cajeer\Servers\Connector\ConnectorContext;
 use Cajeer\Servers\Connector\ConnectorResult;
+use Cajeer\Servers\Connector\ConnectorTransportException;
 use Cajeer\Servers\Http\Exception\HttpException;
 use LogicException;
 
@@ -34,6 +35,7 @@ final class ConnectorRegistry
         $manifest=$driver->manifest();
         if (!$manifest->accepts($context->credentialType,$purpose)) throw new HttpException(403,'Credential not supported by driver.','permission_denied');
         try { return $driver->execute($context,$operation,$secret)->validated($manifest); }
+        catch (ConnectorTransportException $e) { throw new HttpException(502,$e->getMessage(),$e->category); }
         catch (\Throwable) { throw new HttpException(502,'Remote connector operation failed.','connector_failed'); }
     }
     /** @return array<string,ConnectorManifest> */

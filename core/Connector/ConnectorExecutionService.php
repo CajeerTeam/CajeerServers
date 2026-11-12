@@ -232,12 +232,13 @@ final class ConnectorExecutionService
                 $queue->succeed($r,$current['result']??['status'=>$current['status']]);
                 return ['id'=>$r->job->id,'status'=>$current['status']];
             }
-            $terminal=$e instanceof HttpException && $e->status<500 && $e->status!==429 && $e->status!==409;
+            $remoteAuth=$e instanceof HttpException && $e->errorCode==='connector_auth_failed';
+            $terminal=$remoteAuth || ($e instanceof HttpException && $e->status<500 && $e->status!==429 && $e->status!==409);
             if ($terminal || $r->attempt >= $r->job->maxAttempts) {
-                $this->db->transaction(function(PDO $pdo)use($r,$terminal):void {
+                $this->db->transaction(function(PDO $pdo)use($r,$terminal,$remoteAuth):void {
                     $q=$this->query($pdo,"SELECT 1 FROM queue_jobs WHERE id=:id AND lease_token=:receipt AND status='running' AND reserved_until>clock_timestamp() FOR UPDATE",['id'=>$r->job->id,'receipt'=>$r->receipt]);
                     if (!$q->fetchColumn()) return;
-                    $code=$terminal?'authorization_denied':'execution_failed';
+                    $code=$remoteAuth?'connector_auth_failed':($terminal?'authorization_denied':'execution_failed');
                     $changed=$this->query($pdo,'UPDATE connector_runs SET finished_at=clock_timestamp(),error_code=:code WHERE id=:id AND finished_at IS NULL',['id'=>$r->job->id,'code'=>$code]);
                     if ($changed->rowCount()===1) {
                         $run=$this->runRow($pdo,$r->job->id); $grant=$this->grant($pdo,$run['grant_id']);

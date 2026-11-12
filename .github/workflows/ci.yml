@@ -28,6 +28,10 @@ jobs:
           node-version: '22'
       - name: Native PHP + Admin static verification
         run: php scripts/verify-release.php
+      - name: Connector HTTPS protocol integration
+        run: |
+          python3 tests/connector-https-integration.py
+          python3 tests/vmmanager-https-integration.py
       - name: Verify dependency lockfiles are present
         run: |
           test -s composer.lock
@@ -93,6 +97,7 @@ jobs:
           php tests/vault-rotation-postgres-integration.php
           php tests/vault-bindings-postgres-integration.php
           php tests/connector-reconciliation-postgres-integration.php
+          python3 tests/vmmanager-https-integration.py --postgres
       - name: PostgreSQL client version for encrypted backup/restore
         run: |
           # Match the postgres:18 service. A missing client must fail the integration job.

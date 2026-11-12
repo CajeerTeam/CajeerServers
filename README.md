@@ -1,6 +1,10 @@
 # CajeerServers
 
-**CajeerServers** — русскоязычная self-hosted веб-оболочка для наблюдения и управления инфраструктурой. Это **не ОС**, не прошивка и не замена Proxmox/VMmanager. В 0.4.0 добавлена реальная серверная проверка ожидающей версии Credentials Vault через Proxmox с MFA и блокировкой активации без proof; в 0.3.9 добавлена работающая админ-панель Credentials Vault с browser E2E для изолированного staging; в 0.3.8 добавлены шифрованные CLI-backups и offline recovery; в 0.3.7 реализована read-only интеграция Proxmox VE через HTTPS; остальные коннекторы находятся на других стадиях реализации.
+**CajeerServers** — русскоязычная self-hosted веб-оболочка для наблюдения и управления инфраструктурой. Это **не ОС**, не прошивка и не замена Proxmox/VMmanager. В 0.4.0 добавлена реальная серверная проверка ожидающей версии Credentials Vault через Proxmox с MFA и блокировкой активации без proof; в 0.3.9 добавлена работающая админ-панель Credentials Vault с browser E2E для изолированного staging; в 0.3.8 добавлены шифрованные CLI-backups и offline recovery; в 0.3.7 реализована read-only интеграция Proxmox VE через HTTPS; в 0.4.4 добавлена read-only интеграция VMmanager 6; остальные коннекторы находятся на других стадиях реализации.
+
+## Версия 0.4.4 — HTTP Connector & VMmanager Integration
+
+Второй рабочий драйвер VMmanager 6 (API v3, Hosting/Infrastructure, KVM/LXD): HTTPS token auth, health, пагинированный discovery, inspect/sync, Vault pending rotation, service grants и Scheduler. Оба драйвера используют один защищённый transport, общий Reconciliation Engine и существующие маршруты. [Установка, безопасность, API и тесты](docs/HTTP-VMmanager-Integration-0.4.4.md).
 
 ## Версия 0.4.3 — Discovery, Sync & Reconciliation
 
@@ -37,7 +41,7 @@ php scripts/verify-release.php
 node admin/tests/static-check.mjs
 ```
 
-[Инструкция по настоящему подключению Proxmox и Inventory](docs/Proxmox-Workspace-Inventory-0.3.7.md). Внешние коннекторы VMmanager/SSH/WinRM/SNMP ещё **не реализованы для удалённого исполнения**; для них доступны только metadata bindings. PostgreSQL integration, Nuxt build и браузерный E2E требуют проверки на отдельном staging; наличие исходного кода тестов не означает их прохождения.
+[Инструкция по настоящему подключению Proxmox и Inventory](docs/Proxmox-Workspace-Inventory-0.3.7.md). В версии 0.3.7 внешние коннекторы VMmanager/SSH/WinRM/SNMP ещё не были реализованы для удалённого исполнения; VMmanager добавлен в 0.4.4. PostgreSQL integration, Nuxt build и браузерный E2E требуют проверки на отдельном staging; наличие исходного кода тестов не означает их прохождения.
 
 ## Версия 0.3.0 — Inventory / CMDB Stable Integration
 

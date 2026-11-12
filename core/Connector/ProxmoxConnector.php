@@ -138,10 +138,13 @@ final class ProxmoxConnector implements ConnectorInterface
             $body=($this->https??new HttpsTransport())->get($host,$port,$path,$authorization,$caFile);
         }
         if (!is_string($body) || strlen($body)>self::MAX_RESPONSE) throw new RuntimeException('Invalid remote response size.');
-        try {$decoded=json_decode($body,true,64,JSON_THROW_ON_ERROR);}catch(\JsonException){throw new RuntimeException('Invalid remote JSON.');}
-        if (!is_array($decoded) || !array_key_exists('data',$decoded) || !is_array($decoded['data']) || !array_is_list($decoded['data'])) {
+        $decoded=HttpsTransport::jsonObject($body);
+        if (!isset($decoded->data) || !is_array($decoded->data)) {
             throw new RuntimeException('Unexpected Proxmox API response.');
         }
-        return $decoded['data'];
+        return array_map(static function(mixed $row):array {
+            if (!$row instanceof \stdClass) throw new ConnectorTransportException('connector_protocol_error');
+            return (array)$row;
+        },$decoded->data);
     }
 }

@@ -60,6 +60,7 @@ use Cajeer\Servers\Connector\ConnectorBindingController;
 use Cajeer\Servers\Connector\ConnectorRuntimeService;
 use Cajeer\Servers\Connector\ConnectorExecutionService;
 use Cajeer\Servers\Connector\ProxmoxConnector;
+use Cajeer\Servers\Connector\VmmanagerConnector;
 use Cajeer\Servers\Connector\EndpointPolicy;
 use Cajeer\Servers\Connector\HttpsTransport;
 use Cajeer\Servers\Integration\ConnectorRegistry;
@@ -297,7 +298,9 @@ final class Application
         $this->services->singleton(HttpsTransport::class, fn (ServiceContainer $c): HttpsTransport => new HttpsTransport($c->get(EndpointPolicy::class)));
         $this->services->singleton(ProxmoxConnector::class, fn (ServiceContainer $c): ProxmoxConnector => new ProxmoxConnector(
             null,($ca=$c->get(ConfigRepository::class)->get('connectors.proxmox_ca_file',''))!==''?(string)$ca:null,$c->get(HttpsTransport::class)));
-        $this->services->singleton(ConnectorRegistry::class, fn (ServiceContainer $c): ConnectorRegistry => new ConnectorRegistry($c->get(ProxmoxConnector::class)));
+        $this->services->singleton(VmmanagerConnector::class, fn (ServiceContainer $c): VmmanagerConnector => new VmmanagerConnector(
+            $c->get(HttpsTransport::class),($ca=$c->get(ConfigRepository::class)->get('connectors.vmmanager_ca_file',''))!==''?(string)$ca:null));
+        $this->services->singleton(ConnectorRegistry::class, fn (ServiceContainer $c): ConnectorRegistry => new ConnectorRegistry($c->get(ProxmoxConnector::class),$c->get(VmmanagerConnector::class)));
         $this->services->singleton(ConnectorRuntimeService::class, fn (ServiceContainer $c): ConnectorRuntimeService => new ConnectorRuntimeService(
             $c->get(DatabaseManager::class),$c->get(InventoryRepository::class),$c->get(ConnectorBindingService::class),
             $c->get(SecretAccessService::class),$c->get(HistoryService::class),$c->get(AuditLogger::class),

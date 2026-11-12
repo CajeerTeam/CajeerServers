@@ -1,3 +1,9 @@
+## [0.4.4] — 2026-11-12 — HTTP Connector & VMmanager Integration
+
+- Рабочий VMmanager 6 API v3 driver (Hosting/Infrastructure), `x-xsrf-token` из Vault, KVM/LXD, health, inspect, sync и pending rotation. DI Registry исполняет Proxmox и VMmanager; существующий Queue/Scheduler и Reconciliation работают без специальных VMmanager ветвей.
+- Keyset pagination до исчерпания списков node/host, проверка порядка/дубликатов, parent identity и лимитов; stable numeric IDs, fail-closed при ошибках, без записи raw remote response. Общий HTTPS transport поддерживает оба заголовка, отдельный CA VMmanager, строгий JSON envelope, контроль длины и безопасную классификацию ошибок. Auth failure worker не повторяет.
+- Admin UI использует существующий driver catalog и Vault-профили; OpenAPI/CLI/version обновлены. Новых зависимостей и миграций нет. Native regression и оба локальных HTTPS tests прошли. PostgreSQL/Vault/Queue fixture test включён в CI, но требует live DB; настоящий VMmanager, Nuxt build и E2E требуют staging.
+
 ## [0.4.3] — 2026-11-12 — Discovery, Sync & Reconciliation
 
 - Реальный общий reconciliation для ручных и фоновых connector runs: устойчивые mapping, migration 0024 без смены UUID, preview, полные/частичные snapshots, generation fencing, транзакционная история.

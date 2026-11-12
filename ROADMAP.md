@@ -571,4 +571,11 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 - [x] Name conflicts, явная привязка ручного asset / отдельное создание, HistoryService и UI.
 - [x] PostgreSQL migration 0024, native smoke и live DB integration scenario.
 - [ ] Подтвердить live PostgreSQL, настоящий Proxmox, Nuxt build и browser E2E на staging.
-- [ ] 0.4.4 — HTTP Connector & VMmanager Integration.
+### 0.4.4 — HTTP Connector & VMmanager Integration (рабочий код)
+
+- [x] Реальный VMmanager 6 API v3 драйвер, KVM/LXD, token auth и отдельный CA.
+- [x] Общий HTTPS transport, keyset pagination, проверка malformed/truncated responses, стабильные identities и безопасные ошибки.
+- [x] Registry, Reconciliation, Vault rotation, фоновые service grants/Queue/Scheduler и существующий Admin UI.
+- [x] Native smoke и настоящий локальный TLS fixture; PostgreSQL chain добавлен в CI.
+- [ ] Подтвердить PostgreSQL, реальную VMmanager 6 установку и production build/E2E на staging.
+- [ ] 0.4.5 — SSH & WinRM Connectors.

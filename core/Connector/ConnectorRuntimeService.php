@@ -46,16 +46,9 @@ final class ConnectorRuntimeService
         $actor=$principal['user']['id']??null;
         if (!is_string($actor)) throw new HttpException(403,'Invalid session.','session_required');
         $target=$this->bindings->runtimeContext($actor,$targetId,$version,'validate_rotation');
-        $items=[];
-        try {
-            $this->access->consumePendingForAsset($principal,$target['asset_id'],$target['credential_id'],$target['purpose'],
-                $revision,function(string $secret,string $type) use($target,&$items):void {
-                    $items=$this->execute($target,'validate_rotation',$type,$secret)->items;
-                },$requestId);
-        } catch (Throwable $e) {
-            if ($e instanceof HttpException) throw $e;
-            throw new HttpException(502,'Pending credential failed remote connector validation.','connector_validation_failed');
-        }
+        $snapshot=$this->discoverWithGrant($target,'validate_rotation',
+            fn(callable $consumer)=>$this->access->consumePendingForAsset($principal,$target['asset_id'],$target['credential_id'],$target['purpose'],$revision,$consumer,$requestId));
+        $items=$snapshot->items;
         $proof=$this->versions->markValidated($actor,$target['credential_id'],$revision,
             $target['credential_version'],$targetId,$version,$requestId);
         return ['validated'=>true,'connector_id'=>$targetId,'credential_id'=>$target['credential_id'],
@@ -90,19 +83,12 @@ final class ConnectorRuntimeService
     {
         if (!in_array($operation,['inspect','sync','health'],true)) throw new HttpException(422,'Unsupported background operation.','validation_failed');
         $targetId=$target['id']; $version=$target['version']; $sync=$operation==='sync';
-        $items=[]; $started=microtime(true); $snapshot=null;
+        $started=microtime(true);
         $reconciliation=$this->reconciliation();
         $generation=$sync?$reconciliation->generation($this->db->connection()):0;
         $observedAt=$sync?(string)$this->db->connection()->query("SELECT to_char(clock_timestamp() AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"')")->fetchColumn():'';
-        try {
-            $consume(function(string $secret,string $type) use ($target,&$items,&$snapshot,$operation):void {
-                $snapshot=$this->execute($target,$operation,$type,$secret);
-                $items=$snapshot->items;
-            });
-        } catch (Throwable $e) {
-            if ($e instanceof HttpException) throw $e;
-            throw new HttpException(502,'Connector discovery failed. Check the remote API and trusted TLS CA.','connector_failed');
-        }
+        $snapshot=$this->discoverWithGrant($target,$operation,$consume);
+        $items=$snapshot->items;
         if ($sync && count($items)===0) {
             // An empty API result may be a temporary failure; never modify CMDB on empty discovery.
             throw new HttpException(409,'Remote inventory is empty. No changes were applied.','empty_inventory');
@@ -113,7 +99,6 @@ final class ConnectorRuntimeService
             || $current['credential_version']!==$target['credential_version']) {
             throw new HttpException(409,'Connector binding changed during discovery.','conflict');
         }
-        if (!$snapshot instanceof ConnectorResult) throw new HttpException(502,'No discovery result.','connector_failed');
         $summary=$snapshot->summary($this->registry->require($target['provider'],$operation)->manifest());
         if (!$sync) {
             $result=$operation==='health' ? (new ConnectorHealth($targetId,(int)round((microtime(true)-$started)*1000)))->toArray()
@@ -164,6 +149,28 @@ final class ConnectorRuntimeService
             return $this->reconciliation()->resolve($pdo,$actor,$target,$external,$generation,$assetId,$requestId);
         });
     }
+    /** The Vault consumer deliberately sanitizes callback failures. Preserve only the
+     * already-sanitized registry outcome, not an exception trace or remote response. */
+    private function discoverWithGrant(array $target,string $operation,callable $consume):ConnectorResult
+    {
+        $result=null; $failure=null;
+        try {
+            $consume(function(#[\SensitiveParameter] string $secret,string $type)use($target,$operation,&$result,&$failure):void {
+                try { $result=$this->execute($target,$operation,$type,$secret); }
+                catch (HttpException $e) {
+                    $failure=[$e->status,$e->getMessage(),$e->errorCode];
+                    throw $e; // Vault still audits the failed trusted consumer.
+                }
+            });
+        } catch (Throwable $e) {
+            if ($failure!==null) throw new HttpException(...$failure);
+            if ($e instanceof HttpException) throw $e;
+            throw new HttpException(502,'Remote connector operation failed.','connector_failed');
+        }
+        if (!$result instanceof ConnectorResult) throw new HttpException(502,'No discovery result.','connector_failed');
+        return $result;
+    }
+
     private function execute(array $target,string $operation,string $type,#[\SensitiveParameter] string $secret): ConnectorResult
     {
         try {
@@ -172,11 +179,12 @@ final class ConnectorRuntimeService
             if ($type!==$target['credential_type'] || !$manifest->accepts($type,$target['purpose']))
                 throw new \RuntimeException('Credential type changed.');
             $context=new ConnectorContext($target['provider'],$target['endpoint_host'],$target['endpoint_port'],$type);
-            return $this->registry->execute($context,$operation,$target['purpose'],$secret);
         } catch (Throwable) {
             // No driver exception, request header or remote response body reaches HTTP or logs.
             throw new HttpException(502,'Remote connector operation failed.','connector_failed');
         }
+        // Registry sanitizes every driver error; keep finite transport classification for callers.
+        return $this->registry->execute($context,$operation,$target['purpose'],$secret);
     }
 
     public function health(array $principal,string $targetId,int $version,?string $requestId=null):array
@@ -185,10 +193,8 @@ final class ConnectorRuntimeService
         if (!is_string($actor)) throw new HttpException(403,'Invalid session.','session_required');
         $target=$this->bindings->runtimeContext($actor,$targetId,$version,'health');
         $started=microtime(true);
-        try {
-            $this->access->consumeForAsset($principal,$target['asset_id'],$target['credential_id'],$target['purpose'],
-                function(string $secret,string $type) use($target):void { $this->execute($target,'health',$type,$secret); },$requestId);
-        } catch (HttpException $e) { throw $e; } catch (Throwable) { throw new HttpException(502,'Remote connector health check failed.','connector_failed'); }
+        $this->discoverWithGrant($target,'health',
+            fn(callable $consumer)=>$this->access->consumeForAsset($principal,$target['asset_id'],$target['credential_id'],$target['purpose'],$consumer,$requestId));
         $latest=$this->bindings->runtimeContext($actor,$targetId,$version,'health');
         if ($latest['credential_id']!==$target['credential_id'] || $latest['credential_version']!==$target['credential_version'])
             throw new HttpException(409,'Connector binding changed during health check.','conflict');
