@@ -12,5 +12,5 @@ final readonly class CollectionPlan
         if (!preg_match('/^[a-z][a-z0-9_.-]{0,63}$/D',$collector) || !in_array($operation,['inspect','sync'],true))
             throw new HttpException(422,'Invalid collection plan.','collection_invalid');
     }
-    public function sink(): string { return $this->operation==='sync'?'inventory':'result'; }
+    public function sink(): string { return str_ends_with($this->collector,'.metrics')?'metrics':($this->operation==='sync'?'inventory':'result'); }
 }

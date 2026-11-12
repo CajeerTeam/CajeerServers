@@ -1,3 +1,9 @@
+## [0.5.6] — 2026-11-12 — Metrics Scraping & Time-Series Storage
+
+- Реальные метрики через шесть именованных collectors, безопасный HTTPS /metrics.
+- PostgreSQL partitioned samples, атомарная запись, range queries, aggregates, counter rate и retention.
+- Admin UI, SDK, migration 0033 и тесты.
+
 ## [0.5.5] — 2026-11-12 — Collection Jobs, History & Scheduling
 
 - Persistent collection plans and dedicated MFA-scoped grants; interval/cron/timezone schedules and optional dispatch jitter.

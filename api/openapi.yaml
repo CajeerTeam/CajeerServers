@@ -1,8 +1,8 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.5.5
-  description: 'CajeerServers 0.5.5: durable collection plans, scheduled jobs and attempt history.'
+  version: 0.5.6
+  description: 'CajeerServers 0.5.6: metrics scraping, time series and scheduled collection.'
 servers:
 - url: /api/v1
 security: []
@@ -5273,6 +5273,78 @@ paths:
           description: State conflict
         '422':
           description: Invalid input
+  /connectors/targets/{id}/metric-series:
+    get:
+      operationId: listMetricSeries
+      security: [{sessionAuth: []}]
+      description: Workspace-scoped series for this target; requires connectors.targets.read and inventory.assets.read.
+      parameters:
+      - {name: id, in: path, required: true, schema: {type: string, format: uuid}}
+      - {name: metric, in: query, schema: {type: string, maxLength: 128}}
+      - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 100}}
+      - {name: offset, in: query, schema: {type: integer, minimum: 0, maximum: 10000, default: 0}}
+      responses:
+        '200':
+          description: Metric series metadata (no credentials).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: {$ref: '#/components/schemas/MetricSeries'}
+        '401': {description: Session required}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {description: Target not found}
+        '422': {description: Invalid filter}
+  /connectors/targets/{id}/metric-series/{seriesId}/samples:
+    get:
+      operationId: queryMetricSamples
+      security: [{sessionAuth: []}]
+      description: Half-open UTC range up to 30 days; maximum 2000 points. Decimal values are strings to preserve precision. Rate uses observed counter deltas, treating decreases as resets.
+      parameters:
+      - {name: id, in: path, required: true, schema: {type: string, format: uuid}}
+      - {name: seriesId, in: path, required: true, schema: {type: string, format: uuid}}
+      - {name: from, in: query, required: true, schema: {type: string, format: date-time}}
+      - {name: to, in: query, required: true, schema: {type: string, format: date-time}}
+      - {name: aggregation, in: query, schema: {type: string, enum: [raw, avg, min, max, count, rate], default: raw}}
+      - {name: step, in: query, schema: {type: integer, minimum: 1, maximum: 86400, default: 60}}
+      responses:
+        '200':
+          description: Bounded time-series query result.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [series, aggregation, points]
+                    properties:
+                      series:
+                        type: object
+                        properties:
+                          id: {type: string, format: uuid}
+                          metric: {type: string}
+                          kind: {type: string, enum: [gauge, counter]}
+                          unit: {type: [string, 'null']}
+                      aggregation: {type: string, enum: [raw, avg, min, max, count, rate]}
+                      points:
+                        type: array
+                        maxItems: 2000
+                        items:
+                          type: object
+                          required: [timestamp, value]
+                          properties:
+                            timestamp: {type: string, format: date-time}
+                            value: {type: string}
+        '401': {description: Session required}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {description: Series or target not found}
+        '422': {description: Invalid range, aggregation or query limit exceeded}
   /connectors/targets/{id}/collection-plans:
     get:
       operationId: listCollectionPlans
@@ -6206,7 +6278,7 @@ paths:
         description: Literal case-insensitive substring of name or endpoint host
       - name: provider
         in: query
-        schema: {type: string, enum: [proxmox, vmmanager, ssh, winrm, snmp, custom]}
+        schema: {type: string, enum: [proxmox, vmmanager, ssh, winrm, snmp, custom, prometheus]}
       - name: state
         in: query
         schema: {type: string, enum: [active, disabled]}
@@ -9132,13 +9204,26 @@ paths:
               additionalProperties: false
 components:
   schemas:
+    MetricSeries:
+      type: object
+      required: [id, asset_id, target_version, metric, resource_external_id, labels, kind, unit, last_seen_at]
+      properties:
+        id: {type: string, format: uuid}
+        asset_id: {type: string, format: uuid}
+        target_version: {type: integer, minimum: 1}
+        metric: {type: string}
+        resource_external_id: {type: string}
+        labels: {type: object, additionalProperties: {type: string}}
+        kind: {type: string, enum: [gauge, counter]}
+        unit: {type: [string, 'null']}
+        last_seen_at: {type: string, format: date-time}
     ConnectorTargetWithHealth:
       type: object
       required: [id, workspace_id, provider, name, endpoint_host, endpoint_port, state, version, etag, health_status, health_checked_at, health_success_at, health_duration_ms, health_error_code, circuit_open_until, consecutive_failures]
       properties:
         id: {type: string, format: uuid}
         workspace_id: {type: string, format: uuid}
-        provider: {type: string, enum: [proxmox, vmmanager, ssh, winrm, snmp, custom]}
+        provider: {type: string, enum: [proxmox, vmmanager, ssh, winrm, snmp, custom, prometheus]}
         name: {type: string}
         endpoint_host: {type: string}
         endpoint_port: {type: integer, minimum: 1, maximum: 65535}

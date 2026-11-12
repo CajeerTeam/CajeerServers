@@ -118,7 +118,7 @@ final class ConnectorBindingService
         $pdo=$this->db->connection();$this->inventory->workspaceRole($pdo,$workspace,$actor);
         $filters='';$params=[];
         if ($search!==null && $search!=='') { $search=self::validateName($search);$filters.=' AND (strpos(lower(t.name),lower(:search_name))>0 OR strpos(lower(t.endpoint_host),lower(:search_host))>0)';$params[':search_name']=$search;$params[':search_host']=$search; }
-        if ($provider!==null && $provider!=='') {if (!in_array($provider,['proxmox','vmmanager','ssh','winrm','snmp','custom'],true)) throw new HttpException(422,'Invalid provider filter.','validation_failed');$filters.=' AND t.provider=:provider';$params[':provider']=$provider;}
+        if ($provider!==null && $provider!=='') {if (!in_array($provider,BindingPolicy::PROVIDERS,true)) throw new HttpException(422,'Invalid provider filter.','validation_failed');$filters.=' AND t.provider=:provider';$params[':provider']=$provider;}
         if ($state!==null && $state!=='') {if (!in_array($state,['active','disabled'],true)) throw new HttpException(422,'Invalid state filter.','validation_failed');$filters.=' AND t.state=:state';$params[':state']=$state;}
         $q=$pdo->prepare('SELECT t.id::text,t.workspace_id::text,t.provider,t.name,t.endpoint_host,t.endpoint_port,t.asset_id::text,t.state,t.version,t.created_at::text,t.updated_at::text,h.health_status,h.health_checked_at::text,h.health_success_at::text,h.health_duration_ms,h.health_error_code,h.circuit_open_until::text,h.consecutive_failures FROM connector_targets t JOIN connector_health_current h ON h.target_id=t.id WHERE t.workspace_id=CAST(:ws AS uuid)'.$filters.' ORDER BY t.created_at DESC,t.id DESC LIMIT :limit OFFSET :offset');
         foreach ($params as $key=>$value) $q->bindValue($key,$value,PDO::PARAM_STR);
@@ -189,6 +189,8 @@ final class ConnectorBindingService
             $stmt=$pdo->prepare("SELECT 1 FROM connector_actions WHERE target_id=:id AND status IN ('dispatching','submitted','unknown') LIMIT 1");
             $stmt->execute(['id'=>$id]);
             if ($stmt->fetchColumn())throw new HttpException(409,'Resolve outstanding connector actions before deletion.','action_unresolved');
+            $stmt=$pdo->prepare('SELECT 1 FROM metric_series WHERE target_id=:id LIMIT 1');$stmt->execute(['id'=>$id]);
+            if($stmt->fetchColumn())throw new HttpException(409,'Disable the connector; retained metric series still reference it.','conflict');
             $stmt=$pdo->prepare('DELETE FROM connector_targets WHERE id=CAST(:id AS uuid) AND version=:version');
             $stmt->execute(['id'=>$id,'version'=>$version]);
             if ($stmt->rowCount()!==1)throw new HttpException(412,'Connector changed.','precondition_failed');

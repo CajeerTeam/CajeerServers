@@ -54,7 +54,7 @@ putenv('APP_ENV=local');putenv('APP_URL=http://127.0.0.1:8080');
 $app=(new Application(dirname(__DIR__)))->boot();
 try {
     $live=$app->container()->get(ConnectorRegistry::class);
-    $ok(array_keys($live->manifests())===['proxmox','vmmanager','ssh','winrm','snmp'],'DI registers only working drivers');
+    $ok(array_keys($live->manifests())===['proxmox','vmmanager','ssh','winrm','snmp','prometheus'],'DI registers only working drivers');
     foreach([['GET','/api/v1/connectors/drivers'],['POST','/api/v1/connectors/targets/11111111-1111-4111-8111-111111111111/health']] as [$method,$path]){
         $response=$app->handle(new HttpRequest($method,$path));$ok(in_array($response->status,[401,503],true),'authenticated API only');
     }

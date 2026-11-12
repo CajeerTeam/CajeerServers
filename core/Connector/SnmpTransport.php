@@ -62,6 +62,23 @@ final class SnmpTransport
         $bytes='';foreach($parts as $v){if(!ctype_digit($v)||(int)$v>255)self::bad();$bytes.=chr((int)$v);}
         $ip=inet_ntop($bytes);if($ip===false)self::bad();return $ip;
     }
+    public function metrics(ConnectorContext $context,#[\SensitiveParameter] array $credential):array
+    {
+        if($context->provider!=='snmp'||!in_array($context->credentialType,$this->credentialTypes(),true))throw new ConnectorTransportException('connector_auth_failed');
+        if($context->credentialType==='snmp_v3'&&($credential['privacy_protocol']??null)!=='aes128')throw new ConnectorTransportException('connector_auth_failed');
+        $ip=$this->policy->resolve($context->host);$session=$this->factory!==null?($this->factory)($ip,$context->port,$context->credentialType,$credential):new SnmpSession($ip,$context->port,$context->credentialType,$credential);
+        $deadline=microtime(true)+45;$out=[];
+        try{
+            $uptime=$session->get('.1.3.6.1.2.1.1.3.0');if(!preg_match('/^[0-9]{1,10}$/D',$uptime)|| (float)$uptime>4294967295)self::bad();
+            $out[]=\Cajeer\Servers\Metrics\MetricBatch::sample('snmp.uptime',(float)$uptime/100,'device',[],'gauge','seconds');
+            foreach(['.1.3.6.1.2.1.31.1.1.1.6'=>'snmp.interface.receive','.1.3.6.1.2.1.31.1.1.1.10'=>'snmp.interface.transmit'] as $oid=>$metric){
+                foreach(self::walk($session,$oid,$deadline) as $idx=>$value){$idx=self::index((string)$idx);if(!preg_match('/^(?:0|[1-9][0-9]{0,19})$/D',$value)||(strlen($value)===20&&strcmp($value,'18446744073709551615')>0))self::bad();
+                    $out[]=\Cajeer\Servers\Metrics\MetricBatch::sample($metric,$value,'device',['if_index'=>(string)$idx],'counter','bytes');}
+            }
+            foreach(['.1.3.6.1.2.1.2.2.1.14'=>'snmp.interface.receive_errors','.1.3.6.1.2.1.2.2.1.20'=>'snmp.interface.transmit_errors'] as $oid=>$metric){foreach(self::walk($session,$oid,$deadline) as $idx=>$value){$idx=self::index((string)$idx);if(!preg_match('/^[0-9]{1,10}$/D',$value)||(float)$value>4294967295)self::bad();$out[]=\Cajeer\Servers\Metrics\MetricBatch::sample($metric,$value,'device',['if_index'=>(string)$idx],'counter','errors');}}
+            return $out;
+        }finally{$session->close();}
+    }
     public function collect(ConnectorContext $context,#[\SensitiveParameter] array $credential,bool $probe):array
     {
         if ($context->provider!=='snmp'||!in_array($context->credentialType,$this->credentialTypes(),true)) throw new ConnectorTransportException('connector_auth_failed');

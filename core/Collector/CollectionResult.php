@@ -17,6 +17,6 @@ final readonly class CollectionResult
     public function toArray():array
     {
         return ['schema_version'=>1,'collector'=>$this->plan->collector,'sink'=>$this->plan->sink(),'observed_at'=>$this->observedAt,
-            'complete'=>$this->snapshot->complete,'count'=>count($this->snapshot->items),'observations'=>$this->snapshot->items];
+            'complete'=>$this->snapshot->complete,'count'=>count($this->snapshot->items)+count($this->snapshot->metricSamples),'observations'=>$this->snapshot->items,...($this->snapshot->metricSamples===[]?[]:['metric_samples'=>\Cajeer\Servers\Metrics\MetricBatch::normalize($this->snapshot->metricSamples,$this->observedAt)])];
     }
 }

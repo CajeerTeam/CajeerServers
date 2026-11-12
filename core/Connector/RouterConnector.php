@@ -5,11 +5,16 @@ namespace Cajeer\Servers\Connector;
 use Cajeer\Servers\Credentials\CredentialProfile;
 
 /** One network appliance per target. Interface indices are attributes, not global asset identities. */
-final class RouterConnector implements ConnectorInterface
+final class RouterConnector implements ConnectorInterface, \Cajeer\Servers\Metrics\MetricDriver
 {
     public function __construct(private readonly SnmpTransport $transport) {}
     public function manifest():ConnectorManifest
     {return new ConnectorManifest('snmp','snmp',$this->transport->credentialTypes(),ConnectorManifest::OPERATIONS,['router'],'snmp');}
+    public function metrics(ConnectorContext $context,#[\SensitiveParameter] string $secret):array
+    {
+        $credential=CredentialProfile::decodeForInternalUse($context->credentialType,$secret);
+        try{return $this->transport->metrics($context,$credential);}finally{foreach($credential as &$value)if(is_string($value))sodium_memzero($value);unset($value);}
+    }
     public function execute(ConnectorContext $context,string $operation,#[\SensitiveParameter] string $secret):ConnectorResult
     {
         if (!$this->manifest()->supports($operation)||!$this->manifest()->accepts($context->credentialType,'snmp')) throw new ConnectorTransportException('connector_auth_failed');

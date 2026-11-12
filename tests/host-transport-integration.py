@@ -22,6 +22,7 @@ TRANSFER = 'http://schemas.xmlsoap.org/ws/2004/09/transfer/'
 TAG = lambda ns, name: '{' + ns + '}' + name
 SHELL_ID = str(uuid.uuid4())
 CMD_ID = str(uuid.uuid4())
+METRICS={'identity':'aabbccdd-eeff-0011-2233-445566778899','cpu_ratio':0.35,'memory_total':8192,'memory_available':4096,'disk_total':1000,'disk_available':500,'network':[{'name':'NIC','rx':'18446744073709551615','tx':'100'}]}
 DATA = {'identity':'aabbccdd-eeff-0011-2233-445566778899','name':'win-test','os_family':'windows','os_name':'Windows Server','os_version':'10.0','cpu_count':4,'memory_bytes':8589934592,'disks':[{'name':'Disk0','size_bytes':123456}], 'interfaces':[{'name':'NIC','addresses':['192.0.2.1','2001:db8::1']}]}
 
 
@@ -56,12 +57,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
             args=root.findtext('.//'+TAG(SHELL,'Arguments'))
             code=base64.b64decode(args.split()[-1]).decode('utf-16-le')
             assert 'Get-CimInstance' in code and 'fixture-secret' not in code and 'EncodedCommand' in args
+            server.metrics='Win32_PerfFormattedData_PerfOS_Processor' in code
             ET.SubElement(body,TAG(SHELL,'CommandId')).text=CMD_ID
         elif action==SHELL+'/Receive':
             assert root.find('.//'+TAG(SHELL,'DesiredStream')).get('CommandId')==CMD_ID
             if server.mode=='bad-output': payload=b'{bad-json'
             elif server.mode=='oversize': payload=b'x'*270000
-            else: payload=json.dumps(DATA).encode()
+            else: payload=json.dumps(METRICS if server.metrics else DATA).encode()
             # Exercise multiple Receive calls and stream assembly.
             server.receives+=1
             done=server.receives%2==0 or server.mode!='ok'
@@ -89,6 +91,7 @@ def https_test(tmp):
         out=execute('winrm',port,cred,ca=str(cert));assert out['complete'] and out['items'][0]['fields']['attributes']['host_hardware']['cpu_count']==4, out
         assert server.actions[-1]==TRANSFER+'Delete' and server.receives==2
         out=execute('winrm',port,cred,ca=str(cert),collector='winrm.inventory');assert out['complete'] and out['items'][0]['fields']['attributes']['host_hardware']['cpu_count']==4, out
+        out=execute('winrm',port,cred,ca=str(cert),collector='winrm.metrics',operation='inspect');assert len(out['metric_samples'])==7 and out['metric_samples'][5]['value']=='18446744073709551615',out
         out=execute('winrm',port,cred,ca=str(cert),operation='health');assert not out['complete'],out
         assert execute('winrm',port,cred)['error']=='connector_trust_failed'
         assert execute('winrm',port,cred,ca=str(cert),host='127.0.0.1')['error']=='connector_trust_failed'
@@ -102,7 +105,7 @@ def https_test(tmp):
         assert execute('winrm',port,cred,ca=str(cert),networks=['192.0.2.0/24'])['error']=='connector_trust_failed'
     finally:
         server.shutdown();server.server_close();thread.join()
-    print('WinRM HTTPS fixture: 13 scenarios PASS')
+    print('WinRM HTTPS fixture: 14 scenarios PASS')
 
 
 def ssh_test(tmp):
@@ -155,14 +158,15 @@ def ssh_test(tmp):
     try:
         out=execute('ssh',port,cred,known_hosts=str(known));assert out['complete'] and out['items'][0]['fields']['attributes']['host_hardware']['cpu_count']>0,out
         out=execute('ssh',port,cred,known_hosts=str(known),collector='ssh.inventory');assert out['complete'],out
+        out=execute('ssh',port,cred,known_hosts=str(known),collector='ssh.metrics',operation='inspect');assert len(out['metric_samples'])>=5,out
         out=execute('ssh',port,{'username':'test','private_key':pem},type='ssh_private_key',known_hosts=str(known));assert out['complete'],out
         encrypted=client_key.private_bytes(serialization.Encoding.PEM,serialization.PrivateFormat.OpenSSH,serialization.BestAvailableEncryption(b'key-passphrase')).decode()
         out=execute('ssh',port,{'username':'test','private_key':encrypted,'passphrase':'key-passphrase'},type='ssh_private_key',known_hosts=str(known));assert out['complete'],out
         n=len(auth_attempts);assert execute('ssh',port,cred,known_hosts=str(wrong))['error']=='connector_trust_failed';assert len(auth_attempts)==n
         assert execute('ssh',port,{**cred,'password':'wrong'},known_hosts=str(known))['error']=='connector_auth_failed'
-        assert len(commands)==4
+        assert len(commands)==5
     finally:stop.set();listener.close();thread.join(timeout=6)
-    print('SSH protocol fixture: 6 scenarios PASS')
+    print('SSH protocol fixture: 7 scenarios PASS')
 
 
 if __name__=='__main__':

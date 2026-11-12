@@ -6,7 +6,7 @@ use Cajeer\Servers\Credentials\CredentialProfile;
 use RuntimeException;
 
 /** Read-only Proxmox VE API client. Credentials never leave this server except over verified TLS. */
-final class ProxmoxConnector implements ConnectorInterface, ConnectorActionDriver
+final class ProxmoxConnector implements ConnectorInterface, ConnectorActionDriver, \Cajeer\Servers\Metrics\MetricDriver
 {
     private const MAX_RESPONSE = 2_097_152;
     private const MAX_NODES = 256;
@@ -39,6 +39,21 @@ final class ProxmoxConnector implements ConnectorInterface, ConnectorActionDrive
         // Full means a successful visible-inventory read, not proof of cluster-wide ACL visibility.
         $complete=$operation!=='health' && $items!==[] && count(array_filter($items,static fn(array $i):bool=>$i['type']==='hypervisor_node'))>0;
         return new ConnectorResult($items,$complete);
+    }
+
+    public function metrics(ConnectorContext $context,#[\SensitiveParameter] string $secret):array
+    {
+        $auth=self::authorization($context->credentialType,$secret);
+        try {$nodes=$this->request($context->host,$context->port,'/api2/json/nodes',$auth,$this->caFile);$guests=$this->request($context->host,$context->port,'/api2/json/cluster/resources?type=vm',$auth,$this->caFile);}
+        finally{sodium_memzero($auth);}
+        self::observations($nodes,$guests);$out=[];
+        foreach([...$nodes,...$guests] as $r){$id=isset($r['vmid'])?$r['type'].':'.$r['vmid']:'node:'.$r['node'];
+            foreach(['cpu'=>['cpu.utilization','ratio','gauge'],'mem'=>['memory.used','bytes','gauge'],'maxmem'=>['memory.total','bytes','gauge'],'disk'=>['disk.used','bytes','gauge'],'maxdisk'=>['disk.total','bytes','gauge'],'uptime'=>['uptime','seconds','gauge'],'netin'=>['network.receive','bytes','counter'],'netout'=>['network.transmit','bytes','counter'],'diskread'=>['disk.read','bytes','counter'],'diskwrite'=>['disk.write','bytes','counter']] as $key=>[$name,$unit,$kind]) {
+                if(!isset($r[$key]))continue;$v=$r[$key];if(!is_numeric($v)||(float)$v<0||($key==='cpu'&&(float)$v>1))throw new ConnectorTransportException('connector_protocol_error');
+                $out[]=\Cajeer\Servers\Metrics\MetricBatch::sample('proxmox.'.$name,$v,$id,[],$kind,$unit);
+            }
+        }
+        return $out;
     }
 
     public function actions(): array { return ['vm.start','vm.shutdown']; }

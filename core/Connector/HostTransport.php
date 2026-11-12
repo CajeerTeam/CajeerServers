@@ -8,7 +8,7 @@ final class HostTransport
     public function __construct(private readonly EndpointPolicy $policy,private readonly string $python='/usr/bin/python3',
         private readonly ?string $knownHosts=null,private readonly ?string $winrmCa=null) {}
 
-    public function collect(ConnectorContext $context,#[\SensitiveParameter] array $credential):array
+    public function collect(ConnectorContext $context,#[\SensitiveParameter] array $credential,bool $metrics=false):array
     {
         if (!str_starts_with($this->python,'/') || !is_file($this->python) || !is_executable($this->python) || !function_exists('proc_open'))
             throw new ConnectorTransportException('connector_dependency_missing');
@@ -20,7 +20,7 @@ final class HostTransport
         if ($context->provider==='winrm' && $this->winrmCa!==null && (!str_starts_with($this->winrmCa,'/')||!is_file($this->winrmCa)||!is_readable($this->winrmCa)))
             throw new ConnectorTransportException('connector_trust_failed');
         $payload=json_encode(['provider'=>$context->provider,'host'=>$context->host,'ip'=>$ip,'port'=>$context->port,
-            'credential_type'=>$context->credentialType,'credential'=>$credential,'known_hosts'=>$this->knownHosts,'ca_file'=>$this->winrmCa],JSON_THROW_ON_ERROR);
+            'metrics'=>$metrics,'credential_type'=>$context->credentialType,'credential'=>$credential,'known_hosts'=>$this->knownHosts,'ca_file'=>$this->winrmCa],JSON_THROW_ON_ERROR);
         $pipes=[];
         $process=@proc_open([$this->python,'-I',__DIR__.'/agents/host_transport.py'],[0=>['pipe','r'],1=>['pipe','w'],2=>['file','/dev/null','w']],$pipes,__DIR__,['PATH'=>'/usr/bin:/bin','LANG'=>'C.UTF-8']);
         if (!is_resource($process)) { sodium_memzero($payload); throw new ConnectorTransportException('connector_dependency_missing'); }

@@ -6,7 +6,7 @@ use Cajeer\Servers\Credentials\CredentialProfile;
 use RuntimeException;
 
 /** VMmanager 6 Hosting/Infrastructure, VM API v3, read-only token authentication. */
-final class VmmanagerConnector implements ConnectorInterface
+final class VmmanagerConnector implements ConnectorInterface, \Cajeer\Servers\Metrics\MetricDriver
 {
     private const PAGE = 100;
     private const LIMIT = 2000;
@@ -45,6 +45,14 @@ final class VmmanagerConnector implements ConnectorInterface
             $hosts=$this->collect($context,'host',$token,$deadline,self::LIMIT-count($nodes));
             return new ConnectorResult(self::observations($nodes,$hosts),true);
         } finally { sodium_memzero($token); }
+    }
+
+    public function metrics(ConnectorContext $context,#[\SensitiveParameter] string $secret):array
+    {
+        // The supported inventory API exposes state; use observed availability, not invented utilization.
+        $snapshot=$this->execute($context,'inspect',$secret);$out=[];
+        foreach($snapshot->items as $item){$state=$item['fields']['status'];if(in_array($state,['online','offline'],true))$out[]=\Cajeer\Servers\Metrics\MetricBatch::sample('vmmanager.resource.up',$state==='online'?1:0,$item['external_id'],[],'gauge','boolean');}
+        return $out;
     }
 
     /** Keyset pagination avoids shifting offsets on inserts/deletes and detects ignored filters.

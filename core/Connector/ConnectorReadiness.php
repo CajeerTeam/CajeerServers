@@ -22,8 +22,10 @@ final class ConnectorReadiness
             $r=$this->app->container()->get(ConnectorRegistry::class);
             foreach(['proxmox','vmmanager','ssh','winrm','snmp'] as $provider)
                 foreach(ConnectorManifest::OPERATIONS as $operation) $r->require($provider,$operation);
+            foreach(['inspect','health','validate_rotation'] as $operation)$r->require('prometheus',$operation);
+            foreach(['proxmox','vmmanager','ssh','winrm','snmp','prometheus'] as $provider)if(!$r->supportsMetrics($provider))return false;
             return true;
-        },'All five built-in drivers must support the four read-only operations.');
+        },'Inventory drivers and Prometheus metrics must be registered.');
         $probe('connector_networks',function()use($cfg):bool {
             $networks=$cfg->get('connectors.allowed_networks',[]);
             if(!is_array($networks)||$networks===[])return false;
@@ -32,12 +34,13 @@ final class ConnectorReadiness
         $probe('connector_php',static fn():bool=>extension_loaded('openssl')&&extension_loaded('sodium')&&extension_loaded('pdo_pgsql')&&function_exists('pcntl_alarm'), 'CLI requires openssl, sodium, pdo_pgsql and pcntl.');
         $probe('connector_snmp',static fn():bool=>extension_loaded('snmp')&&class_exists(\SNMP::class), 'SNMP driver requires ext-snmp with Net-SNMP.');
         $probe('connector_ssh',fn():bool=>self::python((string)$cfg->get('connectors.python','/usr/bin/python3')), 'Configured Python must import Paramiko.');
-        foreach(['proxmox_ca_file','vmmanager_ca_file','winrm_ca_file','ssh_known_hosts'] as $key) {
+        foreach(['prometheus_ca_file','proxmox_ca_file','vmmanager_ca_file','winrm_ca_file','ssh_known_hosts'] as $key) {
             $probe('connector_'.$key,static function()use($cfg,$key):bool {$p=$cfg->get('connectors.'.$key,'');return $p===''||(is_string($p)&&is_file($p)&&is_readable($p));},'Configured trust file must be readable.');
         }
         $probe('connector_db_integrity',function():bool {
             $pdo=$this->app->container()->get(DatabaseManager::class)->connection();
             $queries=[
+                "SELECT count(*) FROM metric_series s JOIN connector_targets t ON t.id=s.target_id JOIN inventory_assets a ON a.id=s.asset_id WHERE s.workspace_id<>t.workspace_id OR s.workspace_id<>a.workspace_id",
                 "SELECT count(*) FROM connector_runs r LEFT JOIN queue_jobs j ON j.id=r.id JOIN connector_service_grants g ON g.id=r.grant_id WHERE j.id IS NULL OR j.queue<>'connectors' OR j.type<>'connector.execute' OR j.payload<>'[]'::jsonb OR r.target_id<>g.target_id OR r.workspace_id<>g.workspace_id",
                 "SELECT count(*) FROM queue_jobs j WHERE j.queue='connectors' AND NOT EXISTS(SELECT 1 FROM connector_runs r WHERE r.id=j.id)",
                 'SELECT count(*) FROM connector_webhook_sources s JOIN connector_service_grants g ON g.id=s.grant_id WHERE s.target_id<>g.target_id OR s.workspace_id<>g.workspace_id',

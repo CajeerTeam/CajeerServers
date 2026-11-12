@@ -56,6 +56,16 @@ final class ConnectorRegistry
         }
         catch (\Throwable) { throw new HttpException(502,'Remote connector returned an invalid or unsupported response.','connector_protocol_error'); }
     }
+    public function supportsMetrics(string $provider):bool
+    {return ($this->drivers[$provider]??null) instanceof \Cajeer\Servers\Metrics\MetricDriver;}
+    public function metrics(ConnectorContext $context,string $purpose,#[\SensitiveParameter] string $secret):array
+    {
+        $driver=$this->require($context->provider,'inspect');
+        if(!$driver instanceof \Cajeer\Servers\Metrics\MetricDriver||!$this->metadata[$context->provider]->accepts($context->credentialType,$purpose)) throw new HttpException(403,'Metrics collection not permitted.','permission_denied');
+        try {$samples=\Cajeer\Servers\Metrics\MetricBatch::normalize($driver->metrics($context,$secret));if($samples===[])throw new ConnectorTransportException('connector_protocol_error');return $samples;}
+        catch(ConnectorTransportException $e){throw new HttpException(502,$e->getMessage(),$e->category);}
+        catch(\Throwable){throw new HttpException(502,'Metric collection failed.','connector_failed');}
+    }
     public function actions(string $provider):array
     {
         $driver=$this->drivers[$provider]??null;

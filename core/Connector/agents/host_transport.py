@@ -84,7 +84,7 @@ def ssh_collect(req):
         try:
             channel.settimeout(8)
             # No user-controlled command or interpolated credentials.
-            command = 'python3 -c ' + shlex.quote((ROOT / 'linux_collect.py').read_text())
+            command = 'python3 -c ' + shlex.quote((ROOT / ('linux_metrics.py' if req.get('metrics') is True else 'linux_collect.py')).read_text())
             channel.exec_command(command)
             output = bytearray()
             stderr = 0
@@ -237,7 +237,7 @@ class WinRM:
         try:
             body = ET.Element(tag(SHELL, 'CommandLine'))
             add(body, SHELL, 'Command', 'powershell.exe')
-            encoded = base64.b64encode((ROOT / 'windows_collect.ps1').read_text().encode('utf-16-le')).decode('ascii')
+            encoded = base64.b64encode((ROOT / ('windows_metrics.ps1' if self.req.get('metrics') is True else 'windows_collect.ps1')).read_text().encode('utf-16-le')).decode('ascii')
             add(body, SHELL, 'Arguments', '-NoLogo -NoProfile -NonInteractive -EncodedCommand ' + encoded)
             result = self.call(SHELL + '/Command', body, shell)
             cmd = result.findtext('.//' + tag(SHELL, 'CommandId'))

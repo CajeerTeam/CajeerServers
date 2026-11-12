@@ -26,6 +26,10 @@ const server=createServer({key:readFileSync(`${dir}/key.pem`),cert:readFileSync(
     assert.equal(req.headers['x-csrf-token'],`csrf-${csrf}`);assert.equal(req.headers['idempotency-key'],'plan-redrive');assert.deepEqual(body,{redrive_of:id});return reply(202,{data:{id,deduplicated:false}})
   }
   if(req.url===`/api/v1/connectors/targets/${id}/runs?limit=50&offset=0&plan_id=${id}`&&req.method==='GET')return reply(200,{data:[{id,collection_plan_id:id}]})
+  if(req.url===`/api/v1/connectors/targets/${id}/metric-series?limit=100&offset=0&metric=snmp.interface.receive`&&req.method==='GET')return reply(200,{data:[{id,metric:'snmp.interface.receive',kind:'counter',labels:{if_index:'1'}}]})
+  if(req.url.startsWith(`/api/v1/connectors/targets/${id}/metric-series/${id}/samples?`)&&req.method==='GET'){
+    const q=new URL(req.url,'https://fixture.test').searchParams;assert.equal(q.get('from'),'2026-11-12T00:00:00Z');assert.equal(q.get('to'),'2026-11-12T01:00:00Z');assert.equal(q.get('aggregation'),'rate');assert.equal(q.get('step'),'60');return reply(200,{data:{series:{id,kind:'counter',metric:'snmp.interface.receive'},aggregation:'rate',points:[{timestamp:'2026-11-12T00:01:00Z',value:'18446744073709551615'}]}})
+  }
   if(req.url.startsWith(`/api/v1/connectors/targets/${id}/runs?`)&&req.method==='GET')return reply(403,{title:'Insufficient permission',code:'permission_denied'})
   reply(404,{title:'Not found'})
 })
@@ -41,6 +45,8 @@ try {
   assert.equal((await c.setCollectionPlanEnabled(id,id,false)).enabled,false)
   assert.equal((await c.runCollectionPlan(id,id,'plan-redrive',id)).id,id)
   assert.equal((await c.runs(id,50,0,id))[0].collection_plan_id,id)
+  assert.equal((await c.metricSeries(id,100,0,'snmp.interface.receive'))[0].id,id)
+  assert.equal((await c.metricQuery(id,id,'2026-11-12T00:00:00Z','2026-11-12T01:00:00Z','rate',60)).points[0].value,'18446744073709551615')
   await assert.rejects(c.runs(id),e=>e instanceof ApiError&&e.status===403&&e.problem.code==='permission_denied')
-  console.log('TypeScript SDK compile, real TLS fetch, CSRF, ETag, confirmation, collection plans, typed errors PASS')
+  console.log('TypeScript SDK compile, real TLS fetch, CSRF, ETag, confirmation, collection plans, metric queries, typed errors PASS')
 }finally{await new Promise(resolve=>server.close(resolve))}

@@ -160,7 +160,11 @@ final class ConnectorRuntimeService
                 $latest=$this->bindings->runtimeContext($actor,$targetId,$target['version'],$operation);
                 if ($latest['credential_id']!==$target['credential_id'] || $latest['credential_version']!==$target['credential_version']) throw new HttpException(409,'Connector binding changed.','conflict');
                 ConnectorHealthMonitor::record($pdo,$target,$elapsed,null);
-                if ($operation==='inspect') $result['preview']=$reconciliation->preview($pdo,$actor,$target,$snapshot);
+                if ($operation==='inspect' && $snapshot->metricSamples===[]) $result['preview']=$reconciliation->preview($pdo,$actor,$target,$snapshot);
+                if ($collection!==null && $snapshot->metricSamples!==[]) {
+                    $result['metrics']=\Cajeer\Servers\Metrics\MetricStore::ingest($pdo,$target,$collection['metric_samples'],$collection['observed_at']);
+                    $this->audit->record($pdo,$actor,'collection.metrics.saved','success','connector_target',$targetId,$result['metrics'],$requestId);
+                }
                 if ($collection!==null) $result['collection']=$collection;
                 $this->audit->record($pdo,$actor,$operation==='health'?'connector.health.checked':'connector.inventory.inspected',
                     'success','connector_target',$targetId,['count'=>count($items)],$requestId);
@@ -188,6 +192,18 @@ final class ConnectorRuntimeService
             return $result;
         });
         return $result;
+    }
+    public function metricSeries(string $actor,string $targetId,int $limit,int $offset,?string $metric):array
+    {
+        (new Rbac($this->db,$this->audit))->requireUserPermission($actor,'inventory.assets.read');
+        $target=$this->bindings->show($actor,$targetId);
+        return \Cajeer\Servers\Metrics\MetricStore::series($this->db->connection(),$target,$limit,$offset,$metric);
+    }
+    public function metricQuery(string $actor,string $targetId,string $series,string $from,string $to,string $aggregation,int $step):array
+    {
+        (new Rbac($this->db,$this->audit))->requireUserPermission($actor,'inventory.assets.read');
+        $target=$this->bindings->show($actor,$targetId);
+        return \Cajeer\Servers\Metrics\MetricStore::query($this->db->connection(),$target,$series,$from,$to,$aggregation,$step);
     }
     public function resources(string $actor,string $targetId,int $limit,int $offset):array
     {

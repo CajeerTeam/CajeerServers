@@ -17,6 +17,12 @@ final class ConnectorCommands
             fwrite(STDOUT,json_encode($report,JSON_THROW_ON_ERROR|JSON_PRETTY_PRINT)."\n");
             return $report['ok']?0:1;
         }
+        if($command==='metrics:retain'){
+            if(count($args)>1||isset($args[0])&&!preg_match('/^[1-9][0-9]{0,5}$/D',$args[0]))throw new \InvalidArgumentException('Usage: metrics:retain [limit]');
+            $db=$this->app->container()->get(\Cajeer\Servers\Database\DatabaseManager::class);
+            $result=$db->transaction(fn(\PDO $pdo)=>\Cajeer\Servers\Metrics\MetricStore::retain($pdo,(int)($args[0]??10000)));
+            fwrite(STDOUT,json_encode($result,JSON_THROW_ON_ERROR)."\n");return 0;
+        }
         $service=$this->app->container()->get(ConnectorExecutionService::class);
         $required=static function(int $n)use($args):void {if (count($args)!==$n) throw new \InvalidArgumentException('Invalid connector command arguments. See help.');};
         switch ($command) {

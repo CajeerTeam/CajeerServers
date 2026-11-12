@@ -18,14 +18,15 @@ final class CollectorRegistry
         $registry=new self($connectors);
         foreach($connectors->manifests() as $provider=>$manifest) {
             if (!$manifest->supports('inspect') && !$manifest->supports('sync')) continue;
-            $registry->register($provider==='snmp'?new SnmpCollector($connectors):new ConnectorCollector($provider.'.inventory',$provider,$connectors));
+            if($provider!=='prometheus') $registry->register($provider==='snmp'?new SnmpCollector($connectors):new ConnectorCollector($provider.'.inventory',$provider,$connectors));
+            if($connectors->supportsMetrics($provider))$registry->register(new MetricsCollector($provider,$connectors));
         }
         return $registry;
     }
     public function register(CollectorInterface $collector):void
     {
         $name=$collector->name();$provider=$collector->provider();
-        if (!preg_match('/^[a-z][a-z0-9_.-]{0,63}$/D',$name)||isset($this->collectors[$name])||!$this->connectors->has($provider))
+        if (!preg_match('/^[a-z][a-z0-9_.-]{0,63}$/D',$name)||isset($this->collectors[$name])||!$this->connectors->has($provider)||(str_ends_with($name,'.metrics')!==($collector instanceof MetricsCollector)))
             throw new \LogicException('Invalid or duplicate collector registration.');
         $this->collectors[$name]=$collector;$this->providers[$name]=$provider;
     }
@@ -47,6 +48,7 @@ final class CollectorRegistry
         $collector=$this->collectors[$plan->collector]??null;
         if($collector===null || $this->providers[$name]!==$provider || $collector->name()!==$name || $collector->provider()!==$provider)
             throw new HttpException(422,'Collector is unavailable for this target.','collection_invalid');
+        if($collector instanceof MetricsCollector&&$operation!=='inspect')throw new HttpException(422,'Metrics require inspect.','collection_invalid');
         $this->connectors->manifest($provider,$operation);
         return $collector;
     }
@@ -65,6 +67,6 @@ final class CollectorRegistry
             throw new HttpException(502,'Remote collection failed.',$code);
         }
         catch(\Throwable) {throw new HttpException(502,'Remote collection failed.','connector_failed');}
-        try {return $result->validated($manifest);}catch(\Throwable){throw new HttpException(502,'Invalid collection result.','connector_protocol_error');}
+        try {if(($collector instanceof MetricsCollector)!==($result->metricSamples!==[]) || ($collector instanceof MetricsCollector&&$result->items!==[]))throw new \RuntimeException('Wrong collection result type.');return $result->validated($manifest);}catch(\Throwable){throw new HttpException(502,'Invalid collection result.','connector_protocol_error');}
     }
 }

@@ -91,6 +91,17 @@ final class ConnectorBindingController
     {
         return HttpResponse::json(['data'=>$this->execution()->runs($this->actor($r,'connectors.targets.read'),self::id($r),self::integer($r,'limit',50,100),self::integer($r,'offset',0,10000),self::filter($r,'plan_id'))],200,['Cache-Control'=>'private, no-store']);
     }
+    public function metricSeries(HttpRequest $r):HttpResponse
+    {
+        $metric=$r->query['metric']??null;if($metric!==null&&!is_string($metric))throw new HttpException(422,'Invalid metric filter.','validation_failed');
+        return HttpResponse::json(['data'=>$this->runtime->metricSeries($this->actor($r,'connectors.targets.read'),self::id($r),self::integer($r,'limit',100,100),self::integer($r,'offset',0,10000),$metric)],200,['Cache-Control'=>'private, no-store']);
+    }
+    public function metricQuery(HttpRequest $r):HttpResponse
+    {
+        $from=$r->query['from']??null;$to=$r->query['to']??null;$aggregation=$r->query['aggregation']??'raw';
+        if(!is_string($from)||!is_string($to)||!is_string($aggregation))throw new HttpException(422,'Invalid metric query.','validation_failed');
+        return HttpResponse::json(['data'=>$this->runtime->metricQuery($this->actor($r,'connectors.targets.read'),self::id($r),self::id($r,'seriesId'),$from,$to,$aggregation,self::integer($r,'step',60,86400))],200,['Cache-Control'=>'private, no-store']);
+    }
     public function collectionPlans(HttpRequest $r):HttpResponse
     {
         return HttpResponse::json(['data'=>$this->execution()->plans($this->actor($r,'connectors.targets.read'),self::id($r),self::integer($r,'limit',50,100),self::integer($r,'offset',0,10000))],200,['Cache-Control'=>'private, no-store']);

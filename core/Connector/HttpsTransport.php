@@ -14,6 +14,8 @@ final class HttpsTransport
     }
     public function get(string $host,int $port,string $path,#[\SensitiveParameter] string $authorization,?string $caFile=null,string $credentialHeader='Authorization'):string
     { return $this->request('GET',$host,$port,$path,$authorization,$caFile,$credentialHeader); }
+    public function getText(string $host,int $port,string $path,#[\SensitiveParameter] string $authorization,?string $caFile=null):string
+    {return $this->request('GET',$host,$port,$path,$authorization,$caFile,'Authorization','text/plain; version=0.0.4');}
     public function powerPost(string $host,int $port,string $path,#[\SensitiveParameter] string $authorization,?string $caFile=null):string
     {
         if (!preg_match('~^/api2/json/nodes/[A-Za-z0-9][A-Za-z0-9._-]{0,119}/qemu/[1-9][0-9]{0,8}/status/(start|shutdown)$~D',$path)) throw new RuntimeException('Unsupported power request.');
@@ -88,7 +90,7 @@ final class HttpsTransport
         }
         return $body;
     }
-    private function request(string $method,string $host,int $port,string $path,#[\SensitiveParameter] string $authorization,?string $caFile,string $credentialHeader):string
+    private function request(string $method,string $host,int $port,string $path,#[\SensitiveParameter] string $authorization,?string $caFile,string $credentialHeader,string $accept='application/json'):string
     {
         $host=ConnectorBindingService::validateHost($host); $port=ConnectorBindingService::validatePort($port);
         if (!in_array($credentialHeader,['Authorization','x-xsrf-token'],true) || $authorization==='' || strlen($authorization)>16384 || !preg_match('~^/[A-Za-z0-9/_?.=&%:-]+$~D',$path) || str_starts_with($path,'//') || preg_match('/[\x00-\x1f\x7f]/',$authorization))
@@ -109,7 +111,7 @@ final class HttpsTransport
                 if (stream_get_meta_data($stream)['timed_out'] || hrtime(true)>=$deadline) self::transport();
                 throw new ConnectorTransportException('connector_trust_failed');
             }
-            $request="$method $path HTTP/1.1\r\nHost: ".$bracket($host).":$port\r\nAccept: application/json\r\n$credentialHeader: $authorization\r\nConnection: close\r\n".($method==='POST'?"Content-Length: 0\r\n":'')."\r\n";
+            $request="$method $path HTTP/1.1\r\nHost: ".$bracket($host).":$port\r\nAccept: $accept\r\n$credentialHeader: $authorization\r\nConnection: close\r\n".($method==='POST'?"Content-Length: 0\r\n":'')."\r\n";
             try {
                 $offset=0; while ($offset<strlen($request)) { self::timeout($stream,$deadline); $n=@fwrite($stream,substr($request,$offset)); if (!$n) self::transport(); $offset+=$n; }
             } finally { sodium_memzero($request); }
@@ -118,7 +120,7 @@ final class HttpsTransport
     }
     public static function jsonObject(string $body):\stdClass
     {
-        try { $decoded=json_decode($body,false,64,JSON_THROW_ON_ERROR); }
+        try { $decoded=json_decode($body,false,64,JSON_THROW_ON_ERROR|JSON_BIGINT_AS_STRING); }
         catch (\JsonException) { throw new ConnectorTransportException('connector_protocol_error'); }
         if (!$decoded instanceof \stdClass) throw new ConnectorTransportException('connector_protocol_error');
         return $decoded;

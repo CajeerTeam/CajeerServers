@@ -1,4 +1,4 @@
-import type { InfrastructureAsset, Driver, Target, TargetInput, ServiceGrant, Run, EnqueuedRun, Operation, PowerAction, Action, Problem, CollectionJobPlan, CollectionPlanInput } from './types.js'
+import type { InfrastructureAsset, Driver, Target, TargetInput, ServiceGrant, Run, EnqueuedRun, Operation, PowerAction, Action, Problem, CollectionJobPlan, CollectionPlanInput, MetricSeries, MetricQuery, MetricAggregation } from './types.js'
 export class ApiError extends Error {
   constructor(public readonly status: number, public readonly problem: Problem) { super(problem.title || `HTTP ${status}`); this.name = 'ApiError' }
 }
@@ -55,6 +55,8 @@ export class CajeerServersClient {
   grants(id:string):Promise<ServiceGrant[]> { return this.data(`${this.target(id)}/service-grants`) }
   revokeGrant(id:string,grantId:string):Promise<void> { return this.write('DELETE',`${this.target(id)}/service-grants/${this.id(grantId)}`) }
   enqueue(id:string,grantId:string,key:string,collector?:string):Promise<EnqueuedRun> { return this.write('POST',`${this.target(id)}/runs`,{grant_id:grantId,...(collector?{collector}:{})},{'Idempotency-Key':key}) }
+  metricSeries(id:string,limit=100,offset=0,metric?:string):Promise<MetricSeries[]> { return this.data(`${this.target(id)}/metric-series?${new URLSearchParams({limit:String(limit),offset:String(offset),...(metric?{metric}:{})})}`) }
+  metricQuery(id:string,seriesId:string,from:string,to:string,aggregation:MetricAggregation='raw',step=60):Promise<MetricQuery> { return this.data(`${this.target(id)}/metric-series/${this.id(seriesId)}/samples?${new URLSearchParams({from,to,aggregation,step:String(step)})}`) }
   collectionPlans(id:string,limit=50,offset=0):Promise<CollectionJobPlan[]> { return this.data(`${this.target(id)}/collection-plans?limit=${limit}&offset=${offset}`) }
   createCollectionPlan(id:string,etag:string,input:CollectionPlanInput):Promise<CollectionJobPlan> { return this.write('POST',`${this.target(id)}/collection-plans`,input,{'If-Match':etag}) }
   setCollectionPlanEnabled(id:string,planId:string,enabled:boolean):Promise<CollectionJobPlan> { return this.write('POST',`${this.target(id)}/collection-plans/${this.id(planId)}/state`,{enabled}) }

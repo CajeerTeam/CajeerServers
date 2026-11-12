@@ -16,5 +16,5 @@ try {
         $result=$runtime->collect(new \Cajeer\Servers\Collector\CollectionPlan($input['collector'],$input['operation']??'sync'),
             ['provider'=>$input['provider'],'endpoint_host'=>$input['host'],'endpoint_port'=>$input['port'],'credential_type'=>$input['type'],'purpose'=>$input['provider']],$input['type'],$secret);
     } else $result=$registry->execute($context,$input['operation']??'sync',$input['provider'],$secret);
-    echo json_encode(['items'=>$result->items,'complete'=>$result->complete],JSON_THROW_ON_ERROR);
+    echo json_encode(['items'=>$result->items,'complete'=>$result->complete,'metric_samples'=>$result->metricSamples],JSON_THROW_ON_ERROR);
 } catch (HttpException $e) { echo json_encode(['error'=>$e->errorCode,'message'=>$e->getMessage()],JSON_THROW_ON_ERROR); }
