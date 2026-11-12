@@ -92,6 +92,7 @@ jobs:
           php tests/vault-access-postgres-integration.php
           php tests/vault-rotation-postgres-integration.php
           php tests/vault-bindings-postgres-integration.php
+          php tests/connector-reconciliation-postgres-integration.php
       - name: PostgreSQL client version for encrypted backup/restore
         run: |
           # Match the postgres:18 service. A missing client must fail the integration job.

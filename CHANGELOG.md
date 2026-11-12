@@ -1,3 +1,10 @@
+## [0.4.3] — 2026-11-12 — Discovery, Sync & Reconciliation
+
+- Реальный общий reconciliation для ручных и фоновых connector runs: устойчивые mapping, migration 0024 без смены UUID, preview, полные/частичные snapshots, generation fencing, транзакционная история.
+- Неоднозначность имени блокирует дублирование; REST и Admin UI поддерживают явную привязку ручного asset или подтверждение отдельного создания. Ручные поля защищены. Namespace connector observations зарезервирован.
+- Grace period для отсутствующих ресурсов: stale после 2 полных пропусков и 24h, missing после 3 и 72h. Частичные/пустые/ошибочные снимки не удаляют данные; повторное появление сбрасывает счётчики.
+- Proxmox сохраняет VMID при переносе и родительский внешний ID; сохранены старые API/CLI/Queue, добавлены resource list/resolve. Интеграционные проверки PostgreSQL и реального appliance обязательны до promotion.
+
 ## [0.4.2] — 2026-11-12 — Connector Execution & Secure Service Grants
 
 - Реальные фоновые `inspect`, `sync`, `health` через PostgreSQL queue `connectors`; атомарная постановка, idempotency key, lease recovery, ограниченные retry, отмена, сохранённый результат.

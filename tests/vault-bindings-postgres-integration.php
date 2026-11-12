@@ -201,15 +201,15 @@ try {
         'type'=>$type,'fields'=>['name'=>$name,'status'=>'online']];
     $results=$history->observeMany($admin,[
         $observation('node:pve-one','hypervisor_node','pve-one'),
-        $observation('qemu:500','virtual_machine','test-vm')]);
+        $observation('qemu:500','virtual_machine','test-vm')],connector:true);
     $ok(count($results)===2 && $results[0]['outcome']==='created' && $results[1]['outcome']==='created',
         'atomic Proxmox discovery stored in Inventory using observation engine');
-    $duplicate=$history->observeMany($admin,[$observation('qemu:500','virtual_machine','test-vm')]);
+    $duplicate=$history->observeMany($admin,[$observation('qemu:500','virtual_machine','test-vm')],connector:true);
     $ok($duplicate[0]['outcome']==='unchanged' || $duplicate[0]['outcome']==='stale',
         'stable external identity prevents duplicate assets');
     $reject(409,fn()=>$history->observeMany($admin,[
         $observation('node:rollback','hypervisor_node','rollback'),
-        $observation('node:rollback','container','should-not-exist')]),
+        $observation('node:rollback','container','should-not-exist')],connector:true),
         'type mismatch rolls back the entire discovered batch');
     $stmt=$pdo->prepare("SELECT count(*) FROM inventory_assets WHERE workspace_id=:ws AND external_id=:external");
     $stmt->execute(['ws'=>$ws,'external'=>'proxmox:'.$id.':node:rollback']);

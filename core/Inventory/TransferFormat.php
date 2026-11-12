@@ -28,6 +28,7 @@ final class TransferFormat
                 'workspace_id'=>$workspace,'source'=>'import','external_id'=>$row['external_id']??null,
                 'type'=>$row['type']??null,'event_key'=>'preview.'.($index+1),'fields'=>$row['fields'],
             ]);
+            if(ObservationInput::reserved($observation['external_id']))self::bad('reserved connector external_id');
             // One external identity per batch: avoid contradictory replays within a single file.
             if(isset($seen[$observation['external_id']]))self::bad('duplicate external_id');
             $seen[$observation['external_id']]=true;

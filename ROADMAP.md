@@ -564,4 +564,11 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 - [x] Фиксированные интервалы через Scheduler, REST 202/status/cancel и CLI.
 - [x] Native smoke и расширенный PostgreSQL integration scenario с потерей ACK и отзывом во время remote I/O.
 - [ ] Live PostgreSQL integration, настоящий Proxmox, production build и browser E2E на staging.
-- [ ] 0.4.3 — Discovery, Sync & Reconciliation: полные/частичные snapshots, provenance и устойчивое сопоставление источников.
+### 0.4.3 — Discovery, Sync & Reconciliation (рабочий код)
+
+- [x] Stable mapping, сохранение UUID при upgrade, preview и generation fencing.
+- [x] Полные/частичные snapshots, grace period, безопасные состояния отсутствия.
+- [x] Name conflicts, явная привязка ручного asset / отдельное создание, HistoryService и UI.
+- [x] PostgreSQL migration 0024, native smoke и live DB integration scenario.
+- [ ] Подтвердить live PostgreSQL, настоящий Proxmox, Nuxt build и browser E2E на staging.
+- [ ] 0.4.4 — HTTP Connector & VMmanager Integration.

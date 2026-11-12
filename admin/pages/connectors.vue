@@ -15,7 +15,11 @@ const selected=ref(''),busy=ref(false),message=ref(''),error=ref('')
 const assets=ref<Asset[]>([]),assetSelection=ref(''),attachToAsset=ref(true)
 const stepup=reactive({password:'',totp:''})
 const pendingVersions=ref<VaultVersion[]>([])
-const lastRun=ref<{mode:string;discovered:number;types:Record<string,number>;outcomes?:Record<string,number>}|null>(null)
+type DiscoveryPlan={external_id:string;type:string;name:string|null;asset_id:string|null;action:string;conflict:string|null;candidate_ids:string[];parent_external_id:string|null}
+type DiscoveryResource={external_id:string;resource_type:string;asset_id:string|null;presence:string;observed_name:string|null;conflict_code:string|null;missed_complete:number;last_generation:number;parent_external_id:string|null}
+type DiscoveryRun={mode:string;discovered:number;types:Record<string,number>;outcomes?:Record<string,number>;preview?:{complete:boolean;summary:Record<string,number>;items:DiscoveryPlan[];truncated:boolean};snapshot?:{generation:number;complete:boolean;blocked:number;presence:Record<string,number>}}
+const lastRun=ref<DiscoveryRun|null>(null)
+const resources=ref<DiscoveryResource[]>([]),resourceOffset=ref(0),resourceHasMore=ref(false),resolutionAssets=ref<Record<string,string>>({})
 const form=reactive({name:'',provider:'proxmox',endpoint_host:'',endpoint_port:8006,asset_id:''})
 const binding=reactive({credential_id:'',purpose:'api'})
 const providers=[{id:'proxmox',port:8006,purpose:'api'},{id:'vmmanager',port:443,purpose:'api'},
@@ -27,7 +31,7 @@ const canBind=computed(()=>auth.can('connectors.credentials.manage')&&canManage.
 const canListBindings=computed(()=>auth.can('connectors.credentials.read'))
 const activeDriver=computed(()=>drivers.value.find(d=>d.provider===active.value?.provider))
 const canExecute=computed(()=>canBind.value&&auth.can('vault.credentials.use')&&!!activeDriver.value&&active.value?.state==='active')
-const canRun=computed(()=>canExecute.value&&!!activeDriver.value?.operations.includes('inspect'))
+const canRun=computed(()=>canExecute.value&&auth.can('inventory.assets.read')&&!!activeDriver.value?.operations.includes('inspect'))
 const canHealth=computed(()=>canExecute.value&&!!activeDriver.value?.operations.includes('health'))
 const canSync=computed(()=>canExecute.value&&!!activeDriver.value?.operations.includes('sync')&&auth.can('inventory.assets.create')&&auth.can('inventory.assets.update'))
 const canValidate=computed(()=>canExecute.value&&!!activeDriver.value?.operations.includes('validate_rotation')&&auth.can('vault.credentials.read')&&auth.can('vault.credentials.update'))
@@ -42,7 +46,7 @@ async function init(){if(!canRead.value)return
   try{drivers.value=(await api.get<{data:Driver[]}>('/connectors/drivers')).data;workspaces.value=(await api.get<{data:Workspace[]}>('/workspaces')).data;workspace.value=selectWorkspace(workspaces.value,route.query.workspace_id);await load()}
   catch(e){fail(e)}
 }
-async function load(){targets.value=[];bindings.value=[];credentials.value=[];assets.value=[];pendingVersions.value=[];lastRun.value=null;selected.value='';stepup.password='';stepup.totp='';if(!workspace.value||!canRead.value)return
+async function load(){resources.value=[];resourceOffset.value=0;resourceHasMore.value=false;resolutionAssets.value={};targets.value=[];bindings.value=[];credentials.value=[];assets.value=[];pendingVersions.value=[];lastRun.value=null;selected.value='';stepup.password='';stepup.totp='';if(!workspace.value||!canRead.value)return
   reset()
   try{
     targets.value=(await api.get<{data:Target[]}>(`/connectors/targets?workspace_id=${workspace.value}`)).data
@@ -50,7 +54,7 @@ async function load(){targets.value=[];bindings.value=[];credentials.value=[];as
     if(auth.can('inventory.assets.read')) assets.value=(await api.get<{data:Asset[]}>(`/inventory/assets?workspace_id=${workspace.value}&limit=100&offset=0`)).data
   }catch(e){fail(e)}
 }
-async function open(target:Target){selected.value=target.id;assetSelection.value=target.asset_id||'';bindings.value=[];pendingVersions.value=[];lastRun.value=null;stepup.password='';stepup.totp='';reset();if(!canListBindings.value)return
+async function open(target:Target){resources.value=[];resourceOffset.value=0;resourceHasMore.value=false;resolutionAssets.value={};selected.value=target.id;assetSelection.value=target.asset_id||'';bindings.value=[];pendingVersions.value=[];lastRun.value=null;stepup.password='';stepup.totp='';reset();await loadResources(target,0);if(selected.value!==target.id||!canListBindings.value)return
   try{const loaded=(await api.get<{data:Binding[]}>(`/connectors/targets/${target.id}/credential-bindings`)).data
     if(selected.value!==target.id)return
     bindings.value=loaded
@@ -97,6 +101,23 @@ async function saveAsset(){if(!active.value||!canManage.value)return;busy.value=
     message.value='Связь с Inventory обновлена.'
   }catch(e){fail(e)}finally{busy.value=false}
 }
+async function loadResources(target:Target,offset:number){
+  if(!canRead.value||!auth.can('inventory.assets.read'))return
+  try{const result=await api.get<{data:DiscoveryResource[]}>(`/connectors/targets/${target.id}/resources?limit=50&offset=${offset}`)
+    if(selected.value!==target.id)return
+    resources.value=result.data;resourceOffset.value=offset;resourceHasMore.value=result.data.length===50
+  }catch(e){if(selected.value===target.id)fail(e)}
+}
+async function resolveResource(resource:DiscoveryResource,mode:'link'|'create'){
+  const item=active.value;if(!item||!canSync.value)return
+  const asset=resolutionAssets.value[resource.external_id]?.trim()
+  if(mode==='link'&&!asset)return
+  if(!confirm(mode==='link'?'Связать внешний ресурс с указанным ручным объектом? Ручные поля сохранятся.':'Разрешить создание отдельного объекта при следующей синхронизации?'))return
+  busy.value=true;reset()
+  try{await api.write('POST',`/connectors/targets/${item.id}/resources/resolve`,{external_id:resource.external_id,generation:resource.last_generation,mode,...(mode==='link'?{asset_id:asset}:{})},true,versionHeaders(item))
+    if(selected.value===item.id){await loadResources(item,resourceOffset.value);message.value='Решение сохранено. Выполните следующую синхронизацию.'}
+  }catch(e){fail(e)}finally{busy.value=false}
+}
 async function executeRemote(sync:boolean){
   const item=active.value,credential=apiBinding.value
   if(!item||!credential||!item.asset_id||(sync?!canSync.value:!canRun.value))return
@@ -105,9 +126,11 @@ async function executeRemote(sync:boolean){
     await api.write('POST',`/vault/credentials/${credential.credential_id}/authorize-use`,{
       asset_id:item.asset_id,purpose:credential.purpose,password:stepup.password,totp:stepup.totp})
     stepup.password='';stepup.totp=''
-    const result=await api.write<{data:{mode:string;discovered:number;types:Record<string,number>;outcomes?:Record<string,number>} }>(
+    const result=await api.write<{data:DiscoveryRun}>(
       'POST',`/connectors/targets/${item.id}/${sync?'sync':'inspect'}`,undefined,true,versionHeaders(item))
+    if(selected.value!==item.id)return
     lastRun.value=result.data
+    if(sync)await loadResources(item,0)
     message.value=sync?'Инвентаризация завершена.':'Удалённая проверка завершена.'
   }catch(e){fail(e)}finally{stepup.password='';stepup.totp='';busy.value=false}
 }
@@ -200,7 +223,7 @@ onMounted(init)
         <form v-if="(canRun||canHealth||canSync||canValidate)&&apiBinding&&active.asset_id" @submit.prevent="executeRemote(false)">
           <label>Подтверждение пароля <input v-model="stepup.password" type="password" autocomplete="off" required /></label>
           <label>TOTP (6 цифр) <input v-model="stepup.totp" type="text" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required /></label>
-          <button v-if="canRun" class="btn" type="submit" :disabled="busy">Проверить подключение</button>
+          <button v-if="canRun" class="btn" type="submit" :disabled="busy">Предпросмотр Discovery</button>
           <button v-if="canHealth" class="btn" type="button" :disabled="busy || !stepup.password || !/^[0-9]{6}$/.test(stepup.totp)" @click="checkHealth">Проверить доступность</button>
           <button v-if="canSync" class="btn" type="button" :disabled="busy || !stepup.password || !/^[0-9]{6}$/.test(stepup.totp)" @click="executeRemote(true)">Синхронизировать Inventory</button>
           <button v-if="canValidate && pendingRotation" class="btn primary" type="button" :disabled="busy || !stepup.password || !/^[0-9]{6}$/.test(stepup.totp)" data-testid="connector-validate-pending" @click="validatePendingRotation">
@@ -212,7 +235,30 @@ onMounted(init)
         <div v-if="lastRun" role="status">
           <p>Обнаружено объектов: {{lastRun.discovered}}. <span v-for="(count, type) in lastRun.types" :key="type">{{type}}: {{count}}. </span></p>
           <p v-if="lastRun.outcomes">Создано: {{lastRun.outcomes.created}}, обновлено: {{lastRun.outcomes.applied}}, без изменений: {{lastRun.outcomes.unchanged}}, конфликтов: {{lastRun.outcomes.conflicted}}.</p>
+          <div v-if="lastRun.preview">
+            <p>{{lastRun.preview.complete?'Полный видимый снимок':'Частичный снимок'}} — без записи Inventory. <span v-for="(count,action) in lastRun.preview.summary" :key="action">{{action}}: {{count}}. </span></p>
+            <table><thead><tr><th>Ресурс</th><th>Действие</th><th>Причина / кандидаты</th></tr></thead><tbody>
+              <tr v-for="entry in lastRun.preview.items" :key="entry.external_id"><td>{{entry.name||entry.external_id}} ({{entry.external_id}})</td><td>{{entry.action}}</td><td>{{entry.conflict||'—'}} <span v-if="entry.candidate_ids.length">{{entry.candidate_ids.join(', ')}}</span></td></tr>
+            </tbody></table>
+            <p v-if="lastRun.preview.truncated" class="muted">Показаны первые 100 ресурсов; счётчики включают весь снимок.</p>
+          </div>
+          <p v-if="lastRun.snapshot">Снимок №{{lastRun.snapshot.generation}}, {{lastRun.snapshot.complete?'полный':'частичный'}}; заблокировано: {{lastRun.snapshot.blocked}}. <span v-for="(count,state) in lastRun.snapshot.presence" :key="state">{{state}}: {{count}}. </span></p>
         </div>
+      </section>
+      <section v-if="active&&auth.can('inventory.assets.read')" class="panel">
+        <h2>Обнаруженные ресурсы</h2>
+        <p>Состояние внешнего ресурса не меняет статус и не удаляет объект Inventory. Для конфликтов имён выберите ручной объект или подтвердите отдельное создание.</p>
+        <button class="btn" type="button" :disabled="busy" @click="loadResources(active,resourceOffset)">Обновить список</button>
+        <p v-if="!resources.length" class="muted">Нет записей на этой странице.</p>
+        <table v-else><thead><tr><th>Внешний ID / имя</th><th>Inventory UUID / родитель</th><th>Состояние</th><th>Разрешение</th></tr></thead><tbody>
+          <tr v-for="resource in resources" :key="resource.external_id">
+            <td>{{resource.external_id}}<br>{{resource.observed_name}}</td><td>{{resource.asset_id||'—'}}<br>{{resource.parent_external_id||'—'}}</td>
+            <td>{{resource.presence}} ({{resource.missed_complete}}) {{resource.conflict_code||''}}</td>
+            <td><template v-if="resource.conflict_code==='ambiguous_name'&&canSync"><label>UUID ручного объекта <input v-model="resolutionAssets[resource.external_id]" type="text" /></label><button class="btn" type="button" :disabled="busy||!resolutionAssets[resource.external_id]" @click="resolveResource(resource,'link')">Связать</button> <button class="btn" type="button" :disabled="busy" @click="resolveResource(resource,'create')">Создать отдельно</button></template><span v-else>—</span></td>
+          </tr>
+        </tbody></table>
+        <button class="btn" type="button" :disabled="busy||resourceOffset===0" @click="loadResources(active,Math.max(0,resourceOffset-50))">Назад</button>
+        <button class="btn" type="button" :disabled="busy||!resourceHasMore||resourceOffset>=10000" @click="loadResources(active,resourceOffset+50)">Далее</button>
       </section>
     </template>
   </div>

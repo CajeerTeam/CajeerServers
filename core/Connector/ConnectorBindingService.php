@@ -145,6 +145,10 @@ final class ConnectorBindingService
             $this->inventory->workspaceRole($pdo,$ws,$actor,true);
             $current=$this->target($pdo,$actor,$id,true);
             if ($current['version']!==$version) throw new HttpException(412,'Connector was modified.','precondition_failed');
+            if (($changes['endpoint_host']??$current['endpoint_host'])!==$current['endpoint_host'] || ($changes['endpoint_port']??$current['endpoint_port'])!==$current['endpoint_port']) {
+                $discovered=$pdo->prepare('SELECT 1 FROM connector_discovery_state WHERE target_id=:id'); $discovered->execute(['id'=>$id]);
+                if ($discovered->fetchColumn()) throw new HttpException(409,'Create a new target when changing a discovered endpoint.','connector_endpoint_changed');
+            }
             if (array_key_exists('asset_id',$changes) && $changes['asset_id']!==null) {
                 $asset=$this->inventory->find($pdo,$actor,$changes['asset_id']);
                 if (!$asset || $asset['workspace_id']!==$ws) throw new HttpException(404,'Asset unavailable in workspace.','not_found');

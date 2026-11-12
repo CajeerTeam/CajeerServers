@@ -9,6 +9,12 @@ final class ObservationInput
 {
     public const FIELDS=['name','status','os_family','ip_addresses','tags','environment'];
 
+    /** Connector identities are server-owned; imports cannot impersonate a driver. */
+    public static function reserved(string $external): bool
+    {
+        return preg_match('/^[a-z][a-z0-9_-]*:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}:/iD',$external)===1;
+    }
+
     /** @param array<string,mixed> $input @return array{workspace_id:string,source:string,external_id:string,event_key:string,type:string,fields:array<string,mixed>,observed_at:string,payload_hash:string} */
     public static function normalize(array $input):array
     {

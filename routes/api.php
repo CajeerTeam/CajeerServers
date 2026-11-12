@@ -338,6 +338,15 @@ return static function (Router $router, ServiceContainer $container): void {
             $connectors->get('/targets/{id}/runs/{runId}',static fn(HttpRequest $r):HttpResponse=>$handler()->runStatus($r));
             $connectors->post('/targets/{id}/runs/{runId}/cancel',static fn(HttpRequest $r):HttpResponse=>$handler()->cancelRun($r));
             $connectors->post('/targets/{id}/health',static fn(HttpRequest $r):HttpResponse=>$handler()->health($r));
+            $connectors->get('/targets/{id}/resources',static fn(HttpRequest $r):HttpResponse=>$handler()->resources($r));
+            $connectors->post('/targets/{id}/resources/resolve',static fn(HttpRequest $r):HttpResponse=>$handler()->resolveResource($r),[
+                'required'=>['external_id','mode','generation'],'properties'=>[
+                    'generation'=>['type'=>'integer','minimum'=>1],
+                    'external_id'=>['type'=>'string','minLength'=>1,'maxLength'=>180],
+                    'mode'=>['type'=>'string','enum'=>['link','create']],
+                    'asset_id'=>['type'=>'string','format'=>'uuid'],
+                ],'additionalProperties'=>false,
+            ]);
             $connectors->post('/targets/{id}/inspect',static fn(HttpRequest $r):HttpResponse=>$handler()->inspect($r));
             $connectors->post('/targets/{id}/validate-rotation',
                 static fn(HttpRequest $r):HttpResponse=>$handler()->validateRotation($r),[

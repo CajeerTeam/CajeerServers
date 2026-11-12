@@ -91,22 +91,25 @@ final class HistoryService
     }
 
     /** Atomically reconcile a bounded discovery batch using the same validation and provenance engine. */
-    public function observeMany(string $actor,array $events,?string $requestId=null,bool $nested=false):array
+    public function observeMany(string $actor,array $events,?string $requestId=null,bool $nested=false,bool $connector=false):array
     {
         if (count($events)<1 || count($events)>1800)throw new HttpException(422,'Invalid discovery batch size.','validation_failed');
         foreach ($events as $event) ObservationInput::normalize($event);
-        return $this->db->transaction(function(PDO $pdo)use($actor,$events,$requestId):array {
+        return $this->db->transaction(function(PDO $pdo)use($actor,$events,$requestId,$connector):array {
             $result=[];
-            foreach ($events as $event) $result[]=$this->observe($actor,$event,$requestId,true);
+            foreach ($events as $event) $result[]=$this->observe($actor,$event,$requestId,true,$connector);
             return $result;
         },attempts:$nested?1:2);
     }
 
     /** Ingest one idempotent observation from an explicitly untrusted 'import' source. @return array<string,mixed> */
-    public function observe(string $actor,array $input,?string $requestId=null,bool $nested=false):array
+    public function observe(string $actor,array $input,?string $requestId=null,bool $nested=false,bool $connector=false,?string $linkedAsset=null):array
     {
         $event=ObservationInput::normalize($input);
-        return $this->db->transaction(function(PDO $pdo)use($actor,$event,$requestId):array{
+        if (!$connector && (ObservationInput::reserved($event['external_id']) || str_starts_with($event['event_key'],'connector.')))
+            throw new HttpException(422,'Connector identity is reserved.','validation_failed');
+        if ($linkedAsset!==null && !$connector) throw new \LogicException('Internal connector link required.');
+        return $this->db->transaction(function(PDO $pdo)use($actor,$event,$requestId,$linkedAsset):array{
             $ws=$event['workspace_id'];
             $this->repo->lockWorkspace($pdo,$ws);
             $this->repo->workspaceRole($pdo,$ws,$actor,true);
@@ -121,6 +124,10 @@ final class HistoryService
             $lookup=$pdo->prepare('SELECT id::text FROM inventory_assets WHERE workspace_id=:ws AND source=:src AND external_id=:external FOR UPDATE');
             $lookup->execute(['ws'=>$ws,'src'=>'import','external'=>$event['external_id']]);
             $assetId=$lookup->fetchColumn();
+            if ($linkedAsset!==null) {
+                if ($assetId!==false && $assetId!==$linkedAsset) throw new HttpException(409,'Conflicting connector identity.','conflict');
+                $assetId=$linkedAsset;
+            }
             $created=false;$applied=[];$conflicted=[];$outcome='unchanged';
             self::context($pdo,$actor,'observation',$requestId);
             if($assetId===false){
@@ -138,7 +145,7 @@ SQL);
                 foreach(ObservationInput::FIELDS as $field)$this->setProvenance($pdo,$assetId,$field,'observed','import',$actor,$event['observed_at']);
             }else{
                 $asset=$this->repo->find($pdo,$actor,$assetId,true,true);
-                if($asset===null || $asset['source']!=='import' || $asset['external_id']!==$event['external_id'])throw new HttpException(409,'Asset identity changed.','conflict');
+                if($asset===null || $asset['workspace_id']!==$ws || ($linkedAsset===null && ($asset['source']!=='import' || $asset['external_id']!==$event['external_id'])) || ($linkedAsset!==null && $asset['source']!=='manual' && ($asset['source']!=='import' || $asset['external_id']!==$event['external_id'])))throw new HttpException(409,'Asset identity changed.','conflict');
                 if($asset['type']!==$event['type'])throw new HttpException(409,'Cannot change observed asset type.','conflict');
                 if($asset['deleted_at']!==null)throw new HttpException(409,'Cannot reconcile a deleted asset.','conflict');
                 $last=$pdo->prepare('SELECT last_observed_at::text FROM inventory_observation_state WHERE asset_id=:id AND source=:src FOR UPDATE');

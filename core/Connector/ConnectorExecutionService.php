@@ -27,7 +27,7 @@ final class ConnectorExecutionService
     private function deny():never { throw new HttpException(403,'Service grant is invalid, expired or revoked.','service_grant_denied'); }
     private function permissions(string $actor,string $operation,PDO $pdo):void
     {
-        foreach (['connectors.credentials.manage','vault.credentials.use',...($operation==='sync'?['inventory.assets.create','inventory.assets.update']:[])] as $p)
+        foreach (['connectors.credentials.manage','vault.credentials.use',...($operation==='sync'?['inventory.assets.create','inventory.assets.update']:($operation==='inspect'?['inventory.assets.read']:[]))] as $p)
             $this->rbac->requireUserPermission($actor,$p,$pdo);
     }
     public function issue(array $principal,string $targetId,int $version,string $operation,int $ttl,?int $interval=null):array
@@ -146,6 +146,7 @@ final class ConnectorExecutionService
     public function runs(string $actor,string $target,int $limit=50,int $offset=0):array
     {
         $this->rbac->requireUserPermission($actor,'connectors.targets.read');
+        $this->rbac->requireUserPermission($actor,'inventory.assets.read');
         $this->bindings->show($actor,$target);
         if ($limit<1 || $limit>100 || $offset<0 || $offset>10000) throw new HttpException(422,'Invalid pagination.','validation_failed');
         $pdo=$this->db->connection();
@@ -156,6 +157,7 @@ final class ConnectorExecutionService
     public function status(string $actor,string $target,string $id):array
     {
         $this->rbac->requireUserPermission($actor,'connectors.targets.read');
+        $this->rbac->requireUserPermission($actor,'inventory.assets.read');
         $target=CredentialInput::uuid($target);
         $this->bindings->show($actor,$target); $r=$this->runRow($this->db->connection(),$id);
         if ($r['target_id']!==$target) throw new HttpException(404,'Connector run not found.','not_found'); return $r;

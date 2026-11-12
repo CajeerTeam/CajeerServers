@@ -1,8 +1,8 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.4.2
-  description: 'CajeerServers 0.4.2: durable connector execution, scoped service grants and scheduled inventory synchronization.'
+  version: 0.4.3
+  description: 'CajeerServers 0.4.3: stable discovery identities, snapshot reconciliation and conflict resolution.'
 servers:
 - url: /api/v1
 security: []
@@ -6050,6 +6050,108 @@ paths:
           description: If-Match required
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+  /connectors/targets/{id}/resources:
+    get:
+      operationId: listConnectorDiscoveredResources
+      summary: Список устойчивых соответствий внешних ресурсов и Inventory
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      - name: limit
+        in: query
+        schema: {type: integer, minimum: 1, maximum: 100, default: 50}
+      - name: offset
+        in: query
+        schema: {type: integer, minimum: 0, maximum: 10000, default: 0}
+      responses:
+        '200':
+          description: Последнее состояние ресурсов без секретов
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: {$ref: '#/components/schemas/ConnectorDiscoveredResource'}
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Target не существует или не доступен в Workspace
+  /connectors/targets/{id}/resources/resolve:
+    post:
+      operationId: resolveConnectorResourceConflict
+      summary: Явно связать ручной asset или разрешить отдельное создание
+      description: Требует CSRF, If-Match, Workspace manager/owner и inventory.assets.create/update. generation должна совпадать с последней версией конфликта. Не выполняет удалённый вызов и не создаёт asset до следующей синхронизации.
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      - name: If-Match
+        in: header
+        required: true
+        schema: {type: string}
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [external_id, mode, generation]
+              additionalProperties: false
+              properties:
+                external_id: {type: string, minLength: 1, maxLength: 180}
+                mode: {type: string, enum: [link, create]}
+                generation: {type: integer, minimum: 1}
+                asset_id: {type: string, format: uuid}
+              if:
+                properties:
+                  mode: {const: link}
+              then:
+                required: [asset_id]
+              else:
+                not:
+                  required: [asset_id]
+      responses:
+        '200':
+          description: Решение сохранено; новая синхронизация применит его
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [external_id, asset_id, allow_create]
+                    properties:
+                      external_id: {type: string}
+                      asset_id: {type: [string, 'null'], format: uuid}
+                      allow_create: {type: boolean}
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Target недоступен
+        '409':
+          description: Конфликт уже разрешён, изменился или asset занят
+        '412':
+          description: Устаревший ETag target
+        '422':
+          description: Некорректная привязка или входные данные
+        '428':
+          description: Требуется If-Match
   /connectors/targets/{id}/inspect:
     post:
       operationId: inspectProxmoxConnector
@@ -6076,7 +6178,13 @@ paths:
           type: string
       responses:
         '200':
-          description: Количество реально обнаруженных объектов по типам; только счётчики
+          description: Предпросмотр изменений, конфликтов и счётчики; без записи Inventory
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: {$ref: '#/components/schemas/ConnectorDiscoveryResult'}
         '403':
           $ref: '#/components/responses/Forbidden'
         '409':
@@ -6174,7 +6282,13 @@ paths:
           type: string
       responses:
         '200':
-          description: Итоги синхронизации — только счётчики и статусы обработки
+          description: Итоги синхронизации, generation, полнота и состояние ресурсов
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: {$ref: '#/components/schemas/ConnectorDiscoveryResult'}
         '403':
           $ref: '#/components/responses/Forbidden'
         '409':
@@ -6189,6 +6303,75 @@ paths:
           description: Ошибка удалённого API или TLS
 components:
   schemas:
+    ConnectorDiscoveredResource:
+      type: object
+      required: [external_id, resource_type, asset_id, presence, missed_complete, last_generation, allow_create]
+      properties:
+        external_id: {type: string}
+        resource_type: {type: string}
+        asset_id: {type: [string, 'null'], format: uuid}
+        presence: {type: string, enum: [unknown, seen, stale, missing]}
+        first_seen_at: {type: [string, 'null']}
+        last_seen_at: {type: [string, 'null']}
+        absent_since: {type: [string, 'null']}
+        missed_complete: {type: integer, minimum: 0}
+        last_generation: {type: integer, minimum: 0}
+        conflict_code: {type: [string, 'null']}
+        observed_name: {type: [string, 'null']}
+        parent_external_id: {type: [string, 'null']}
+        allow_create: {type: boolean}
+    ConnectorDiscoveryResult:
+      type: object
+      required: [connector_id, mode, discovered, types]
+      properties:
+        connector_id: {type: string, format: uuid}
+        mode: {type: string, enum: [inspect, sync]}
+        discovered: {type: integer, minimum: 0}
+        types:
+          type: object
+          additionalProperties: {type: integer, minimum: 0}
+        outcomes:
+          type: object
+          additionalProperties: {type: integer, minimum: 0}
+        preview:
+          type: object
+          required: [complete, summary, items, truncated]
+          properties:
+            complete: {type: boolean}
+            summary:
+              type: object
+              additionalProperties: {type: integer, minimum: 0}
+            items:
+              type: array
+              maxItems: 100
+              items:
+                type: object
+                required: [external_id, type, action, candidate_ids]
+                properties:
+                  external_id: {type: string}
+                  type: {type: string}
+                  name: {type: [string, 'null']}
+                  asset_id: {type: [string, 'null'], format: uuid}
+                  action: {type: string, enum: [create, update, unchanged, conflict]}
+                  conflict: {type: [string, 'null']}
+                  parent_external_id: {type: [string, 'null']}
+                  candidate_ids:
+                    type: array
+                    items: {type: string, format: uuid}
+                  conflicted_fields:
+                    type: array
+                    items: {type: string}
+            truncated: {type: boolean}
+        snapshot:
+          type: object
+          required: [generation, complete, blocked, presence]
+          properties:
+            generation: {type: integer, minimum: 1}
+            complete: {type: boolean}
+            blocked: {type: integer, minimum: 0}
+            presence:
+              type: object
+              additionalProperties: {type: integer, minimum: 0}
     VaultSecretInput:
       description: >-
         Write-only secret payload. Generic and api_token accept a string for backward

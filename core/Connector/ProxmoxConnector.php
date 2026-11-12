@@ -36,7 +36,9 @@ final class ProxmoxConnector implements ConnectorInterface
         }
         if (in_array($operation,['health','validate_rotation'],true) && !array_filter($items,static fn(array $i):bool=>$i['type']==='hypervisor_node'))
             throw new RuntimeException('Remote API returned no Proxmox nodes.');
-        return new ConnectorResult($items);
+        // Full means a successful visible-inventory read, not proof of cluster-wide ACL visibility.
+        $complete=$operation!=='health' && $items!==[] && count(array_filter($items,static fn(array $i):bool=>$i['type']==='hypervisor_node'))>0;
+        return new ConnectorResult($items,$complete);
     }
 
     /** @return list<array{type:string,external_id:string,fields:array<string,string>}> */
@@ -74,13 +76,14 @@ final class ProxmoxConnector implements ConnectorInterface
             $type = $row['type'] ?? null;
             if (!in_array($type, ['qemu','lxc'], true)) throw new RuntimeException('Unsupported Proxmox guest type.');
             $node = self::node($row['node']??null);
+            if (!isset($items['node:'.$node])) throw new RuntimeException('Guest node missing from discovery; refusing inconsistent snapshot.');
             $id = $row['vmid'] ?? null;
             if ((!is_int($id) && !(is_string($id) && preg_match('/^[1-9][0-9]{0,8}$/D',$id)))
                 || (int)$id < 1 || (int)$id > 999999999) throw new RuntimeException('Invalid Proxmox guest ID.');
             $key = $type.':'.(int)$id; // VMIDs are unique across the cluster even if guests migrate nodes.
             if (isset($items[$key])) throw new RuntimeException('Duplicate remote guest identity.');
             $fallback = strtoupper($type).' '.(int)$id;
-            $items[$key] = ['type'=>$type==='qemu'?'virtual_machine':'container','external_id'=>$key,
+            $items[$key] = ['type'=>$type==='qemu'?'virtual_machine':'container','external_id'=>$key,'parent_external_id'=>'node:'.$node,
                 'fields'=>['name'=>self::label($row['name']??null,$fallback),
                     'status'=>self::status($row['status']??null, true)]];
         }

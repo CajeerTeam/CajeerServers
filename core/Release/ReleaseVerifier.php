@@ -69,7 +69,8 @@ final class ReleaseVerifier
                   'core/Connector/ConnectorRuntimeService.php', 'core/Connector/HttpsTransport.php',
                   'core/Connector/EndpointPolicy.php', 'tests/connector-runtime-smoke.php',
                   'core/Connector/ConnectorExecutionService.php', 'core/Cli/ConnectorCommands.php',
-                  'migrations/pgsql/0023_connector_execution.sql', 'tests/connector-execution-smoke.php'] as $file) {
+                  'migrations/pgsql/0023_connector_execution.sql', 'tests/connector-execution-smoke.php',
+                  'migrations/pgsql/0024_connector_reconciliation.sql', 'tests/connector-reconciliation-smoke.php'] as $file) {
             $check('source:' . $file, is_file($this->root . '/' . $file) && is_readable($this->root . '/' . $file), 'Required source file is available.');
         }
         // Strict deployment checks are intentionally not bypassed by the kernel's native autoload fallback.

@@ -2,6 +2,10 @@
 
 **CajeerServers** — русскоязычная self-hosted веб-оболочка для наблюдения и управления инфраструктурой. Это **не ОС**, не прошивка и не замена Proxmox/VMmanager. В 0.4.0 добавлена реальная серверная проверка ожидающей версии Credentials Vault через Proxmox с MFA и блокировкой активации без proof; в 0.3.9 добавлена работающая админ-панель Credentials Vault с browser E2E для изолированного staging; в 0.3.8 добавлены шифрованные CLI-backups и offline recovery; в 0.3.7 реализована read-only интеграция Proxmox VE через HTTPS; остальные коннекторы находятся на других стадиях реализации.
 
+## Версия 0.4.3 — Discovery, Sync & Reconciliation
+
+Единая синхронизация ручных и фоновых запусков: stable external ID → Inventory UUID, preview, полные/частичные snapshots, provenance, явные решения неоднозначных имён, grace period и generation fencing. Отсутствие ресурса не удаляет asset и не меняет operational status. Миграция 0024 сохраняет прежние UUID. [Установка, API, ограничения и тестирование](docs/Discovery-Sync-Reconciliation-0.4.3.md).
+
 ## Версия 0.4.2 — Connector Execution & Secure Service Grants
 
 Фоновые inspect/sync/health выполняются через выделенную PostgreSQL очередь `connectors`. MFA-делегирование привязано к версии credential, версии target, Workspace, asset и операции; worker не требует активной сессии и не хранит plaintext. Scheduler ставит периодические задачи, worker проверяет отзыв и состояние перед записью Inventory. [Установка, CLI, REST и диагностика](docs/Connector-Execution-0.4.2.md).

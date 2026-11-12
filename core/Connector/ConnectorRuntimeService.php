@@ -27,6 +27,9 @@ final class ConnectorRuntimeService
         private readonly ?CredentialVersionService $versions = null,
     ) {}
 
+    private function reconciliation(): ReconciliationService
+    { return new ReconciliationService($this->inventory,$this->history,$this->audit); }
+
     /**
      * Check a *pending* Vault rotation against the registered driver.
      * This is a read-only operation: no CMDB update or plaintext HTTP response.
@@ -87,10 +90,14 @@ final class ConnectorRuntimeService
     {
         if (!in_array($operation,['inspect','sync','health'],true)) throw new HttpException(422,'Unsupported background operation.','validation_failed');
         $targetId=$target['id']; $version=$target['version']; $sync=$operation==='sync';
-        $items=[]; $started=microtime(true);
+        $items=[]; $started=microtime(true); $snapshot=null;
+        $reconciliation=$this->reconciliation();
+        $generation=$sync?$reconciliation->generation($this->db->connection()):0;
+        $observedAt=$sync?(string)$this->db->connection()->query("SELECT to_char(clock_timestamp() AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"')")->fetchColumn():'';
         try {
-            $consume(function(string $secret,string $type) use ($target,&$items,$operation):void {
-                $items=$this->execute($target,$operation,$type,$secret)->items;
+            $consume(function(string $secret,string $type) use ($target,&$items,&$snapshot,$operation):void {
+                $snapshot=$this->execute($target,$operation,$type,$secret);
+                $items=$snapshot->items;
             });
         } catch (Throwable $e) {
             if ($e instanceof HttpException) throw $e;
@@ -106,44 +113,56 @@ final class ConnectorRuntimeService
             || $current['credential_version']!==$target['credential_version']) {
             throw new HttpException(409,'Connector binding changed during discovery.','conflict');
         }
-        $summary=(new ConnectorResult($items))->summary($this->registry->require($target['provider'],$operation)->manifest());
+        if (!$snapshot instanceof ConnectorResult) throw new HttpException(502,'No discovery result.','connector_failed');
+        $summary=$snapshot->summary($this->registry->require($target['provider'],$operation)->manifest());
         if (!$sync) {
             $result=$operation==='health' ? (new ConnectorHealth($targetId,(int)round((microtime(true)-$started)*1000)))->toArray()
                 : ['connector_id'=>$targetId,'mode'=>'inspect','discovered'=>count($items),'types'=>$summary];
-            return $this->db->transaction(function(PDO $pdo) use($actor,$targetId,$operation,$items,$requestId,$guard,$complete,$result):array {
+            return $this->db->transaction(function(PDO $pdo) use($actor,$targetId,$operation,$items,$requestId,$guard,$complete,$result,$target,$snapshot,$reconciliation):array {
+                $this->inventory->lockWorkspace($pdo,$target['workspace_id']);
                 if ($guard!==null) $guard($pdo);
+                $latest=$this->bindings->runtimeContext($actor,$targetId,$target['version'],$operation);
+                if ($latest['credential_id']!==$target['credential_id'] || $latest['credential_version']!==$target['credential_version']) throw new HttpException(409,'Connector binding changed.','conflict');
+                if ($operation==='inspect') $result['preview']=$reconciliation->preview($pdo,$actor,$target,$snapshot);
                 $this->audit->record($pdo,$actor,$operation==='health'?'connector.health.checked':'connector.inventory.inspected',
                     'success','connector_target',$targetId,['count'=>count($items)],$requestId);
                 if ($complete!==null) $complete($pdo,$result);
                 return $result;
             });
         }
-        // The observation import is a single PostgreSQL transaction, not per-item partial writes.
-        $events=[];
-        foreach ($items as $item) {
-            $events[]=['workspace_id'=>$target['workspace_id'],
-                'external_id'=>$target['provider'].':'.$targetId.':'.$item['external_id'],
-                'event_key'=>'connector.'.bin2hex(random_bytes(16)),
-                'type'=>$item['type'],'fields'=>$item['fields']];
-        }
-        $result=$this->db->transaction(function(PDO $pdo) use($actor,$targetId,$version,$target,$events,$requestId,$guard,$complete,$items,$summary):array {
-            // Serialize against workspace membership and target edits before writing to the CMDB.
+        // The entire snapshot, identity state, observations and queue result share one commit.
+        $result=$this->db->transaction(function(PDO $pdo) use($actor,$targetId,$version,$target,$requestId,$guard,$complete,$items,$summary,$snapshot,$generation,$observedAt,$reconciliation):array {
             $this->inventory->lockWorkspace($pdo,$target['workspace_id']);
             $this->inventory->workspaceRole($pdo,$target['workspace_id'],$actor,true);
+            $pdo->prepare('SELECT id FROM credentials WHERE id=:id FOR SHARE')->execute(['id'=>$target['credential_id']]);
             $latest=$this->bindings->runtimeContext($actor,$targetId,$version,'sync');
-            if ($latest['credential_id']!==$target['credential_id'] || $latest['credential_version']!==$target['credential_version'])
+            if ($latest['credential_id']!==$target['credential_id'] || $latest['credential_version']!==$target['credential_version'] || $latest['asset_id']!==$target['asset_id'])
                 throw new HttpException(409,'Connector was rebound or credential rotated.','conflict');
             if ($guard!==null) $guard($pdo);
-            $records=$this->history->observeMany($actor,$events,$requestId,true);
+            $delta=$reconciliation->apply($pdo,$actor,$target,$snapshot,$generation,$observedAt,$requestId);
             $this->audit->record($pdo,$actor,'connector.inventory.synced','success','connector_target',$targetId,
-                ['count'=>count($records)],$requestId);
-            $outcomes=['created'=>0,'applied'=>0,'unchanged'=>0,'conflicted'=>0,'stale'=>0];
-            foreach ($records as $record) if (isset($outcomes[$record['outcome']])) $outcomes[$record['outcome']]++;
-            $result=['connector_id'=>$targetId,'mode'=>'sync','discovered'=>count($items),'types'=>$summary,'outcomes'=>$outcomes];
+                ['count'=>count($items),'complete'=>$snapshot->complete,'blocked'=>$delta['snapshot']['blocked']],$requestId);
+            $result=['connector_id'=>$targetId,'mode'=>'sync','discovered'=>count($items),'types'=>$summary,...$delta];
             if ($complete!==null) $complete($pdo,$result);
             return $result;
         });
         return $result;
+    }
+    public function resources(string $actor,string $targetId,int $limit,int $offset):array
+    {
+        $target=$this->bindings->show($actor,$targetId);
+        return $this->reconciliation()->resources($this->db->connection(),$actor,$target,$limit,$offset);
+    }
+    public function resolveResource(string $actor,string $targetId,int $version,string $external,int $generation,?string $assetId,?string $requestId):array
+    {
+        return $this->db->transaction(function(PDO $pdo)use($actor,$targetId,$version,$external,$generation,$assetId,$requestId):array {
+            $target=$this->bindings->show($actor,$targetId);
+            $this->inventory->lockWorkspace($pdo,$target['workspace_id']);
+            $this->inventory->workspaceRole($pdo,$target['workspace_id'],$actor,true);
+            $target=$this->bindings->show($actor,$targetId);
+            if ($target['version']!==$version) throw new HttpException(412,'Connector configuration changed.','precondition_failed');
+            return $this->reconciliation()->resolve($pdo,$actor,$target,$external,$generation,$assetId,$requestId);
+        });
     }
     private function execute(array $target,string $operation,string $type,#[\SensitiveParameter] string $secret): ConnectorResult
     {

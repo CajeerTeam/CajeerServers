@@ -69,7 +69,7 @@ final class CommandRunner
     private function help(): int
     {
         fwrite(STDOUT, <<<'TEXT'
-CajeerServers CLI 0.4.2
+CajeerServers CLI 0.4.3
 
 Рабочие команды:
   help                 Список доступных команд

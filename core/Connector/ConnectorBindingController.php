@@ -141,12 +141,32 @@ final class ConnectorBindingController
         return HttpResponse::json(['data'=>$this->service->bind($actor,$id,$b['credential_id'],$b['purpose'],self::version($r,$id),self::rid($r),$withAsset)],201,
             ['Cache-Control'=>'private, no-store']);
     }
+    public function resources(HttpRequest $r):HttpResponse
+    {
+        $actor=$this->actor($r,'connectors.targets.read');
+        $this->rbac->requirePermission($this->auth->authenticate($r,sessionOnly:true),'inventory.assets.read');
+        return HttpResponse::json(['data'=>$this->runtime->resources($actor,self::id($r),self::integer($r,'limit',50,100),self::integer($r,'offset',0,10000))],200,['Cache-Control'=>'private, no-store']);
+    }
+    public function resolveResource(HttpRequest $r):HttpResponse
+    {
+        $actor=$this->actor($r,'connectors.credentials.manage',true);
+        $principal=$this->auth->authenticate($r,sessionOnly:true);
+        foreach (['inventory.assets.create','inventory.assets.update'] as $scope) $this->rbac->requirePermission($principal,$scope);
+        $body=$r->attribute('json'); $id=self::id($r);
+        $external=$body['external_id']??null;
+        if (!is_string($external) || $external==='' || strlen($external)>180 || preg_match('/[\x00-\x1f\x7f]/',$external)) throw new HttpException(422,'Invalid external identity.','validation_failed');
+        if (!in_array($body['mode']??null,['link','create'],true) || !is_int($body['generation']??null) || $body['generation']<1) throw new HttpException(422,'Invalid resolution.','validation_failed');
+        $asset=$body['mode']==='link'?CredentialInput::uuid($body['asset_id']??null):null;
+        if ($body['mode']==='create' && isset($body['asset_id'])) throw new HttpException(422,'Unexpected asset identity.','validation_failed');
+        return HttpResponse::json(['data'=>$this->runtime->resolveResource($actor,$id,self::version($r,$id),$external,$body['generation'],$asset,self::rid($r))],200,['Cache-Control'=>'private, no-store']);
+    }
     public function inspect(HttpRequest $r):HttpResponse
     {
         $principal=$this->auth->authenticate($r,sessionOnly:true);
         $this->auth->requireCsrf($r,$principal);
         $this->rbac->requirePermission($principal,'connectors.credentials.manage');
         $this->rbac->requirePermission($principal,'vault.credentials.use');
+        $this->rbac->requirePermission($principal,'inventory.assets.read');
         return HttpResponse::json(['data'=>$this->runtime->run($principal,self::id($r),
             self::version($r,self::id($r)),false,self::rid($r))],200,
             ['Cache-Control'=>'private, no-store','Pragma'=>'no-cache']);
