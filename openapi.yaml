@@ -1,8 +1,8 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.4.6
-  description: 'CajeerServers 0.4.6: SNMP read-only network discovery, persisted connector health and circuit breaker.'
+  version: 0.4.7
+  description: 'CajeerServers 0.4.7: signed connector events, durable dispatch, Vault-backed signing keys and redrive.'
 servers:
 - url: /api/v1
 security: []
@@ -6338,6 +6338,400 @@ paths:
           description: Исполняемый драйвер отсутствует
         '502':
           description: Ошибка удалённого API или TLS
+  /connectors/targets/{id}/webhook-sources:
+    get:
+      operationId: listConnectorWebhookSources
+      summary: Список источников без ключей
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Операция завершена
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Ресурс недоступен
+        '409':
+          description: Конфликт состояния
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    post:
+      operationId: createConnectorWebhookSource
+      summary: Создать источник с собственным действующим sync grant
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - &connectorEventAnchor001
+        name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      responses:
+        '201':
+          description: Операция завершена
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: object
+                    required:
+                    - id
+                    - secret
+                    - key_version
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      secret:
+                        type: string
+                        pattern: ^[a-f0-9]{64}$
+                      key_version:
+                        type: integer
+                        minimum: 1
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Ресурс недоступен
+        '409':
+          description: Конфликт состояния
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - grant_id
+              additionalProperties: false
+              properties:
+                grant_id:
+                  type: string
+                  format: uuid
+      description: 'Возвращает secret только один раз. Cache-Control: private, no-store. Требует владельца действующего MFA-делегированного sync
+        grant.'
+  /connectors/targets/{id}/webhook-sources/{sourceId}/rotate:
+    post:
+      operationId: rotateConnectorWebhookKey
+      summary: Заменить ключ подписи
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: sourceId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - *connectorEventAnchor001
+      responses:
+        '200':
+          description: Операция завершена
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: object
+                    required:
+                    - id
+                    - secret
+                    - key_version
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      secret:
+                        type: string
+                        pattern: ^[a-f0-9]{64}$
+                      key_version:
+                        type: integer
+                        minimum: 1
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Ресурс недоступен
+        '409':
+          description: Конфликт состояния
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+      description: 'Возвращает secret только один раз. Cache-Control: private, no-store. Требует владельца действующего MFA-делегированного sync
+        grant.'
+  /connectors/targets/{id}/webhook-sources/{sourceId}:
+    delete:
+      operationId: revokeConnectorWebhookSource
+      summary: Отозвать источник и запретить незавершённые записи
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: sourceId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - *connectorEventAnchor001
+      responses:
+        '204':
+          description: Операция завершена
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Ресурс недоступен
+        '409':
+          description: Конфликт состояния
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /connectors/targets/{id}/events:
+    get:
+      operationId: listConnectorEvents
+      summary: История событий и запусков
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 50
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          maximum: 10000
+          default: 0
+      responses:
+        '200':
+          description: Операция завершена
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Ресурс недоступен
+        '409':
+          description: Конфликт состояния
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /connectors/targets/{id}/events/{eventId}/redrive:
+    post:
+      operationId: redriveConnectorEvent
+      summary: Повторить завершившееся ошибкой или отменённое событие
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: eventId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - *connectorEventAnchor001
+      responses:
+        '202':
+          description: Операция завершена
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Ресурс недоступен
+        '409':
+          description: Конфликт состояния
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - grant_id
+              additionalProperties: false
+              properties:
+                grant_id:
+                  type: string
+                  format: uuid
+  /connectors/webhooks/{sourceId}/events:
+    post:
+      operationId: receiveConnectorEvent
+      summary: Принять подписанное событие и поставить sync в очередь
+      description: Подпись SHA256 HMAC от UTF-8 строки v1.<timestamp>.<source UUID>\n<raw body>. Timestamp ±300 секунд. Повтор того же event_id
+        с тем же телом возвращает прежний event/run; другое тело отклоняется. Событие не изменяет Inventory напрямую. Максимум 16 KiB.
+      security:
+      - connectorWebhookHmac: []
+      parameters:
+      - name: sourceId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: X-Cajeer-Timestamp
+        in: header
+        required: true
+        schema:
+          type: string
+          pattern: ^[1-9][0-9]{9,12}$
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - event_id
+              - type
+              properties:
+                event_id:
+                  type: string
+                  pattern: ^[A-Za-z0-9._:-]{1,128}$
+                type:
+                  enum:
+                  - resource.created
+                  - resource.updated
+                  - resource.deleted
+                  - inventory.refresh
+                resource_id:
+                  type: string
+                  minLength: 1
+                  maxLength: 180
+              if:
+                properties:
+                  type:
+                    enum:
+                    - resource.created
+                    - resource.updated
+                    - resource.deleted
+              then:
+                required:
+                - resource_id
+      responses:
+        '202':
+          description: Событие принято либо повторно подтверждено
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    required:
+                    - id
+                    - run_id
+                    - deduplicated
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      run_id:
+                        type: string
+                        format: uuid
+                      deduplicated:
+                        type: boolean
+        '400':
+          description: Невалидный JSON
+        '401':
+          description: Неверная подпись или отозванный источник
+        '403':
+          description: Недействующее разрешение
+        '409':
+          description: Конфликт идентификатора события или состояния коннектора
+        '413':
+          description: Тело слишком велико
+        '415':
+          description: Требуется application/json
+        '422':
+          description: Некорректное событие
+        '429':
+          description: Лимит запросов или очередь заполнена; повторить позже
+        '503':
+          description: Сервис недоступен
 components:
   schemas:
     ConnectorTargetWithHealth:
@@ -7071,3 +7465,8 @@ components:
       name: X-Cajeer-Signature
       description: sha256=<hex64> HMAC-SHA256 от v1.<unix_timestamp>.<raw_body>; отдельно X-Cajeer-Timestamp, дрейф не
         более 300 секунд.
+    connectorWebhookHmac:
+      type: apiKey
+      in: header
+      name: X-Cajeer-Signature
+      description: sha256=<hex64>; HMAC-SHA256 binds timestamp, source UUID and raw body.

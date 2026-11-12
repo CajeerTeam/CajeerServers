@@ -68,7 +68,7 @@ final class ReleaseVerifier
                   'admin/tests/vault-ui-contract.mjs', 'core/Integration/ConnectorRegistry.php',
                   'core/Connector/ConnectorRuntimeService.php','core/Connector/SnmpTransport.php','core/Connector/SnmpSession.php','core/Connector/RouterConnector.php','core/Connector/ConnectorHealthMonitor.php','core/Connector/ConnectorConcurrency.php','tests/snmp-health-smoke.php','tests/snmp-protocol-integration.sh','tests/snmp-protocol-integration.php','tests/connector-health-postgres-integration.php','docs/SNMP-Connector-Health-0.4.6.md','migrations/pgsql/0026_connector_health.sql', 'core/Connector/HttpsTransport.php',
                   'core/Connector/EndpointPolicy.php', 'tests/connector-runtime-smoke.php',
-                  'core/Connector/ConnectorExecutionService.php', 'core/Cli/ConnectorCommands.php',
+                  'core/Connector/ConnectorExecutionService.php', 'core/Connector/ConnectorEventService.php', 'core/Connector/ConnectorEventController.php', 'core/Connector/ConnectorEventPayload.php', 'migrations/pgsql/0027_connector_events.sql', 'tests/connector-events-smoke.php', 'tests/connector-events-postgres-integration.php', 'docs/Connector-Events-0.4.7.md', 'core/Cli/ConnectorCommands.php',
                   'migrations/pgsql/0023_connector_execution.sql', 'tests/connector-execution-smoke.php',
                   'migrations/pgsql/0024_connector_reconciliation.sql', 'tests/connector-reconciliation-smoke.php', 'core/Connector/VmmanagerConnector.php',
                   'core/Connector/ConnectorTransportException.php', 'tests/vmmanager-runtime-smoke.php',

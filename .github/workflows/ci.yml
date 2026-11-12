@@ -108,6 +108,7 @@ jobs:
           php tests/connector-reconciliation-postgres-integration.php
           php tests/host-hardware-postgres-integration.php
           php tests/connector-health-postgres-integration.php
+          php tests/connector-events-postgres-integration.php
           python3 tests/vmmanager-https-integration.py --postgres
       - name: PostgreSQL client version for encrypted backup/restore
         run: |

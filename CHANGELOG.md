@@ -1,3 +1,9 @@
+## [0.4.7] — 2026-11-12 — Connector Webhooks, Events & Signed Payloads
+
+- Signed target-scoped event inbox, Vault-encrypted source keys, rotation/revocation, durable atomic dispatch to existing connector sync worker.
+- HMAC timestamp/source/raw body verification, event-ID deduplication, safe normalized metadata, dead-letter status and redrive with live sync grant.
+- Migration 0027, REST/OpenAPI, source revocation fencing and master-key rewrap; smoke and PostgreSQL integration scenarios.
+
 ## [0.4.6] — 2026-11-12 — SNMP & Connector Health
 
 - Исполняемый SNMPv3 authPriv и опциональный SNMPv2c, read-only GET/GETNEXT, MIB-инвентаризация.

@@ -322,6 +322,9 @@ final class Application
         $this->services->singleton(ConnectorExecutionService::class, fn (ServiceContainer $c): ConnectorExecutionService => new ConnectorExecutionService(
             $c->get(DatabaseManager::class),$c->get(ConnectorBindingService::class),$c->get(InventoryRepository::class),$c->get(Rbac::class),
             $c->get(SecretAccessService::class),$c->get(CredentialsVault::class),$c->get(VaultCrypto::class),$c->get(AuditLogger::class),$c->get(ConnectorRuntimeService::class)));
+        $this->services->singleton(\Cajeer\Servers\Connector\ConnectorEventService::class, fn (ServiceContainer $c) => new \Cajeer\Servers\Connector\ConnectorEventService(
+            $c->get(DatabaseManager::class),$c->get(ConnectorBindingService::class),$c->get(InventoryRepository::class),$c->get(Rbac::class),$c->get(ConnectorExecutionService::class),$c->get(CredentialsVault::class),$c->get(VaultCrypto::class),$c->get(RateLimiter::class),$c->get(AuditLogger::class)));
+        $this->services->singleton(\Cajeer\Servers\Connector\ConnectorEventController::class, fn (ServiceContainer $c) => new \Cajeer\Servers\Connector\ConnectorEventController($c->get(AuthenticationService::class),$c->get(\Cajeer\Servers\Connector\ConnectorEventService::class)));
         $this->services->singleton(ConnectorBindingController::class, fn (ServiceContainer $c): ConnectorBindingController => new ConnectorBindingController(
             $c->get(AuthenticationService::class),$c->get(Rbac::class),$c->get(ConnectorBindingService::class),$c->get(ConnectorRuntimeService::class),$c->get(ConnectorRegistry::class),$c->get(ConnectorExecutionService::class)));
         $this->services->singleton(TransferController::class, fn (ServiceContainer $c): TransferController => new TransferController(

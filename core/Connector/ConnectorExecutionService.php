@@ -99,6 +99,19 @@ final class ConnectorExecutionService
             return $this->enqueueLocked($pdo,$g,'manual:'.$key);
         });
     }
+    /** Only server-side event dispatcher calls this within its durable inbox transaction. */
+    public function eventGrant(PDO $pdo,string $actor,string $target,string $grant):array
+    {
+        $g=$this->grant($pdo,$grant,true);
+        if ($g['actor_id']!==$actor || $g['target_id']!==$target || $g['operation']!=='sync') $this->deny();
+        $this->context($pdo,$g);
+        return $g;
+    }
+    public function dispatchEvent(PDO $pdo,array $g,string $eventId,int $attempt):array
+    {
+        if (!$pdo->inTransaction() || $g['operation']!=='sync' || $attempt<1 || $attempt>10) throw new \LogicException('Invalid event dispatch.');
+        return $this->enqueueLocked($pdo,$g,'event:'.CredentialInput::uuid($eventId).':'.$attempt);
+    }
     private function enqueueLocked(PDO $pdo,array $g,string $key):array
     {
         $existing=$this->query($pdo,'SELECT id FROM connector_runs WHERE grant_id=:g AND idempotency_key=:k',['g'=>$g['id'],'k'=>$key])->fetchColumn();
@@ -181,6 +194,9 @@ final class ConnectorExecutionService
     private function fence(PDO $pdo,QueueReservation $r,array $g):array
     {
         $this->inventory->lockWorkspace($pdo,$g['workspace_id']);
+        // Revoking a webhook blocks pending runs and in-flight commits, not just future ingestion.
+        $source=$this->query($pdo,'SELECT s.revoked_at FROM connector_event_dispatches d JOIN connector_events e ON e.id=d.event_id JOIN connector_webhook_sources s ON s.id=e.source_id WHERE d.run_id=:id FOR SHARE OF s',['id'=>$r->job->id])->fetch(PDO::FETCH_ASSOC);
+        if ($source && $source['revoked_at']!==null) $this->deny();
         $fresh=$this->grant($pdo,$g['id'],true);
         $q=$this->query($pdo,"SELECT 1 FROM queue_jobs WHERE id=:id AND queue='connectors' AND status='running' AND lease_token=:receipt AND reserved_until>clock_timestamp() FOR UPDATE",['id'=>$r->job->id,'receipt'=>$r->receipt]);
         if (!$q->fetchColumn()) throw new HttpException(409,'Connector lease lost.','lease_lost');

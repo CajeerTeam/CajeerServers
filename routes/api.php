@@ -301,6 +301,15 @@ return static function (Router $router, ServiceContainer $container): void {
                     'asset_id'=>['type'=>'string','format'=>'uuid'],
                 ],'additionalProperties'=>false,
             ];
+            $events=static fn()=> $container->get(\Cajeer\Servers\Connector\ConnectorEventController::class);
+            $grantBody=['required'=>['grant_id'],'properties'=>['grant_id'=>['type'=>'string','format'=>'uuid']],'additionalProperties'=>false];
+            $connectors->get('/targets/{id}/webhook-sources',static fn(HttpRequest $r):HttpResponse=>$events()->sources($r));
+            $connectors->post('/targets/{id}/webhook-sources',static fn(HttpRequest $r):HttpResponse=>$events()->create($r),$grantBody);
+            $connectors->post('/targets/{id}/webhook-sources/{sourceId}/rotate',static fn(HttpRequest $r):HttpResponse=>$events()->rotate($r));
+            $connectors->delete('/targets/{id}/webhook-sources/{sourceId}',static fn(HttpRequest $r):HttpResponse=>$events()->revoke($r));
+            $connectors->get('/targets/{id}/events',static fn(HttpRequest $r):HttpResponse=>$events()->events($r));
+            $connectors->post('/targets/{id}/events/{eventId}/redrive',static fn(HttpRequest $r):HttpResponse=>$events()->redrive($r),$grantBody);
+            $connectors->post('/webhooks/{sourceId}/events',static fn(HttpRequest $r):HttpResponse=>$events()->ingest($r));
             $connectors->get('/drivers',static fn(HttpRequest $r):HttpResponse=>$handler()->drivers($r));
             $connectors->get('/targets',static fn(HttpRequest $r):HttpResponse=>$handler()->index($r));
             $connectors->post('/targets',static fn(HttpRequest $r):HttpResponse=>$handler()->create($r),$create);
