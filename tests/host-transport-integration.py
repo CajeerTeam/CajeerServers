@@ -170,6 +170,11 @@ def ssh_test(tmp):
 
 
 if __name__=='__main__':
+    if '--ssh' in sys.argv:
+        try:
+            import paramiko
+        except ImportError as exc:
+            sys.exit(f'SSH integration requires Paramiko: {exc}')
     with tempfile.TemporaryDirectory() as folder:
         tmp=pathlib.Path(folder);https_test(tmp)
         if '--ssh' in sys.argv:ssh_test(tmp)

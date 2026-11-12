@@ -111,6 +111,14 @@ final class ScriptExecution
                 $this->finish($p,$r,['output'=>$out,'output_bytes'=>$bytes,'exit_code'=>0,'normalized'=>$normalized]);
             },$scope);
     }
+    /** Remove terminal history only. Active jobs and the independent audit log are untouched. */
+    public function retain(int $limit=1000):array
+    {
+        if($limit<1||$limit>5000)throw new \InvalidArgumentException('Script retention limit 1..5000.');
+        $days=$this->config->get('scripts.history_retention_days',90);
+        if(!is_int($days)||$days<7||$days>3650)throw new \RuntimeException('Invalid script history retention.');
+        return $this->db->transaction(fn(PDO $p)=>['deleted'=>$this->q($p,"DELETE FROM script_executions WHERE id IN (SELECT id FROM script_executions WHERE state IN ('succeeded','failed','cancelled') AND finished_at<clock_timestamp()-(:days*interval '1 day') ORDER BY finished_at,id LIMIT $limit FOR UPDATE SKIP LOCKED)",['days'=>$days])->rowCount(),'retention_days'=>$days]);
+    }
     /** One dedicated worker at a time. Never retry an abandoned script, even if outcome is unknown. */
     public function work(int $limit=20):int
     {

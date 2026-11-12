@@ -17,6 +17,16 @@ final class ConnectorCommands
             fwrite(STDOUT,json_encode($report,JSON_THROW_ON_ERROR|JSON_PRETTY_PRINT)."\n");
             return $report['ok']?0:1;
         }
+        if($command==='collection:doctor'){
+            if($args!==[]&&$args!==['--json'])throw new \InvalidArgumentException('Usage: collection:doctor [--json]');
+            $report=(new \Cajeer\Servers\Collector\CollectionReadiness($this->app))->report();
+            fwrite(STDOUT,json_encode($report,JSON_THROW_ON_ERROR|JSON_PRETTY_PRINT)."\n");return $report['ok']?0:1;
+        }
+        if($command==='scripts:retain'){
+            if(count($args)>1||isset($args[0])&&!preg_match('/^[1-9][0-9]{0,3}$/D',$args[0]))throw new \InvalidArgumentException('Usage: scripts:retain [limit]');
+            $result=$this->app->container()->get(\Cajeer\Servers\Script\ScriptExecution::class)->retain((int)($args[0]??1000));
+            fwrite(STDOUT,json_encode($result,JSON_THROW_ON_ERROR)."\n");return 0;
+        }
         if($command==='data-export:deliver'){
             if(count($args)!==3)throw new \InvalidArgumentException('Usage: data-export:deliver <actor> <target> <export>');
             [$actor,$target,$id]=array_map(\Cajeer\Servers\Credentials\CredentialInput::uuid(...),$args);

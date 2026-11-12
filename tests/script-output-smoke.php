@@ -26,7 +26,7 @@ $ok($parse("x 1 ".(time()*1000)."\n",'prometheus','metrics')['normalized']['coun
 foreach(['x NaN','x +Inf','x 1e999','x{a="1",a="2"} 1',"x{a=\"1\",b=\"2\"} 1\nx{b=\"2\",a=\"1\"} 2",'x 1 1','x{__name__="x"} 1',"# EOF\nx 1",'x 1 # exemplar'] as $s)$bad(fn()=>$parse($s,'prometheus','metrics'));
 $ok($parse("metric=system.cpu\nvalue=2.5\nunit=percent\n",'key_value','metrics')['normalized']['metric_samples'][0]['value']===2.5,'key-value numeric metric');
 $ok($parse(' {"metric":"load","value":3,"labels":{}} ','json','metrics')['normalized']['metric_samples'][0]['value']===3,'JSON typed numeric metric');
-foreach(['{"metric":"x","value":"3"}','{"metric":"x","value":1,"labels":{"x":3}}','{"metric":"x","value":1,"asset_id":"x"}','{"metric":"x","value":1,"observed_at":"2026-02-30T00:00:00Z"}','{"metric":"x","value":1,"observed_at":"2026-11-01T00:00:00+00:99"}'] as $s)$bad(fn()=>$parse($s,'json','metrics'));
+foreach(['{"metric":"x","value":"not numeric"}','{"metric":"x","value":1,"labels":{"x":3}}','{"metric":"x","value":1,"asset_id":"x"}','{"metric":"x","value":1,"observed_at":"2026-02-30T00:00:00Z"}','{"metric":"x","value":1,"observed_at":"2026-11-01T00:00:00+00:99"}'] as $s)$bad(fn()=>$parse($s,'json','metrics'));
 $ok($parse('{"event_id":"e1","type":"system.changed","message":"OK"}','json','events')['normalized']['events'][0]['severity']==='info','event normalization');
 $bad(fn()=>$parse('[{"event_id":"e1","type":"x","message":"one"},{"event_id":"e1","type":"x","message":"two"}]','json','events'));
 $bad(fn()=>$parse('x 1','prometheus','document'));

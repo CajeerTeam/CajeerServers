@@ -1,7 +1,7 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.5.9
+  version: 0.6.0
   description: 'CajeerServers 0.5.7: signed external data ingestion, durable inbox and time series.'
 servers:
 - url: /api/v1
@@ -10477,6 +10477,8 @@ paths:
           description: Target, source, or export not found
         '409':
           description: Conflict
+        '410':
+          description: Artifact expired after seven days
         '422':
           description: Validation failed
         '429':

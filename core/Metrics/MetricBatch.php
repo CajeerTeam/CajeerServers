@@ -22,6 +22,7 @@ final class MetricBatch
             if(!is_array($r)||array_diff(array_keys($r),['metric','value','resource_external_id','labels','kind','unit','observed_at']))self::invalid();
             $name=$r['metric']??null;$v=$r['value']??null;$resource=$r['resource_external_id']??'';$labels=$r['labels']??[];$kind=$r['kind']??'gauge';$unit=$r['unit']??null;
             if(!is_string($name)||!preg_match('/^[A-Za-z_:][A-Za-z0-9_.:-]{0,127}$/D',$name)||!is_string($resource)||strlen($resource)>180||!preg_match('/^[^\x00-\x1f\x7f]*$/uD',$resource)||!in_array($kind,['gauge','counter'],true)||($unit!==null&&(!is_string($unit)||!preg_match('/^[A-Za-z0-9_%\/.:-]{1,32}$/D',$unit))))self::invalid();
+            if(is_float($v)&&(!is_finite($v)||abs($v)>9007199254740991))self::invalid();
             if(is_int($v)||is_float($v))$v=json_encode($v,JSON_THROW_ON_ERROR|JSON_PRESERVE_ZERO_FRACTION);
             if(!is_string($v)||strlen($v)>80||!preg_match('/^[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]{1,3})?$/D',$v)||!is_finite((float)$v)||($kind==='counter'&&str_starts_with($v,'-')))self::invalid();
             if(is_object($labels))$labels=get_object_vars($labels);

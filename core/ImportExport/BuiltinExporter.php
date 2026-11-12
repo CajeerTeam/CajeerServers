@@ -35,9 +35,10 @@ final class BuiltinExporter implements ExporterInterface
             foreach($records as $r){$row=[];foreach($columns as $k)$row[]=self::cell($r[$k]??null,$k);self::append($out,implode(',',$row)."\r\n");}return $out;
         }
         // Generic metric families avoid invalid names and normalization collisions. Exact source name and labels remain available.
-        $out='';$previous=null;
+        $out='';$previous=null;$families=[];
         foreach($records as $r){
-            if($r['kind']!==$previous){$previous=$r['kind'];self::append($out,"# TYPE cajeer_infrastructure_".$previous." ".$previous."\n");}
+            if(!in_array($r['kind'],['gauge','counter'],true))throw new HttpException(422,'Invalid metric kind.','metric_invalid');
+            if($r['kind']!==$previous){$previous=$r['kind'];if(isset($families[$previous]))throw new HttpException(422,'Metric families must be grouped.','export_invalid');$families[$previous]=true;self::append($out,"# TYPE cajeer_infrastructure_".$previous." ".$previous."\n");}
             $metric=$r['kind']==='counter'?'cajeer_infrastructure_counter_total':'cajeer_infrastructure_gauge';
             $labels=['series_id'=>$r['series_id'],'metric'=>$r['metric'],'resource'=>$r['resource_external_id'],'labels_json'=>self::json($r['labels']),'unit'=>$r['unit']??''];
             $parts=[];foreach($labels as $k=>$v)$parts[]=$k.'='.self::label((string)$v);

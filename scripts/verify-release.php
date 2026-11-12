@@ -11,16 +11,21 @@ foreach (array_slice($argv, 1) as $option) {
 require $root . '/core/autoload.php';
 $failures = 0;
 $steps = 0;
-$run = static function (string $name, array $command, string $cwd, ?array $environment = null) use (&$failures, &$steps): void {
+// GNU timeout supervises the entire process group, including subprocesses spawned by tests.
+// Strict deployment checks must never wait indefinitely on a stalled tool or fixture.
+$timeout = is_executable('/usr/bin/timeout') ? '/usr/bin/timeout' : (is_executable('/bin/timeout') ? '/bin/timeout' : null);
+if ($strict && $timeout === null) { fwrite(STDERR, "FAIL: strict verification requires GNU timeout.\n"); exit(2); }
+$run = static function (string $name, array $command, string $cwd, ?array $environment = null, int $seconds = 300) use (&$failures, &$steps, $timeout): void {
     $steps++;
     fwrite(STDOUT, "== $name ==\n");
     if (!function_exists('proc_open')) { fwrite(STDERR, "FAIL: proc_open unavailable\n"); $failures++; return; }
     $pipes = [];
+    if ($timeout !== null) $command = [$timeout, '--signal=TERM', '--kill-after=10s', $seconds . 's', ...$command];
     $process = @proc_open($command, [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['redirect', 1]], $pipes, $cwd, $environment);
     if (!is_resource($process)) { fwrite(STDERR, "FAIL: cannot start $name\n"); $failures++; return; }
     stream_copy_to_stream($pipes[1], STDOUT); fclose($pipes[1]);
     $status = proc_close($process);
-    if ($status !== 0) { fwrite(STDERR, "FAIL: $name (exit $status)\n"); $failures++; }
+    if ($status !== 0) { $reason = in_array($status,[124,137],true) ? "timeout or killed (limit {$seconds}s)" : "exit $status"; fwrite(STDERR, "FAIL: $name ($reason)\n"); $failures++; }
 };
 
 $phpFiles = [];
@@ -45,7 +50,7 @@ $steps++;
 fwrite(STDOUT, sprintf("PHP lint: %d files, %d failures\n", count($phpFiles), $lintErrors));
 if ($lintErrors > 0 || $phpFiles === []) $failures++;
 
-foreach (['runtime', 'http', 'database', 'installer', 'auth', 'security', 'infrastructure', 'observability', 'admin', 'release', 'inventory-readiness', 'workspaces', 'inventory', 'ipam', 'topology', 'catalog', 'history', 'transfer', 'cmdb-integrity', 'import-dispatch', 'vault-crypto', 'vault-crud', 'vault-profiles', 'vault-access', 'vault-rotation', 'vault-bindings', 'vault-stable', 'proxmox-runtime', 'connector-runtime', 'connector-execution', 'connector-reconciliation', 'vmmanager-runtime', 'host-runtime', 'snmp-health', 'connector-events', 'connector-actions', 'connector-stability', 'collector-runtime', 'script-registry', 'script-execution', 'script-output', 'collection-plans', 'metrics', 'ingestion', 'data-exchange', 'backup'] as $suite) {
+foreach (['runtime', 'http', 'database', 'installer', 'auth', 'security', 'infrastructure', 'observability', 'admin', 'release', 'inventory-readiness', 'workspaces', 'inventory', 'ipam', 'topology', 'catalog', 'history', 'transfer', 'cmdb-integrity', 'import-dispatch', 'vault-crypto', 'vault-crud', 'vault-profiles', 'vault-access', 'vault-rotation', 'vault-bindings', 'vault-stable', 'proxmox-runtime', 'connector-runtime', 'connector-execution', 'connector-reconciliation', 'vmmanager-runtime', 'host-runtime', 'snmp-health', 'connector-events', 'connector-actions', 'connector-stability', 'collector-runtime', 'script-registry', 'script-execution', 'script-output', 'collection-plans', 'metrics', 'ingestion', 'data-exchange', 'collection-stability', 'backup'] as $suite) {
     $run($suite . ' smoke', [PHP_BINARY, 'tests/' . $suite . '-smoke.php'], $root);
 }
 $run('Admin frontend static', ['node', 'tests/static-check.mjs'], $root . '/admin');
@@ -53,6 +58,7 @@ $run('Inventory navigation contract', ['node', '--experimental-strip-types', 'te
 $run('Vault Admin UI contract', ['node', '--experimental-strip-types', 'tests/vault-ui-contract.mjs'], $root . '/admin');
 $run('Connector lifecycle UI policy', ['node', '--experimental-strip-types', 'tests/connector-lifecycle-contract.mjs'], $root . '/admin');
 
+$run('Browser release report policy', ['node','tests/e2e/report-contract.mjs'], $root . '/admin');
 $run('Data collection navigation and UI policy', ['node','--experimental-strip-types','tests/collection-navigation-contract.mjs'], $root . '/admin');
 
 if ($strict) {
@@ -89,9 +95,10 @@ if ($strict) {
     } else {
         $run('Redis integration', [PHP_BINARY, 'tests/infrastructure-redis-integration.php'], $root);
     }
+    $run('Composer lock consistency', ['composer','validate','--strict'], $root);
     $run('PHPUnit', [$root . '/vendor/bin/phpunit', '--configuration', 'phpunit.xml.dist'], $root);
-    $run('Nuxt typecheck', ['npm', 'run', 'typecheck'], $root . '/admin');
-    $run('Nuxt build', ['npm', 'run', 'build'], $root . '/admin');
+    $run('Nuxt typecheck', ['npm', 'run', 'typecheck'], $root . '/admin', null, 900);
+    $run('Nuxt build', ['npm', 'run', 'build'], $root . '/admin', null, 1800);
     $run('Production release gate', [PHP_BINARY, 'bin/cajeer', 'release:check', '--strict'], $root);
     if (!getenv('CAJEER_SMOKE_URL')) {
         fwrite(STDERR, "FAIL: strict verification requires CAJEER_SMOKE_URL to test a real HTTP deployment.\n"); $failures++;
@@ -102,7 +109,7 @@ if ($strict) {
         fwrite(STDERR, "FAIL: strict verification requires disposable E2E staging, credentials, E2E_ALLOW_WRITES=1, E2E_ISOLATED_STAGING=1, E2E_CONNECTOR_UI=1, E2E_ADMIN_TOTP_SECRET and fixture host.\n"); $failures++;
     } else {
         $run('Playwright E2E preflight', ['npm', 'run', 'test:e2e:preflight'], $root . '/admin');
-        $run('Playwright E2E', ['npm', 'run', 'test:e2e'], $root . '/admin');
+        $run('Playwright E2E (critical suites must execute)', ['bash','scripts/verify-browser-e2e.sh'], $root, null, 1800);
     }
 }
 fwrite(STDOUT, "Release verification: $steps steps; failures: $failures" . ($strict ? ' (strict)' : ' (native)') . "\n");

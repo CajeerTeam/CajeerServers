@@ -62,6 +62,7 @@ final class ExportManager
     public function download(string $actor,string $target,string $id):array
     {
         return $this->db->transaction(function(PDO $p)use($actor,$target,$id){$r=$this->show($actor,$target,$id);if($r['status']!=='succeeded')throw new HttpException(409,'Export is not ready.','conflict');
+            if(new \DateTimeImmutable($r['finished_at'])<=(new \DateTimeImmutable('now',new \DateTimeZone('UTC')))->modify('-7 days'))throw new HttpException(410,'Export has expired.','export_expired');
             $body=$this->q($p,'SELECT artifact FROM data_export_jobs WHERE id=:id AND actor_id=:a AND target_id=:t',['id'=>$id,'a'=>$actor,'t'=>$target])->fetchColumn();if(!is_string($body)||!hash_equals($r['artifact_sha256'],hash('sha256',$body)))throw new HttpException(409,'Export unavailable.','conflict');
             $this->access($p,$actor,$target,$r['kind']);$this->audit->record($p,$actor,'data.export.downloaded','success','data_export_job',$id);return ['body'=>$body,'format'=>$r['format'],'sha256'=>$r['artifact_sha256']];});
     }
@@ -108,7 +109,7 @@ final class ExportManager
         for($i=0;$i<$limit;$i++){
             $did=$this->db->transaction(function(PDO $p){
                 $p->exec("SET LOCAL statement_timeout='30s'");$p->exec("SET LOCAL lock_timeout='3s'");
-                $ws=$p->query("SELECT w.id FROM workspaces w WHERE EXISTS(SELECT 1 FROM data_export_jobs j WHERE j.workspace_id=w.id AND j.status='queued' AND j.available_at<=clock_timestamp()) ORDER BY w.id LIMIT 1 FOR UPDATE SKIP LOCKED")->fetchColumn();if(!$ws)return false;
+                $ws=$p->query("SELECT w.id FROM workspaces w WHERE EXISTS(SELECT 1 FROM data_export_jobs j WHERE j.workspace_id=w.id AND j.status='queued' AND j.available_at<=clock_timestamp()) ORDER BY (SELECT min(j.available_at) FROM data_export_jobs j WHERE j.workspace_id=w.id AND j.status='queued' AND j.available_at<=clock_timestamp()),w.id LIMIT 1 FOR UPDATE SKIP LOCKED")->fetchColumn();if(!$ws)return false;
                 $j=$this->q($p,"SELECT * FROM data_export_jobs WHERE workspace_id=:w AND status='queued' AND available_at<=clock_timestamp() ORDER BY available_at,id LIMIT 1 FOR UPDATE SKIP LOCKED",['w'=>$ws])->fetch(PDO::FETCH_ASSOC);if(!$j)return false;
                 $attempt=(int)$j['attempts']+1;$status='succeeded';$code=null;$body=null;$count=0;
                 try{$body=$this->db->transaction(function(PDO $p)use($j,&$count){$this->access($p,$j['actor_id'],$j['target_id'],$j['kind']);$e=$this->registry->require($j['format'],$j['kind']);$rows=$this->records($p,$j,$count);$data=$e->encode($j['kind'],$rows);if($rows->valid())throw new HttpException(422,'Exporter did not consume all records.','export_invalid');

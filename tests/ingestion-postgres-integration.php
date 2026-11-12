@@ -30,7 +30,7 @@ try {
     $pdo=$db->connection();$ok((int)$pdo->query("SELECT current_setting('server_version_num')")->fetchColumn()>=170000,'PostgreSQL 17+');
     $pdo->exec('CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public');
     $pdo->exec('CREATE SCHEMA "'.$schema.'"');$created=true;$pdo->exec('SET search_path TO "'.$schema.'", public');
-    foreach(glob($root.'/migrations/pgsql/*.sql')?:[] as $file)copy($file,$dir.'/migrations/'.basename($file));
+    foreach(glob($root.'/migrations/pgsql/*.sql')?:[] as $file)if(basename($file)!=='0036_collection_stability.sql')copy($file,$dir.'/migrations/'.basename($file));
     (new MigrationRunner($db,$dir.'/migrations'))->run();
     $password='fixture-only-password-123!';$q=$pdo->prepare('INSERT INTO users(email,name,password_hash,two_factor_enabled) VALUES(:email,:name,:hash,true) RETURNING id::text');
     $q->execute(['email'=>'health-test@example.invalid','name'=>'Health integration','hash'=>password_hash($password,PASSWORD_ARGON2ID)]);$actor=(string)$q->fetchColumn();
@@ -121,6 +121,24 @@ try {
     $reject(409,fn()=>$exports->download($actor,$id,$job['id']),'not ready download');$exports->work(1);$artifact=$exports->download($actor,$id,$job['id']);
     $ok(hash('sha256',$artifact['body'])===$artifact['sha256']&&count(json_decode($artifact['body'],true)['records'])===2&&str_contains($artifact['body'],'18446744073709551615'),'real metric export exact values and checksum');
     $reject(404,fn()=>$exports->show($actor,$otherTarget['id'],$job['id']),'cross-target export isolation');
+    // Existing 0.5.9 data and migration checksums survive the 0.6.0 upgrade.
+    copy($root.'/migrations/pgsql/0036_collection_stability.sql',$dir.'/migrations/0036_collection_stability.sql');
+    $upgrade=new MigrationRunner($db,$dir.'/migrations');
+    $ok($upgrade->run()['applied']===['0036_collection_stability']&&$upgrade->validate()['valid']&&$upgrade->run()['applied']===[],'0.5.9 to 0.6.0 migration and idempotence');
+    $ok($exports->download($actor,$id,$job['id'])['sha256']===$artifact['sha256'],'upgrade preserves artifact');
+    $importSource=$service->create($actor,$id,$grant['id'],'Roundtrip metrics','metrics');
+    $reject(422,fn()=>$service->manual($actor,$id,$importSource['id'],'json','archive-roundtrip',$artifact['body']),'archive cannot merge distinct series');
+    $series=$pdo->prepare('SELECT id FROM metric_series WHERE ingestion_source_id=:source');$series->execute(['source'=>$source['id']]);
+    $single=$exports->create($actor,$id,array_replace($selection,['series_id'=>$series->fetchColumn()]),'export-single-series');$exports->work(1);$portable=$exports->download($actor,$id,$single['id']);
+    $preview=$service->manual($actor,$id,$importSource['id'],'json','archive-roundtrip',$portable['body']);
+    $imported=$service->manual($actor,$id,$importSource['id'],'json','archive-roundtrip',$portable['body'],$preview['confirmation']);
+    $service->work(1);$ok($service->batch($actor,$id,$imported['id'])['status']==='succeeded','actual exported JSON import worker');
+    $roundTrip=$pdo->prepare('SELECT m.value::text FROM metric_samples m JOIN metric_series s ON s.id=m.series_id WHERE s.ingestion_source_id=:source AND m.value=18446744073709551615');
+    $roundTrip->execute(['source'=>$importSource['id']]);$ok($roundTrip->fetchColumn()==='18446744073709551615','exact archive value in destination PostgreSQL series');
+    $pdo->prepare("UPDATE data_export_jobs SET finished_at=clock_timestamp()-interval '8 days' WHERE id=:id")->execute(['id'=>$job['id']]);
+    $reject(410,fn()=>$exports->download($actor,$id,$job['id']),'expired artifact denied before cleanup');
+    $pdo->prepare("UPDATE data_export_jobs SET finished_at=clock_timestamp() WHERE id=:id")->execute(['id'=>$job['id']]);
+
     $eventJob=$exports->create($actor,$id,array_replace($selection,['kind'=>'events','format'=>'csv']),'events-export');$exports->work(1);$eventArtifact=$exports->download($actor,$id,$eventJob['id']);$ok(str_contains($eventArtifact['body'],"'=1+2"),'CSV protection on persisted events');
     $om=$exports->create($actor,$id,array_replace($selection,['format'=>'openmetrics']),'om-export');$exports->work(1);$ok(str_ends_with($exports->download($actor,$id,$om['id'])['body'],"# EOF\n"),'OpenMetrics latest export');
     $cancel=$exports->create($actor,$id,$selection,'cancel-export');$ok($exports->cancel($actor,$id,$cancel['id'])['status']==='cancelled','export cancellation');

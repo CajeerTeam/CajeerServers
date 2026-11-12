@@ -1,0 +1,13 @@
+[Unit]
+Description=CajeerServers bounded script execution history retention
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=cajeer
+Group=cajeer
+WorkingDirectory=/opt/cajeer
+ExecStart=/usr/bin/php /opt/cajeer/bin/cajeer scripts:retain 1000
+NoNewPrivileges=true
+PrivateTmp=true
+TimeoutStartSec=120

@@ -43,7 +43,7 @@ final class ScriptOutputParser
         // PHP's native decoder silently overwrites duplicate keys. Check the JSON token stream first.
         $i=0;$nodes=0;$this->jsonValue($raw,$i,0,$nodes);$this->space($raw,$i);
         if($i!==strlen($raw))self::invalid();
-        try{$value=json_decode($raw,false,32,JSON_THROW_ON_ERROR);}catch(\JsonException){self::invalid();}
+        try{$value=json_decode($raw,false,32,JSON_THROW_ON_ERROR|JSON_BIGINT_AS_STRING);}catch(\JsonException){self::invalid();}
         if(!is_array($value)&&!is_object($value))self::invalid();self::checkTree($value);return $value;
     }
     private function space(string $s,int &$i):void { $i+=strspn($s," \t\r\n",$i); }

@@ -19,8 +19,15 @@ final class ImportManager
             if($rows instanceof \stdClass){
                 $field=$kind==='metrics'?'metric_samples':$kind;
                 $obj=get_object_vars($rows);
+                // Own JSON exports are portable data, not authority. Explicitly project only
+                // portable fields and discard old provenance; raw inputs still use strict validation.
+                if(array_keys($obj)===['schema_version','kind','records']||(!array_diff(array_keys($obj),['schema_version','kind','records'])&&count($obj)===3)){
+                    if($obj['schema_version']!==1||$obj['kind']!==$kind||!is_array($obj['records'])||!array_is_list($obj['records']))throw new HttpException(422,'Export kind does not match import source.','validation_failed');
+                    $rows=self::portable($kind,$obj['records']);
+                }else{
                 if(array_diff(array_keys($obj),['schema_version','schema','complete','count',$field])||($obj['schema_version']??null)!==1||($obj['schema']??null)!==$kind||!is_bool($obj['complete']??null)||!is_array($obj[$field]??null)||($obj['count']??null)!==count($obj[$field]))throw new HttpException(422,'Expected a normalized result matching the source kind.','validation_failed');
                 $rows=$obj[$field];
+                }
             }
         }
         elseif($format==='csv')$rows=$parser->parse($content,['parser'=>'csv','output_schema'=>'document'])['output'];
@@ -40,6 +47,38 @@ final class ImportManager
         // Envelope validation also enforces explicit timestamps and canonical batch IDs.
         (new WebhookCollector())->envelope($body,$kind);
         return $body;
+    }
+    private static function portable(string $kind,array $rows):array
+    {
+        $fields=match($kind){
+            'metrics'=>['metric','value','kind','unit','resource_external_id','labels','observed_at'],
+            'events'=>['event_id','type','severity','message','observed_at'],
+            'observations'=>['external_id','type','fields','observed_at'],
+            default=>throw new HttpException(422,'This export kind cannot be imported.','validation_failed'),
+        };
+        $provenance=match($kind){'metrics'=>['series_id','asset_id','target_version','ingestion_source_id'],'events'=>['source_id'],'observations'=>['batch_id','source_id','received_at']};
+        $out=[];$identities=[];
+        foreach($rows as $row){
+            if(!$row instanceof \stdClass||array_diff(array_keys(get_object_vars($row)),[...$fields,...$provenance]))throw new HttpException(422,'Invalid exported record.','validation_failed');
+            $record=(object)array_intersect_key(get_object_vars($row),array_flip($fields));
+            if($kind==='metrics'){
+                if(isset($record->labels)&&$record->labels instanceof \stdClass){
+                    $record->labels=clone $record->labels;
+                    if(property_exists($record->labels,'cajeer_source')){
+                        if(($row->ingestion_source_id??null)!==$record->labels->cajeer_source)throw new HttpException(422,'Unexpected reserved source label.','validation_failed');
+                        unset($record->labels->cajeer_source);
+                    }
+                }
+                // Reject collapsing two exported series into one new source identity.
+                $labels=(array)($record->labels??[]);ksort($labels,SORT_STRING);
+                $identity=json_encode([$record->metric??null,$record->resource_external_id??null,$labels],JSON_THROW_ON_ERROR);
+                $origin=$row->series_id??null;
+                if(array_key_exists($identity,$identities)&&$identities[$identity]!==$origin)throw new HttpException(422,'Import separate exported series into separate sources.','validation_failed');
+                $identities[$identity]=$origin;
+            }
+            $out[]=$record;
+        }
+        return $out;
     }
     public static function preview(string $body,string $kind,string $source):array
     {

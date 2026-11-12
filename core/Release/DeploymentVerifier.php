@@ -44,6 +44,8 @@ final class DeploymentVerifier
         if ($strict) {
             $report=(new \Cajeer\Servers\Connector\ConnectorReadiness($this->app))->report();
             foreach($report['checks'] as $connectorCheck) $checks[]=$connectorCheck;
+            $collection=(new \Cajeer\Servers\Collector\CollectionReadiness($this->app))->report();
+            foreach($collection['checks'] as $collectionCheck)$checks[]=$collectionCheck;
             $this->probe($checks, 'database_transport', function (): bool {
                 $db = $this->app->config()->get('database.connections.pgsql', []);
                 if (!is_array($db)) return false;

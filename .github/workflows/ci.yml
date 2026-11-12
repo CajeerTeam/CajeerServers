@@ -55,14 +55,8 @@ jobs:
           test -s composer.lock
           test -s admin/package-lock.json
           test -s packages/ts-sdk/package-lock.json
-      - name: Install Composer dependencies reproducibly
-        run: composer install --no-interaction --no-progress --prefer-dist --no-dev --optimize-autoloader
-      - name: Install Nuxt dependencies and compile
-        working-directory: admin
-        run: |
-          npm ci --no-audit --no-fund
-          npm run typecheck
-          npm run build
+      - name: Build from reviewed lockfiles
+        run: bash scripts/build-release.sh
   postgres-integration:
     strategy:
       fail-fast: false

@@ -59,7 +59,7 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Execute real browser E2E against staging
         working-directory: admin
-        run: npm run test:e2e
+        run: bash ../scripts/verify-browser-e2e.sh
       - name: Upload failure evidence
         if: failure()
         uses: actions/upload-artifact@v4

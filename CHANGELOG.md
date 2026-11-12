@@ -1,3 +1,11 @@
+## [0.6.0] — 2026-11-12 — Data Collection Layer Stable
+
+- Preserve large metric integers and precise decimal text through script normalization and import/export; explicit decimal strings and counter kind.
+- Import portable JSON archives with strict projection and destination provenance, reject series identity collapse and forged fields.
+- Enforce export expiry at download, fair export worker scheduling and script execution history retention with migration 0036.
+- Read-only collection integrity diagnostics in the strict deployment gate; locked build command, dependency resolution separation and build checksums.
+- Regression coverage for numeric precision, export/import and diagnostics; production channel remains gated by the real integration suite.
+
 ## [0.5.9] — 2026-11-12 — Data Collection Admin UI & E2E
 
 - Workspace-scoped collection center, live registry, plans, runs, metrics, ingestion and exports.

@@ -141,6 +141,10 @@ try{
     $hook=function()use($pdo,$vid,&$hook){$hook=null;$pdo->prepare("UPDATE script_versions SET state='revoked',revoked_at=clock_timestamp() WHERE id=:v")->execute(['v'=>$vid]);};
     $ok($exec->work(1)===1,'worker processes revocation scenario');$failed=$exec->detail($other,$workspace,$sid,$vid,$job2['id']);$ok($failed['state']==='failed'&&$failed['result']===null,'revoked during I/O: no result commit');
     $ok((int)$pdo->query('SELECT count(*) FROM inventory_assets')->fetchColumn()===$count,'preview never writes Inventory');
+    $pdo->prepare("UPDATE script_executions SET finished_at=clock_timestamp()-interval '91 days' WHERE id=:id")->execute(['id'=>$job['id']]);
+    $ok($exec->retain(1)['deleted']===1,'bounded terminal execution retention');
+    $reject(404,fn()=>$exec->detail($runner,$workspace,$sid,$vid,$job['id']),'expired execution removed');
+    $ok($exec->detail($runner,$workspace,$sid,$local['id'],$localJob['id'])['state']==='cancelled','recent history preserved');
     sodium_memzero($priv);echo "Script execution PostgreSQL: $checks checks passed.\n";
 } catch(Throwable $e){$error=$e;fwrite(STDERR,$e->getMessage()."\n");}
 finally{if($created&&$pdo){$pdo->exec('SET search_path TO public');$pdo->exec('DROP SCHEMA "'.$schema.'" CASCADE');}foreach(glob($tmp.'/migrations/*')?:[] as $f)unlink($f);rmdir($tmp.'/migrations');rmdir($tmp);putenv('SCRIPT_EXECUTION_ENABLED');}

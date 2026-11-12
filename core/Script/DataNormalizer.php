@@ -21,12 +21,23 @@ final class DataNormalizer
         if($errors!==false&&($errors['warning_count']||$errors['error_count'])||$t->getTimestamp()>$now->getTimestamp()+300||$t->getTimestamp()<$now->getTimestamp()-366*86400)self::bad();
         return $t->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d\TH:i:s.u\Z');
     }
-    private static function number(mixed $v,bool $text):int|float
+    /** Preserve exact decimal strings when a PHP/JS number cannot represent the input safely. */
+    private static function number(mixed $v,bool $text):int|float|string
     {
-        if($text&&is_string($v)&&preg_match('/^[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?$/D',$v)){
-            $integer=filter_var($v,FILTER_VALIDATE_INT);$v=$integer===false?(float)$v:$integer;
+        if(is_string($v)){
+            if(strlen($v)>80||!preg_match('/^[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]{1,3})?$/D',$v)||!is_finite((float)$v))self::bad();
+            // Explicit JSON decimal strings are lossless. Text formats keep the legacy numeric
+            // representation for short values, but never round high-precision decimals/counters.
+            if(!$text)return $v;
+            $mantissa=preg_split('/[eE]/',$v,2)[0];
+            $digits=ltrim(str_replace(['+','-','.'],'',$mantissa),'0');
+            if(strlen($digits)>15||abs((float)$v)>9007199254740991||((float)$v===0.0&&$digits!==''))return $v;
+            $integer=filter_var($v,FILTER_VALIDATE_INT);return $integer===false?(float)$v:$integer;
         }
-        if((!is_int($v)&&!is_float($v))||!is_finite((float)$v))self::bad();return $v;
+        if((!is_int($v)&&!is_float($v))||!is_finite((float)$v))self::bad();
+        if(is_int($v)&&($v>9007199254740991||$v< -9007199254740991))return (string)$v;
+        if(is_float($v)&&abs($v)>9007199254740991)self::bad();
+        return $v;
     }
     public function normalize(mixed $value,string $format,string $schema):?array
     {
@@ -43,12 +54,16 @@ final class DataNormalizer
                 try{$obs=ObservationInput::normalize(['workspace_id'=>'11111111-1111-4111-8111-111111111111','external_id'=>$id,'event_key'=>'validation','type'=>$r['type']??null,'fields'=>$fields,'observed_at'=>self::time($r['observed_at']??null,$now)]);}catch(\Throwable){self::bad();}
                 $item=['external_id'=>$id,'type'=>$obs['type'],'fields'=>$obs['fields'],'observed_at'=>$obs['observed_at']];$key=$id;
             }elseif($schema==='metrics'){
-                self::only($r,['metric','value','unit','labels','resource_external_id','observed_at']);
+                self::only($r,['metric','value','unit','labels','resource_external_id','observed_at','kind']);
                 $metric=self::text($r['metric']??null,128,'/^[A-Za-z_:][A-Za-z0-9_.:-]*$/D');$labels=[];
                 if(isset($r['labels'])){if(is_string($r['labels'])&&$text&&$format!=='prometheus')$r['labels']=(new ScriptOutputParser())->json($r['labels']);$labels=self::map($r['labels']);}
                 if(count($labels)>16)self::bad();foreach($labels as $k=>$v){self::text($k,64,'/^[A-Za-z_][A-Za-z0-9_]*$/D');if(str_starts_with($k,'__')||!is_string($v)||strlen($v)>256||preg_match('/[\x00-\x08\x0b-\x1f\x7f]/',$v))self::bad();}ksort($labels,SORT_STRING);
                 $resource=isset($r['resource_external_id'])?self::text($r['resource_external_id'],180):null;if($resource!==null&&ObservationInput::reserved($resource))self::bad();
                 $item=['metric'=>$metric,'value'=>self::number($r['value']??null,$text),'unit'=>isset($r['unit'])?self::text($r['unit'],32,'/^[A-Za-z0-9_%\/.:-]+$/D'):null,'resource_external_id'=>$resource,'labels'=>(object)$labels,'observed_at'=>self::time($r['observed_at']??null,$now)];
+                if(isset($r['kind'])){
+                    if(!in_array($r['kind'],['gauge','counter'],true)||($r['kind']==='counter'&&str_starts_with((string)$item['value'],'-')))self::bad();
+                    $item['kind']=$r['kind'];
+                }
                 $seriesKey=json_encode([$metric,$resource,$labels],JSON_THROW_ON_ERROR);$series[$seriesKey]=true;if(count($series)>1000)self::bad();$key=$seriesKey.'|'.$item['observed_at'];
             }else{
                 self::only($r,['event_id','type','message','severity','observed_at']);
