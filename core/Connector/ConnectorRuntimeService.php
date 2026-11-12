@@ -10,6 +10,7 @@ use Cajeer\Servers\Http\Exception\HttpException;
 use Cajeer\Servers\Inventory\HistoryService;
 use Cajeer\Servers\Inventory\InventoryRepository;
 use PDO;
+use Cajeer\Servers\Security\Rbac;
 use Cajeer\Servers\Integration\ConnectorRegistry;
 use Throwable;
 
@@ -27,6 +28,24 @@ final class ConnectorRuntimeService
         private readonly ?CredentialVersionService $versions = null,
     ) {}
 
+    private function checkPermissions(PDO $pdo,string $actor,string $operation):void
+    {
+        $rbac=new Rbac($this->db,$this->audit);
+        foreach (['connectors.credentials.manage','vault.credentials.use',...match($operation){
+            'sync'=>['inventory.assets.create','inventory.assets.update'],
+            'inspect'=>['inventory.assets.read'], 'validate_rotation'=>['vault.credentials.update'],default=>[],
+        }] as $scope) $rbac->requireUserPermission($actor,$scope,$pdo);
+    }
+
+    /** The remote read may outlive the authenticated browser session. Never commit after revocation. */
+    private function sessionGuard(array $principal):callable
+    {
+        return function(PDO $pdo) use($principal):void {
+            $q=$pdo->prepare("SELECT 1 FROM auth_sessions s JOIN users u ON u.id=s.user_id WHERE s.id=:id AND s.user_id=:actor AND s.revoked_at IS NULL AND s.expires_at>clock_timestamp() AND s.mfa_verified=true AND u.is_active AND u.two_factor_enabled FOR SHARE OF s,u");
+            $q->execute(['id'=>$principal['id']??null,'actor'=>$principal['user']['id']??null]);
+            if (!$q->fetchColumn()) throw new HttpException(403,'Active MFA session required.','mfa_required');
+        };
+    }
     private function reconciliation(): ReconciliationService
     { return new ReconciliationService($this->inventory,$this->history,$this->audit); }
 
@@ -50,8 +69,12 @@ final class ConnectorRuntimeService
             $snapshot=$this->discoverWithGrant($target,'validate_rotation',
                 fn(callable $consumer)=>$this->access->consumePendingForAsset($principal,$target['asset_id'],$target['credential_id'],$target['purpose'],$revision,$consumer,$requestId));
             $items=$snapshot->items;
-            $proof=$this->versions->markValidated($actor,$target['credential_id'],$revision,
-                $target['credential_version'],$targetId,$version,$requestId);
+            $proof=$this->db->transaction(function(PDO $pdo)use($actor,$principal,$target,$revision,$targetId,$version,$requestId):array {
+                $this->inventory->lockWorkspace($pdo,$target['workspace_id']);
+                ($this->sessionGuard($principal))($pdo);
+                $this->checkPermissions($pdo,$actor,'validate_rotation');
+                return $this->versions->markValidated($actor,$target['credential_id'],$revision,$target['credential_version'],$targetId,$version,$requestId);
+            });
             return ['validated'=>true,'connector_id'=>$targetId,'credential_id'=>$target['credential_id'],
                 'secret_version'=>$revision,'discovered'=>count($items),
                 'required_targets'=>$proof['required'],'validated_targets'=>$proof['validated']];
@@ -68,7 +91,7 @@ final class ConnectorRuntimeService
         return $this->withExecutionLock($target,function()use($actor,$principal,$target,$targetId,$operation,$requestId):array {
             if (ConnectorHealthMonitor::isOpen($this->db->connection(),$targetId)) throw new HttpException(423,'Connector circuit is open. Use a manual health probe or wait for cooldown.','connector_circuit_open');
             return $this->runAuthorized($actor,$target,$operation,
-                fn(callable $consumer)=>$this->access->consumeForAsset($principal,$target['asset_id'],$target['credential_id'],$target['purpose'],$consumer,$requestId),$requestId);
+                fn(callable $consumer)=>$this->access->consumeForAsset($principal,$target['asset_id'],$target['credential_id'],$target['purpose'],$consumer,$requestId),$requestId,$this->sessionGuard($principal));
         });
     }
 
@@ -78,6 +101,7 @@ final class ConnectorRuntimeService
     {
         if (!in_array($operation,['inspect','sync','health'],true)) throw new HttpException(422,'Unsupported background operation.','validation_failed');
         $targetId=$target['id']; $version=$target['version']; $sync=$operation==='sync';
+        $this->checkPermissions($this->db->connection(),$actor,$operation);
         $started=microtime(true);
         $reconciliation=$this->reconciliation();
         $generation=$sync?$reconciliation->generation($this->db->connection()):0;
@@ -89,6 +113,7 @@ final class ConnectorRuntimeService
                     $this->db->transaction(function(PDO $pdo)use($actor,$target,$operation,$guard,$started,$error):void {
                         $this->inventory->lockWorkspace($pdo,$target['workspace_id']);
                         if ($guard!==null) $guard($pdo);
+                        $this->checkPermissions($pdo,$actor,$operation);
                         $pdo->prepare('SELECT id FROM credentials WHERE id=:id FOR SHARE')->execute(['id'=>$target['credential_id']]);
                         $latest=$this->bindings->runtimeContext($actor,$target['id'],$target['version'],$operation);
                         if ($latest['credential_id']!==$target['credential_id']||$latest['credential_version']!==$target['credential_version']) return;
@@ -110,13 +135,14 @@ final class ConnectorRuntimeService
             || $current['credential_version']!==$target['credential_version']) {
             throw new HttpException(409,'Connector binding changed during discovery.','conflict');
         }
-        $summary=$snapshot->summary($this->registry->require($target['provider'],$operation)->manifest());
+        $summary=$snapshot->summary($this->registry->manifest($target['provider'],$operation));
         if (!$sync) {
             $result=$operation==='health' ? (new ConnectorHealth($targetId,$elapsed))->toArray()
                 : ['connector_id'=>$targetId,'mode'=>'inspect','discovered'=>count($items),'types'=>$summary];
             return $this->db->transaction(function(PDO $pdo) use($actor,$targetId,$operation,$items,$requestId,$guard,$complete,$result,$target,$snapshot,$reconciliation,$elapsed):array {
                 $this->inventory->lockWorkspace($pdo,$target['workspace_id']);
                 if ($guard!==null) $guard($pdo);
+                $this->checkPermissions($pdo,$actor,$operation);
                 $pdo->prepare('SELECT id FROM credentials WHERE id=:id FOR SHARE')->execute(['id'=>$target['credential_id']]);
                 $latest=$this->bindings->runtimeContext($actor,$targetId,$target['version'],$operation);
                 if ($latest['credential_id']!==$target['credential_id'] || $latest['credential_version']!==$target['credential_version']) throw new HttpException(409,'Connector binding changed.','conflict');
@@ -137,6 +163,7 @@ final class ConnectorRuntimeService
             if ($latest['credential_id']!==$target['credential_id'] || $latest['credential_version']!==$target['credential_version'] || $latest['asset_id']!==$target['asset_id'])
                 throw new HttpException(409,'Connector was rebound or credential rotated.','conflict');
             if ($guard!==null) $guard($pdo);
+            $this->checkPermissions($pdo,$actor,'sync');
             ConnectorHealthMonitor::record($pdo,$target,$elapsed,null);
             $delta=$reconciliation->apply($pdo,$actor,$target,$snapshot,$generation,$observedAt,$requestId);
             $this->audit->record($pdo,$actor,'connector.inventory.synced','success','connector_target',$targetId,
@@ -188,8 +215,7 @@ final class ConnectorRuntimeService
     private function execute(array $target,string $operation,string $type,#[\SensitiveParameter] string $secret): ConnectorResult
     {
         try {
-            $driver=$this->registry->require($target['provider'],$operation);
-            $manifest=$driver->manifest();
+            $manifest=$this->registry->manifest($target['provider'],$operation);
             if ($type!==$target['credential_type'] || !$manifest->accepts($type,$target['purpose']))
                 throw new \RuntimeException('Credential type changed.');
             $context=new ConnectorContext($target['provider'],$target['endpoint_host'],$target['endpoint_port'],$type);
@@ -207,7 +233,7 @@ final class ConnectorRuntimeService
         if (!is_string($actor)) throw new HttpException(403,'Invalid session.','session_required');
         $target=$this->bindings->runtimeContext($actor,$targetId,$version,'health');
         return $this->withExecutionLock($target,fn()=> $this->runAuthorized($actor,$target,'health',
-            fn(callable $consumer)=>$this->access->consumeForAsset($principal,$target['asset_id'],$target['credential_id'],$target['purpose'],$consumer,$requestId),$requestId));
+            fn(callable $consumer)=>$this->access->consumeForAsset($principal,$target['asset_id'],$target['credential_id'],$target['purpose'],$consumer,$requestId),$requestId,$this->sessionGuard($principal)));
     }
 
     private function withExecutionLock(array $target,callable $operation):array

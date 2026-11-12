@@ -261,6 +261,7 @@ try {
     $reject(403,fn()=>$execution->enqueue($viewer,$id,$grant['id'],'viewer'),'viewer cannot enqueue');
     $cancelled=$execution->enqueue($admin,$id,$healthGrant['id'],'cancel');
     $ok($execution->cancel($admin,$id,$cancelled['id'])['status']==='cancelled','queued cancellation persists');
+    $ok($queue->find($cancelled['id'])['status']==='completed' && $queue->find($cancelled['id'])['attempts']===0,'cancelled queued run consumes no worker attempt');
     $revoked=$execution->enqueue($admin,$id,$revokeGrant['id'],'revoke');
     $execution->revoke($admin,$id,$revokeGrant['id']);
     $reject(403,fn()=>$execution->enqueue($admin,$id,$revokeGrant['id'],'after-revoke'),'revoked grant cannot enqueue');
@@ -313,6 +314,18 @@ try {
     $lease=$queue->reserve('connectors',300);
     $out=$execution->execute($lease); $queue->succeed($lease,$out);
     $ok($execution->status($admin,$id,$stale['id'])['status']==='succeeded','new lease can finish safely');
+    // Exercise final-lease crash after durable commit, with a result larger than generic queue ACK capacity.
+    $final=$execution->enqueue($admin,$id,$grant['id'],'final-lease-lost-ack');
+    $lease=$queue->reserve('connectors',300);
+    $ok($lease!==null && $lease->job->id===$final['id'],'reserve final-lease recovery test');
+    $execution->execute($lease);
+    $pdo->prepare("UPDATE connector_runs SET result=result||jsonb_build_object('large',repeat('x',70000)) WHERE id=:id")->execute(['id'=>$final['id']]);
+    $pdo->prepare("UPDATE queue_jobs SET attempts=max_attempts,reserved_until=clock_timestamp()-interval '1 second' WHERE id=:id")->execute(['id'=>$final['id']]);
+    $callsBeforeRecovery=$remoteCalls;
+    $execution->once();
+    $ack=$queue->find($final['id']);
+    $ok($ack['status']==='completed' && $ack['result']['status']==='succeeded' && $ack['result']['run_id']===$final['id'],'final expired lease recovers compact ACK');
+    $ok(strlen($execution->status($admin,$id,$final['id'])['result']['large'])===70000 && $remoteCalls===$callsBeforeRecovery,'large domain result retained without remote replay');
     $execution->revoke($admin,$id,$grant['id']);
     $execution->revoke($admin,$id,$healthGrant['id']);
 

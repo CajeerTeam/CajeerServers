@@ -131,8 +131,12 @@ final class ConnectorExecutionService
         $count=0;
         for ($i=0;$i<$limit;$i++) {
             $did=$this->db->transaction(function(PDO $pdo):bool {
-                $g=$pdo->query("SELECT *,true AS live FROM connector_service_grants WHERE revoked_at IS NULL AND expires_at>clock_timestamp() AND next_due_at<=clock_timestamp() ORDER BY next_due_at,id FOR UPDATE SKIP LOCKED LIMIT 1")->fetch(PDO::FETCH_ASSOC);
-                if (!$g) return false;
+                // Acquire the workspace before the grant, matching issue/revoke/worker/event lock order.
+                // SKIP LOCKED lets other workspaces progress instead of waiting behind a remote action.
+                $candidate=$pdo->query("SELECT g.id FROM connector_service_grants g JOIN workspaces w ON w.id=g.workspace_id WHERE g.revoked_at IS NULL AND g.expires_at>clock_timestamp() AND g.next_due_at<=clock_timestamp() ORDER BY g.next_due_at,g.id FOR UPDATE OF w SKIP LOCKED LIMIT 1")->fetchColumn();
+                if ($candidate===false) return false;
+                $g=$this->query($pdo,"SELECT *,true AS live FROM connector_service_grants WHERE id=:id AND revoked_at IS NULL AND expires_at>clock_timestamp() AND next_due_at<=clock_timestamp() FOR UPDATE",['id'=>$candidate])->fetch(PDO::FETCH_ASSOC);
+                if (!$g) return true;
                 $this->query($pdo,"UPDATE connector_service_grants SET next_due_at=clock_timestamp()+interval_seconds*interval '1 second' WHERE id=:id",['id'=>$g['id']]);
                 try {$this->context($pdo,$g);} catch(HttpException) {
                     $this->query($pdo,'UPDATE connector_service_grants SET revoked_at=clock_timestamp() WHERE id=:id',['id'=>$g['id']]);
@@ -149,7 +153,7 @@ final class ConnectorExecutionService
     }
     private function runRow(PDO $pdo,string $id):array
     {
-        $r=$this->query($pdo,"SELECT r.*,g.operation,CASE WHEN r.cancelled_at IS NOT NULL THEN 'cancelled' WHEN r.result IS NOT NULL THEN 'succeeded' WHEN r.error_code IS NOT NULL OR j.status='failed' OR j.id IS NULL THEN 'failed' WHEN j.status='running' THEN 'running' ELSE 'queued' END AS status,COALESCE(j.attempts,0) AS attempts FROM connector_runs r JOIN connector_service_grants g ON g.id=r.grant_id LEFT JOIN queue_jobs j ON j.id=r.id WHERE r.id=:id",['id'=>CredentialInput::uuid($id)])->fetch(PDO::FETCH_ASSOC);
+        $r=$this->query($pdo,"SELECT r.*,g.operation,CASE WHEN r.cancelled_at IS NOT NULL THEN 'cancelled' WHEN r.result IS NOT NULL THEN 'succeeded' WHEN r.error_code IS NOT NULL OR j.status IN ('failed','completed') OR j.id IS NULL THEN 'failed' WHEN j.status='running' THEN 'running' ELSE 'queued' END AS status,COALESCE(j.attempts,0) AS attempts FROM connector_runs r JOIN connector_service_grants g ON g.id=r.grant_id LEFT JOIN queue_jobs j ON j.id=r.id WHERE r.id=:id",['id'=>CredentialInput::uuid($id)])->fetch(PDO::FETCH_ASSOC);
         if (!$r) throw new HttpException(404,'Connector run not found.','not_found');
         if ($r['status']==='failed' && $r['error_code']===null) $r['error_code']='lease_exhausted';
         unset($r['idempotency_key']);
@@ -182,11 +186,17 @@ final class ConnectorExecutionService
         $t=$this->bindings->show($actor,$target);
         return $this->db->transaction(function(PDO $pdo)use($actor,$target,$id,$t):array {
             $this->inventory->lockWorkspace($pdo,$t['workspace_id']); $this->inventory->workspaceRole($pdo,$t['workspace_id'],$actor,true);
+            $this->query($pdo,"SELECT id FROM queue_jobs WHERE id=:id AND queue='connectors' FOR UPDATE",['id'=>$id]);
             $row=$this->runRow($pdo,$id);
             if ($row['target_id']!==$target) throw new HttpException(404,'Connector run not found.','not_found');
             if (!in_array($row['status'],['queued','running'],true)) return $row;
             $changed=$this->query($pdo,'UPDATE connector_runs SET cancelled_at=clock_timestamp(),finished_at=clock_timestamp() WHERE id=:id AND finished_at IS NULL',['id'=>$id]);
-            if ($changed->rowCount()===1) $this->audit->record($pdo,$actor,'connector.run.cancelled','success','connector_target',$target);
+            if ($changed->rowCount()===1) {
+                // Queued work can be removed from delivery immediately. A running worker retains its lease,
+                // sees the durable cancellation at the commit fence and acknowledges it without remote retry.
+                $this->query($pdo,"UPDATE queue_jobs SET status='completed',result=CAST(:result AS jsonb),finished_at=clock_timestamp(),updated_at=clock_timestamp() WHERE id=:id AND queue='connectors' AND status='queued'",['id'=>$id,'result'=>'{"status":"cancelled"}']);
+                $this->audit->record($pdo,$actor,'connector.run.cancelled','success','connector_target',$target);
+            }
             return $this->runRow($pdo,$id);
         });
     }
@@ -243,21 +253,53 @@ final class ConnectorExecutionService
             finally {$this->query($pdo,'SELECT pg_advisory_unlock(hashtextextended(:id,4202))',['id'=>$g['target_id']]);}
         }
     }
+    /** Queue ACKs carry delivery metadata only. The authoritative result is connector_runs.result,
+     * atomically committed with Inventory. Large previews must never exceed the generic 64 KiB ACK cap. */
+    private function acknowledge(QueueReservation $r):array
+    {
+        $pdo=$this->db->connection();
+        $row=$this->runRow($pdo,$r->job->id);
+        if ($row['finished_at']===null) throw new \LogicException('Cannot acknowledge unfinished connector run.');
+        $status=$row['status'];
+        $q=$this->query($pdo,"UPDATE queue_jobs SET status='completed',result=CAST(:result AS jsonb),lease_token=NULL,reserved_until=NULL,finished_at=clock_timestamp(),updated_at=clock_timestamp() WHERE id=:id AND queue='connectors' AND status='running' AND lease_token=:receipt AND reserved_until>clock_timestamp()",[
+            'id'=>$r->job->id,'receipt'=>$r->receipt,'result'=>json_encode(['run_id'=>$r->job->id,'status'=>$status],JSON_THROW_ON_ERROR)]);
+        // A lost/expired receipt does not invalidate a committed domain outcome. The next reservation
+        // or recovery sweep can acknowledge it; never touch another worker's live lease.
+        return ['id'=>$r->job->id,'status'=>$status,'acknowledged'=>$q->rowCount()===1];
+    }
+    /** Recover committed results even after the final lease expired. Never repeat remote work. */
+    private function recoverDeliveries(PDO $pdo):void
+    {
+        $pdo->exec(<<<'SQL'
+WITH recover AS (
+ SELECT j.id FROM queue_jobs j JOIN connector_runs r ON r.id=j.id
+ WHERE j.queue='connectors' AND r.finished_at IS NOT NULL
+ AND (j.status='failed' OR (j.status='running' AND j.reserved_until<=clock_timestamp()) OR j.status='queued')
+ ORDER BY j.id LIMIT 100 FOR UPDATE OF j SKIP LOCKED
+)
+UPDATE queue_jobs j SET status='completed',result=jsonb_build_object('run_id',r.id,'status',CASE WHEN r.cancelled_at IS NOT NULL THEN 'cancelled' WHEN r.result IS NOT NULL THEN 'succeeded' ELSE 'failed' END),lease_token=NULL,reserved_until=NULL,finished_at=clock_timestamp(),updated_at=clock_timestamp()
+FROM connector_runs r JOIN recover ON recover.id=r.id WHERE r.id=j.id
+SQL);
+        $pdo->exec("UPDATE connector_runs r SET finished_at=COALESCE(j.finished_at,clock_timestamp()),error_code='lease_exhausted' FROM queue_jobs j WHERE j.id=r.id AND j.queue='connectors' AND j.status IN ('failed','completed') AND r.finished_at IS NULL");
+    }
     /** Dedicated PG worker with bounded lease and retry. Terminal authorization failures are not retried. */
     public function once():?array
     {
+        $pdo=$this->db->connection();
+        $this->recoverDeliveries($pdo);
         $queue=new PostgresQueueDriver($this->db); $r=$queue->reserve(self::QUEUE,300);
-        $this->db->connection()->exec("UPDATE connector_runs r SET finished_at=COALESCE(j.finished_at,clock_timestamp()),error_code='lease_exhausted' FROM queue_jobs j WHERE j.id=r.id AND j.queue='connectors' AND j.status='failed' AND r.finished_at IS NULL");
+        // reserve marks exhausted leases failed; reconcile domain state immediately afterwards.
+        $this->recoverDeliveries($pdo);
         if ($r===null) return null;
-        try {$result=$this->execute($r);} catch(Throwable $e) {
-            $current=$this->runRow($this->db->connection(),$r->job->id);
-            if ($current['finished_at']!==null) {
-                $queue->succeed($r,$current['result']??['status'=>$current['status']]);
-                return ['id'=>$r->job->id,'status'=>$current['status']];
-            }
+        try {$this->execute($r);} catch(Throwable $e) {
+            $current=$this->runRow($pdo,$r->job->id);
+            if ($current['finished_at']!==null) return $this->acknowledge($r);
             $remoteAuth=$e instanceof HttpException && in_array($e->errorCode,['connector_auth_failed','connector_trust_failed','connector_dependency_missing'],true);
-            $remoteCode=$e instanceof HttpException && ($remoteAuth||in_array($e->errorCode,[...ConnectorHealthMonitor::ERRORS,'connector_circuit_open'],true))?$e->errorCode:null;
-            $terminal=$remoteAuth || ($remoteCode!==null && ConnectorHealthMonitor::isOpen($this->db->connection(),$current['target_id'])) || ($e instanceof HttpException && $e->status<500 && $e->status!==429 && $e->status!==409);
+            $remoteCode=$e instanceof HttpException && in_array($e->errorCode,[...ConnectorHealthMonitor::ERRORS,'connector_circuit_open','connector_busy','snapshot_stale','empty_inventory','conflict','precondition_failed','service_grant_denied','permission_denied','asset_unavailable','inventory_binding_required','not_found','provider_unavailable','capability_unavailable','lease_lost'],true)?$e->errorCode:null;
+            // Stale config, revoked grants and empty/superseded snapshots are not transient transport failures.
+            $terminal=$remoteAuth || in_array($remoteCode,['snapshot_stale','empty_inventory','conflict','precondition_failed','service_grant_denied','permission_denied','asset_unavailable','inventory_binding_required','not_found','provider_unavailable','capability_unavailable','connector_circuit_open'],true)
+                || ($remoteCode!==null && ConnectorHealthMonitor::isOpen($pdo,$current['target_id']))
+                || ($e instanceof HttpException && $e->status<500 && $e->status!==429 && $e->status!==409);
             if ($terminal || $r->attempt >= $r->job->maxAttempts) {
                 $this->db->transaction(function(PDO $pdo)use($r,$terminal,$remoteCode):void {
                     $q=$this->query($pdo,"SELECT 1 FROM queue_jobs WHERE id=:id AND lease_token=:receipt AND status='running' AND reserved_until>clock_timestamp() FOR UPDATE",['id'=>$r->job->id,'receipt'=>$r->receipt]);
@@ -269,11 +311,14 @@ final class ConnectorExecutionService
                         $this->audit->record($pdo,$grant['actor_id'],'connector.run.failed','failure','connector_target',$grant['target_id'],['reason'=>$code]);
                     }
                 });
-                // Terminal domain outcome is persisted; queue acknowledgement is delivery, not domain success.
-                $queue->succeed($r,['status'=>'failed']); return ['id'=>$r->job->id,'status'=>'failed'];
+                $row=$this->runRow($pdo,$r->job->id);
+                if ($row['finished_at']!==null) return $this->acknowledge($r);
+                return ['id'=>$r->job->id,'status'=>'lease_lost','acknowledged'=>false];
             }
-            $queue->release($r,'Connector execution failed',min(300,15*2**$r->attempt)); return ['id'=>$r->job->id,'status'=>'retry_scheduled'];
+            // Only release a live receipt. Lease loss is not a failure of the next reservation.
+            $released=$this->query($pdo,"UPDATE queue_jobs SET status='queued',available_at=clock_timestamp()+CAST(:delay AS integer)*interval '1 second',last_error='Connector execution failed',lease_token=NULL,reserved_until=NULL,updated_at=clock_timestamp() WHERE id=:id AND queue='connectors' AND status='running' AND lease_token=:receipt AND reserved_until>clock_timestamp()",['id'=>$r->job->id,'receipt'=>$r->receipt,'delay'=>min(300,15*2**$r->attempt)]);
+            return ['id'=>$r->job->id,'status'=>$released->rowCount()===1?'retry_scheduled':'lease_lost'];
         }
-        $queue->succeed($r,$result); return ['id'=>$r->job->id,'status'=>$this->runRow($this->db->connection(),$r->job->id)['status']];
+        return $this->acknowledge($r);
     }
 }

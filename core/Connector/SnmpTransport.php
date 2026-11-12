@@ -66,7 +66,7 @@ final class SnmpTransport
     {
         if ($context->provider!=='snmp'||!in_array($context->credentialType,$this->credentialTypes(),true)) throw new ConnectorTransportException('connector_auth_failed');
         if ($context->credentialType==='snmp_v3'&&($credential['privacy_protocol']??null)!=='aes128') throw new ConnectorTransportException('connector_auth_failed');
-        try {$ip=$this->policy->resolve($context->host);}catch(\Throwable){throw new ConnectorTransportException('connector_trust_failed');}
+        $ip=$this->policy->resolve($context->host);
         $session=$this->factory!==null?($this->factory)($ip,$context->port,$context->credentialType,$credential):new SnmpSession($ip,$context->port,$context->credentialType,$credential);
         $deadline=microtime(true)+45;
         try {

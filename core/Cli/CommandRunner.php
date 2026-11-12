@@ -56,7 +56,7 @@ final class CommandRunner
                 'inventory:preflight', 'inventory:constraints', 'inventory:integrity' => (new InventoryCommands($this->app))->run($command, $argv),
                 'vault:key:generate', 'vault:key:status', 'vault:key:rotate', 'vault:init', 'vault:check', 'vault:probe' => (new VaultCommands($this->app))->run($command, $argv),
                 'backup:key:generate', 'backup:create', 'backup:verify', 'backup:restore' => (new BackupCommands($this->app))->run($command, $argv),
-                'connector:sync', 'connector:tick', 'connector:run', 'connector:status', 'connector:cancel', 'connector:work' => (new ConnectorCommands($this->app))->run($command,$argv),
+                'connector:doctor', 'connector:sync', 'connector:tick', 'connector:run', 'connector:status', 'connector:cancel', 'connector:work' => (new ConnectorCommands($this->app))->run($command,$argv),
                 'scripts:run', 'update:check' => $this->unavailable($command),
                 default => $this->unknown($command),
             };
@@ -73,6 +73,7 @@ CajeerServers CLI 0.4.5
 
 Рабочие команды:
   help                 Список доступных команд
+  connector:doctor [--json]                   Проверить готовность коннекторов
   connector:run <actor> <target> <grant> <key>  Поставить задачу
   connector:status <actor> <target> <run>       Статус задачи
   connector:cancel <actor> <target> <run>       Отменить задачу

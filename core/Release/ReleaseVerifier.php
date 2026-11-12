@@ -25,6 +25,8 @@ final class ReleaseVerifier
         $admin = $this->json('admin/package.json');
         $composer = $this->json('composer.json');
         $check('release_version', ($release['version'] ?? null) === $version, 'release.json must match VERSION.');
+        $sdk = $this->json('packages/ts-sdk/package.json');
+        $check('sdk_version', ($sdk['version'] ?? null) === $version, 'TypeScript SDK version must match VERSION.');
         $check('admin_version', ($admin['version'] ?? null) === $version, 'Nuxt package version must match VERSION.');
         $check('composer_project', ($composer['name'] ?? null) === 'cajeer/cajeerservers', 'Composer project metadata must be consistent.');
 
@@ -72,13 +74,15 @@ final class ReleaseVerifier
                   'migrations/pgsql/0023_connector_execution.sql', 'tests/connector-execution-smoke.php',
                   'migrations/pgsql/0024_connector_reconciliation.sql', 'tests/connector-reconciliation-smoke.php', 'core/Connector/VmmanagerConnector.php',
                   'core/Connector/ConnectorTransportException.php', 'tests/vmmanager-runtime-smoke.php',
-                  'tests/vmmanager-https-integration.py', 'tests/vmmanager-postgres-integration.php', 'admin/components/ConnectorLifecycle.vue', 'admin/composables/connectorLifecycle.ts', 'admin/tests/connector-lifecycle-contract.mjs', 'admin/tests/e2e/connector-lifecycle.spec.ts', 'tests/connector-e2e-fixture.py', 'docs/Connector-Admin-UI-E2E-0.4.9.md'] as $file) {
+                  'tests/vmmanager-https-integration.py', 'tests/vmmanager-postgres-integration.php', 'admin/components/ConnectorLifecycle.vue', 'admin/composables/connectorLifecycle.ts', 'admin/tests/connector-lifecycle-contract.mjs', 'admin/tests/e2e/connector-lifecycle.spec.ts', 'tests/connector-e2e-fixture.py', 'docs/Connector-Admin-UI-E2E-0.4.9.md', 'docs/Connector-Framework-Stable-0.5.0.md', 'core/Connector/ConnectorReadiness.php', 'tests/connector-stability-smoke.php', 'tests/connector-stability-https-integration.py'] as $file) {
             $check('source:' . $file, is_file($this->root . '/' . $file) && is_readable($this->root . '/' . $file), 'Required source file is available.');
         }
         // Strict deployment checks are intentionally not bypassed by the kernel's native autoload fallback.
         if ($deployment) {
             $composerLock = $this->json('composer.lock');
             $packageLock = $this->json('admin/package-lock.json');
+            $sdkLock = $this->json('packages/ts-sdk/package-lock.json');
+            $sdkPackages = $sdkLock['packages'] ?? null;
             $composerPackages = $composerLock['packages'] ?? null;
             $nodePackages = $packageLock['packages'] ?? null;
             $check('composer_lock', is_array($composerPackages) && count($composerPackages) > 0
@@ -88,6 +92,13 @@ final class ReleaseVerifier
                 && in_array($packageLock['lockfileVersion'] ?? null, [2, 3], true)
                 && ($nodePackages['']['version'] ?? null) === $version,
                 'A resolved npm lockfile matching the admin package is required.');
+            $check('sdk_lock', is_array($sdkPackages) && count($sdkPackages) > 1
+                && in_array($sdkLock['lockfileVersion'] ?? null, [2, 3], true)
+                && ($sdkPackages['']['version'] ?? null) === $version
+                && ($sdkPackages['node_modules/typescript']['version'] ?? null) === ($sdk['devDependencies']['typescript'] ?? null),
+                'A resolved SDK lockfile matching the pinned compiler and package is required.');
+            $check('sdk_installed', is_file($this->root . '/packages/ts-sdk/node_modules/typescript/bin/tsc'),
+                'Install TypeScript SDK dependencies reproducibly before verification.');
             $check('composer_installed', is_file($this->root . '/vendor/autoload.php'),
                 'Composer dependencies must be installed before production rollout.');
             $check('admin_built', is_file($this->root . '/admin/.output/server/index.mjs'),

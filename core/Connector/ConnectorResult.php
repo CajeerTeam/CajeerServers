@@ -24,7 +24,7 @@ final readonly class ConnectorResult
             $clean=['type'=>$normalized['type'],'external_id'=>$normalized['external_id'],'fields'=>$normalized['fields']];
             if (array_key_exists('parent_external_id',$item)) {
                 $parent=$item['parent_external_id'];
-                if (!is_string($parent) || $parent==='' || strlen($parent)>180 || preg_match('/[\x00-\x1f\x7f]/',$parent) || $parent===$item['external_id']) throw new RuntimeException('Invalid parent identity.');
+                if (!is_string($parent) || trim($parent)==='' || !preg_match('//u',$parent) || strlen($parent)>180 || preg_match('/[\x00-\x1f\x7f]/',$parent) || $parent===$item['external_id']) throw new RuntimeException('Invalid parent identity.');
                 $clean['parent_external_id']=$parent;
             }
             $items[]=$clean;

@@ -1,3 +1,11 @@
+## [0.5.0] — 2026-11-12 — Connector Framework Stable
+
+- Bounded TLS transport: absolute I/O deadline, strict HTTP framing and chunked responses, finite error classifications.
+- Connector runtime rechecks live RBAC and manual MFA session before persisting results; active bindings cannot bypass rotation validation when a driver is unavailable.
+- Durable connector queue recovery, compact delivery acknowledgements, immediate queued cancellation, consistent scheduler lock order.
+- Registry SDK v1 capability stability and validation of non-empty health/rotation results. Existing actions can be resolved even when new write actions are disabled.
+- Connector readiness command, regression suite and stricter release verification; full deployment still requires resolved dependencies and the isolated integration matrix.
+
 ## [0.4.9] — 2026-11-12 — Connector Admin UI & E2E
 
 - Полный цикл управления подключениями в `/connectors`: поиск, фильтры, пагинация, настройки, Vault-привязки, health и Discovery.

@@ -14,8 +14,14 @@ composer update --no-install --no-interaction --no-scripts --prefer-dist
   npm run typecheck
   npm run build
 )
+(
+  cd packages/ts-sdk
+  npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+  npm ci --no-audit --no-fund
+  npm run build
+)
 composer validate --strict
 composer install --no-interaction --prefer-dist
 php scripts/verify-release.php
 echo 'Dependency locks resolved, dependencies installed, native checks and Nuxt build completed.'
-echo 'Review composer.lock and admin/package-lock.json before committing or publishing.'
+echo 'Review composer.lock, admin/package-lock.json and packages/ts-sdk/package-lock.json before committing or publishing.'

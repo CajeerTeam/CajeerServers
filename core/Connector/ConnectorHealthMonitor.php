@@ -7,7 +7,7 @@ use PDO;
 /** Health and breaker state is scoped to the exact active binding; caller owns the workspace/target fence. */
 final class ConnectorHealthMonitor
 {
-    public const ERRORS=['connector_auth_failed','connector_transport_failed','connector_unavailable','connector_protocol_error','connector_trust_failed','connector_dependency_missing','connector_rate_limited'];
+    public const ERRORS=['connector_auth_failed','connector_transport_failed','connector_unavailable','connector_protocol_error','connector_trust_failed','connector_dependency_missing','connector_rate_limited','connector_failed'];
     public static function outcome(?string $error,int $previous):array
     {
         if ($error===null) return ['status'=>'healthy','failures'=>0,'cooldown'=>0];

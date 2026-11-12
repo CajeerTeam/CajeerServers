@@ -275,7 +275,7 @@ final class ConnectorBindingService
         $this->inventory->workspaceRole($pdo,$target['workspace_id'],$actor,true);
         if ($version!==$target['version'])throw new HttpException(412,'Connector configuration changed.','precondition_failed');
         if ($target['state']!=='active')throw new HttpException(409,'Connector is disabled.','conflict');
-        $manifest=$this->registry->require($target['provider'],$operation)->manifest();
+        $manifest=$this->registry->manifest($target['provider'],$operation);
         $purpose=$manifest->purpose;
         if ($target['asset_id']===null)throw new HttpException(409,'Associate an Inventory asset with this connector.','asset_required');
         $asset=$this->inventory->find($pdo,$actor,$target['asset_id']);

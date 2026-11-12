@@ -16,13 +16,10 @@ $run = static function (string $name, array $command, string $cwd, ?array $envir
     fwrite(STDOUT, "== $name ==\n");
     if (!function_exists('proc_open')) { fwrite(STDERR, "FAIL: proc_open unavailable\n"); $failures++; return; }
     $pipes = [];
-    $process = @proc_open($command, [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $cwd, $environment);
+    $process = @proc_open($command, [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['redirect', 1]], $pipes, $cwd, $environment);
     if (!is_resource($process)) { fwrite(STDERR, "FAIL: cannot start $name\n"); $failures++; return; }
-    $stdout = stream_get_contents($pipes[1]); fclose($pipes[1]);
-    $stderr = stream_get_contents($pipes[2]); fclose($pipes[2]);
+    stream_copy_to_stream($pipes[1], STDOUT); fclose($pipes[1]);
     $status = proc_close($process);
-    fwrite(STDOUT, $stdout ?: '');
-    if ($stderr !== '') fwrite(STDERR, $stderr);
     if ($status !== 0) { fwrite(STDERR, "FAIL: $name (exit $status)\n"); $failures++; }
 };
 
@@ -48,7 +45,7 @@ $steps++;
 fwrite(STDOUT, sprintf("PHP lint: %d files, %d failures\n", count($phpFiles), $lintErrors));
 if ($lintErrors > 0 || $phpFiles === []) $failures++;
 
-foreach (['runtime', 'http', 'database', 'installer', 'auth', 'security', 'infrastructure', 'observability', 'admin', 'release', 'inventory-readiness', 'workspaces', 'inventory', 'ipam', 'topology', 'catalog', 'history', 'transfer', 'cmdb-integrity', 'import-dispatch', 'vault-crypto', 'vault-crud', 'vault-profiles', 'vault-access', 'vault-rotation', 'vault-bindings', 'vault-stable', 'proxmox-runtime', 'connector-runtime', 'connector-execution', 'connector-reconciliation', 'vmmanager-runtime', 'host-runtime', 'snmp-health', 'connector-events', 'connector-actions', 'backup'] as $suite) {
+foreach (['runtime', 'http', 'database', 'installer', 'auth', 'security', 'infrastructure', 'observability', 'admin', 'release', 'inventory-readiness', 'workspaces', 'inventory', 'ipam', 'topology', 'catalog', 'history', 'transfer', 'cmdb-integrity', 'import-dispatch', 'vault-crypto', 'vault-crud', 'vault-profiles', 'vault-access', 'vault-rotation', 'vault-bindings', 'vault-stable', 'proxmox-runtime', 'connector-runtime', 'connector-execution', 'connector-reconciliation', 'vmmanager-runtime', 'host-runtime', 'snmp-health', 'connector-events', 'connector-actions', 'connector-stability', 'backup'] as $suite) {
     $run($suite . ' smoke', [PHP_BINARY, 'tests/' . $suite . '-smoke.php'], $root);
 }
 $run('Admin frontend static', ['node', 'tests/static-check.mjs'], $root . '/admin');
@@ -57,12 +54,13 @@ $run('Vault Admin UI contract', ['node', '--experimental-strip-types', 'tests/va
 $run('Connector lifecycle UI policy', ['node', '--experimental-strip-types', 'tests/connector-lifecycle-contract.mjs'], $root . '/admin');
 
 if ($strict) {
+    $run('Connector stability HTTPS integration', ['python3','tests/connector-stability-https-integration.py'], $root);
+    $run('Proxmox HTTPS integration', ['python3','tests/connector-https-integration.py'], $root);
     $run('Connector actions HTTPS integration', ['python3','tests/connector-actions-https-integration.py'], $root);
     $run('TypeScript SDK integration', ['bash','tests/connector-sdk-integration.sh'], $root);
     $run('SNMP protocol integration', ['bash','tests/snmp-protocol-integration.sh'], $root);
     $run('SSH and WinRM protocol integration', ['python3','tests/host-transport-integration.py','--ssh'], $root);
     $run('VMmanager HTTPS + PostgreSQL integration', ['python3','tests/vmmanager-https-integration.py','--postgres'], $root);
-    $run('Production release gate', [PHP_BINARY, 'bin/cajeer', 'release:check', '--strict'], $root);
     if (getenv('CAJEER_PG_TEST') !== '1' || !preg_match('/^cajeer_test_[a-z0-9_]+$/D', getenv('CAJEER_PG_TEST_DATABASE') ?: '')) {
         fwrite(STDERR, "FAIL: strict verification requires CAJEER_PG_TEST=1 and an isolated cajeer_test_* database.\n"); $failures++;
     } else {
@@ -88,6 +86,7 @@ if ($strict) {
     $run('PHPUnit', [$root . '/vendor/bin/phpunit', '--configuration', 'phpunit.xml.dist'], $root);
     $run('Nuxt typecheck', ['npm', 'run', 'typecheck'], $root . '/admin');
     $run('Nuxt build', ['npm', 'run', 'build'], $root . '/admin');
+    $run('Production release gate', [PHP_BINARY, 'bin/cajeer', 'release:check', '--strict'], $root);
     if (!getenv('CAJEER_SMOKE_URL')) {
         fwrite(STDERR, "FAIL: strict verification requires CAJEER_SMOKE_URL to test a real HTTP deployment.\n"); $failures++;
     } else {

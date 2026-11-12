@@ -219,20 +219,22 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 
 Цель: расширяемая connector-based архитектура.
 
-- [ ] Connector manifest schema.
-- [ ] Connector permissions.
-- [ ] Connector health checks.
-- [ ] Connector capabilities.
-- [ ] Connector SDK for PHP.
-- [ ] Connector SDK for TypeScript clients.
-- [ ] Connection test flow.
-- [ ] API polling handler.
-- [ ] Webhook handler.
-- [ ] Event handler.
-- [ ] Action handler.
-- [ ] Sync handler.
-- [ ] Connector registry.
-- [ ] Signed connector payloads.
+- [x] Connector manifest schema.
+- [x] Connector permissions.
+- [x] Connector health checks.
+- [x] Connector capabilities.
+- [x] Connector SDK for PHP.
+- [x] Connector SDK for TypeScript clients.
+- [x] Connection test flow.
+- [x] API polling handler.
+- [x] Webhook handler.
+- [x] Event handler.
+- [x] Action handler.
+- [x] Sync handler.
+- [x] Connector registry.
+- [x] Signed connector payloads.
+
+- [ ] Release gate: реальные PostgreSQL 17/18, Redis, SNMP/SSH, Nuxt/Playwright, dependency locks и проверенный recovery на staging.
 
 ## 0.6.0 — Data Collection Layer
 

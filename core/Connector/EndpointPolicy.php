@@ -55,8 +55,8 @@ final class EndpointPolicy
             $addresses=@gethostbynamel($host)?:[];
             foreach (@dns_get_record($host,DNS_AAAA)?:[] as $record) if (isset($record['ipv6'])) $addresses[]=$record['ipv6'];
         }
-        if (!is_array($addresses) || $addresses===[] || count($addresses)>64) throw new RuntimeException('Connector DNS resolution failed.');
-        foreach ($addresses as $address) if (!is_string($address)||!$this->permits($address)) throw new RuntimeException('Connector endpoint denied by network policy.');
+        if (!is_array($addresses) || $addresses===[] || count($addresses)>64) throw new ConnectorTransportException('connector_transport_failed');
+        foreach ($addresses as $address) if (!is_string($address)||!$this->permits($address)) throw new ConnectorTransportException('connector_trust_failed');
         return $addresses[0];
     }
 }

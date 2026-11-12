@@ -98,7 +98,7 @@ def https_test(tmp):
             out=execute('winrm',port,cred,ca=str(cert));assert out['error']=='connector_protocol_error',out
             assert 'fixture-secret' not in json.dumps(out)
             if mode!='redirect':assert server.actions[-1]==TRANSFER+'Delete'
-        assert execute('winrm',port,cred,ca=str(cert),networks=['192.0.2.0/24'])['error']=='connector_failed'
+        assert execute('winrm',port,cred,ca=str(cert),networks=['192.0.2.0/24'])['error']=='connector_trust_failed'
     finally:
         server.shutdown();server.server_close();thread.join()
     print('WinRM HTTPS fixture: 12 scenarios PASS')

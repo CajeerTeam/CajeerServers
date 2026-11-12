@@ -15,15 +15,15 @@ $check = static function (bool $condition, string $label) use (&$count): void {
 };
 $report = (new ReleaseVerifier($root))->verify();
 $check($report['ok'], 'metadata and source match release version');
-$check($report['version'] === '0.4.9', 'current version');
+$check($report['version'] === '0.5.0', 'current version');
 $check(count($report['checks']) >= 10, 'independent release checks');
 $strict = (new ReleaseVerifier($root))->verify(true);
 $check(count($strict['checks']) > count($report['checks']), 'deployment checks add installation and build verification');
-foreach (['semver', 'release_version', 'admin_version', 'openapi_version', 'openapi_copies'] as $name) {
+foreach (['semver', 'release_version', 'admin_version', 'sdk_version', 'openapi_version', 'openapi_copies'] as $name) {
     $found = array_values(array_filter($report['checks'], static fn(array $x): bool => $x['name'] === $name));
     $check(count($found) === 1 && $found[0]['ok'], 'source identity: ' . $name);
 }
-foreach (['composer_lock', 'npm_lock', 'composer_installed', 'admin_built'] as $name) {
+foreach (['composer_lock', 'npm_lock', 'sdk_lock', 'sdk_installed', 'composer_installed', 'admin_built'] as $name) {
     $found = array_values(array_filter($strict['checks'], static fn(array $x): bool => $x['name'] === $name));
     $check(count($found) === 1, 'strict check exists: ' . $name);
 }

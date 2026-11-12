@@ -14,35 +14,53 @@ use LogicException;
 final class ConnectorRegistry
 {
     private array $drivers=[];
+    private array $metadata=[];
     public function __construct(ConnectorInterface ...$drivers) { foreach ($drivers as $driver) $this->register($driver); }
     public function register(ConnectorInterface $driver): void
     {
-        $provider=$driver->manifest()->provider;
+        $manifest=$driver->manifest();
+        $provider=$manifest->provider;
         if (isset($this->drivers[$provider])) throw new LogicException('Duplicate connector provider.');
+        if ($provider!=='proxmox' && $driver instanceof \Cajeer\Servers\Connector\ConnectorActionDriver) throw new LogicException('Only the built-in Proxmox driver can register write actions.');
         $this->drivers[$provider]=$driver;
+        $this->metadata[$provider]=$manifest;
     }
     public function has(string $provider): bool { return isset($this->drivers[$provider]); }
     public function require(string $provider,string $operation): ConnectorInterface
     {
         $driver=$this->drivers[$provider]??null;
         if ($driver===null) throw new HttpException(501,'No executable driver is registered for this provider.','provider_unavailable');
-        if (!$driver->manifest()->supports($operation)) throw new HttpException(422,'Connector operation is not supported.','capability_unavailable');
+        // Driver capabilities must not change after registration (including between grant and execution).
+        try { $manifest=$driver->manifest(); } catch (\Throwable) { throw new HttpException(503,'Connector driver is not available.','provider_unavailable'); }
+        if ($manifest != $this->metadata[$provider]) throw new HttpException(503,'Connector driver metadata changed.','provider_unavailable');
+        if (!$manifest->supports($operation)) throw new HttpException(422,'Connector operation is not supported.','capability_unavailable');
         return $driver;
+    }
+    public function manifest(string $provider,string $operation): ConnectorManifest
+    {
+        $this->require($provider,$operation);
+        return $this->metadata[$provider];
     }
     public function execute(ConnectorContext $context,string $operation,string $purpose,#[\SensitiveParameter] string $secret): ConnectorResult
     {
         $driver=$this->require($context->provider,$operation);
-        $manifest=$driver->manifest();
+        $manifest=$this->metadata[$context->provider];
         if (!$manifest->accepts($context->credentialType,$purpose)) throw new HttpException(403,'Credential not supported by driver.','permission_denied');
-        try { return $driver->execute($context,$operation,$secret)->validated($manifest); }
+        try { $result=$driver->execute($context,$operation,$secret); }
         catch (ConnectorTransportException $e) { throw new HttpException(502,$e->getMessage(),$e->category); }
         catch (\Throwable) { throw new HttpException(502,'Remote connector operation failed.','connector_failed'); }
+        try {
+            $result=$result->validated($manifest);
+            if (in_array($operation,['health','validate_rotation'],true) && $result->items===[]) throw new LogicException('Empty probe.');
+            return $result;
+        }
+        catch (\Throwable) { throw new HttpException(502,'Remote connector returned an invalid or unsupported response.','connector_protocol_error'); }
     }
     public function actions(string $provider):array
     {
         $driver=$this->drivers[$provider]??null;
-        return $driver instanceof \Cajeer\Servers\Connector\ConnectorActionDriver?$driver->actions():[];
+        return $provider==='proxmox' && $driver instanceof \Cajeer\Servers\Connector\ConnectorActionDriver?$driver->actions():[];
     }
     /** @return array<string,ConnectorManifest> */
-    public function manifests(): array { return array_map(static fn(ConnectorInterface $d)=>$d->manifest(),$this->drivers); }
+    public function manifests(): array { return $this->metadata; }
 }

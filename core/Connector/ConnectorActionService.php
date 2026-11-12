@@ -20,12 +20,12 @@ final class ConnectorActionService
         private readonly bool $enabled=false) {}
     private function query(PDO $pdo,string $sql,array $args=[]):\PDOStatement
     { $s=$pdo->prepare($sql);$s->execute($args);return $s; }
-    private function actor(array $p,bool $write):string
+    private function actor(array $p,bool $write,bool $dispatch=false):string
     {
         $this->rbac->requirePermission($p,$write?'connectors.actions.execute':'connectors.actions.read');
         $this->rbac->requirePermission($p,'connectors.targets.read');
         if ($write) {
-            if (!$this->enabled) throw new HttpException(403,'Remote write actions are disabled.','actions_disabled');
+            if ($dispatch && !$this->enabled) throw new HttpException(403,'Remote write actions are disabled.','actions_disabled');
             foreach (['connectors.credentials.manage','vault.credentials.use','inventory.assets.read'] as $scope) $this->rbac->requirePermission($p,$scope);
         }
         return $p['user']['id'];
@@ -89,7 +89,7 @@ final class ConnectorActionService
     }
     public function submit(array $p,string $target,int $version,array $body,string $key):array
     {
-        self::validate($body,$key);$actor=$this->actor($p,true);$t=$this->bindings->runtimeContext($actor,$target,$version,'inspect');$driver=$this->driver($t,$body['action']);
+        self::validate($body,$key);$actor=$this->actor($p,true,true);$t=$this->bindings->runtimeContext($actor,$target,$version,'inspect');$driver=$this->driver($t,$body['action']);
         return $this->lock($t,function()use($p,$t,$driver,$body,$key,$actor):array {
             $pdo=$this->db->connection();$existing=$this->query($pdo,'SELECT id::text FROM connector_actions WHERE target_id=:t AND idempotency_key=:k',['t'=>$t['id'],'k'=>$key])->fetchColumn();
             if ($existing) {
@@ -139,8 +139,12 @@ final class ConnectorActionService
             $r=$this->row($this->db->connection(),$t['id'],$id);
             if ($ack) {
                 if (!in_array($r['status'],['unknown','dispatching','submitted'],true)) throw new HttpException(409,'Only unresolved actions can be acknowledged.','conflict');
-                $this->access->consumeDelegation($p,$t['asset_id'],$t['credential_id'],$t['purpose'],$t['credential_version']);
-                return $this->finish($p,$t,$id,'acknowledged',$r['node'],$r['remote_task'],'operator_acknowledged');
+                return $this->db->transaction(function(PDO $pdo)use($p,$t,$id,$r):array {
+                    $this->inventory->lockWorkspace($pdo,$t['workspace_id']);
+                    $this->access->consumeDelegation($p,$t['asset_id'],$t['credential_id'],$t['purpose'],$t['credential_version']);
+                    $this->current($p,$t);
+                    return $this->finish($p,$t,$id,'acknowledged',$r['node'],$r['remote_task'],'operator_acknowledged');
+                });
             }
             if ($r['status']!=='submitted') return $r;
             if ($r['credential_id']!==$t['credential_id']||(int)$r['credential_version']!==$t['credential_version']||(int)$r['target_version']!==$t['version']) throw new HttpException(409,'Original action binding changed. Verify the task externally.','conflict');
@@ -148,9 +152,12 @@ final class ConnectorActionService
             try {$this->access->consumeForAsset($p,$t['asset_id'],$t['credential_id'],$t['purpose'],function(#[\SensitiveParameter] string $secret,string $type)use($p,$t,$r,$d,&$status):void {
                 $this->current($p,$t);$status=$d->actionStatus(new ConnectorContext($t['provider'],$t['endpoint_host'],$t['endpoint_port'],$type),$r['node'],$r['remote_task'],$secret);
             });}catch(\Throwable $e){throw $e instanceof HttpException?$e:new HttpException(502,'Task status unavailable; action was not repeated.','connector_failed');}
-            $this->current($p,$t);
             if (!in_array($status,['submitted','succeeded','failed'],true)) throw new HttpException(502,'Invalid task result.','connector_failed');
-            return $this->finish($p,$t,$id,$status,$r['node'],$r['remote_task'],$status==='failed'?'remote_task_failed':null);
+            return $this->db->transaction(function(PDO $pdo)use($p,$t,$id,$status,$r):array {
+                $this->inventory->lockWorkspace($pdo,$t['workspace_id']);
+                $this->current($p,$t);
+                return $this->finish($p,$t,$id,$status,$r['node'],$r['remote_task'],$status==='failed'?'remote_task_failed':null);
+            });
         });
     }
 }

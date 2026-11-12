@@ -37,6 +37,7 @@ jobs:
         run: sudo apt-get update -qq && sudo apt-get install -y snmpd
       - name: Connector HTTPS and host protocol integration
         run: |
+          python3 tests/connector-stability-https-integration.py
           python3 tests/connector-https-integration.py
           python3 tests/connector-actions-https-integration.py
           python3 tests/vmmanager-https-integration.py
@@ -44,12 +45,13 @@ jobs:
           bash tests/snmp-protocol-integration.sh
       - name: Build and test TypeScript connector SDK
         run: |
-          npm install --prefix packages/ts-sdk --no-audit --no-fund
+          npm ci --prefix packages/ts-sdk --no-audit --no-fund
           bash tests/connector-sdk-integration.sh
       - name: Verify dependency lockfiles are present
         run: |
           test -s composer.lock
           test -s admin/package-lock.json
+          test -s packages/ts-sdk/package-lock.json
       - name: Install Composer dependencies reproducibly
         run: composer install --no-interaction --no-progress --prefer-dist --no-dev --optimize-autoloader
       - name: Install Nuxt dependencies and compile
@@ -59,11 +61,15 @@ jobs:
           npm run typecheck
           npm run build
   postgres-integration:
-    name: PostgreSQL 18 / Inventory + IPAM + Topology + History + Transfer
+    strategy:
+      fail-fast: false
+      matrix:
+        pg: [17, 18]
+    name: PostgreSQL ${{ matrix.pg }} / Connector + Inventory + Recovery
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:18
+        image: postgres:${{ matrix.pg }}
         env:
           POSTGRES_USER: cajeer
           POSTGRES_PASSWORD: ci-integration-only
@@ -97,6 +103,12 @@ jobs:
           coverage: none
       - name: PostgreSQL workspace, Inventory CRUD, IPAM and Topology integration
         run: |
+          php tests/database-postgres-integration.php
+          php tests/auth-postgres-integration.php
+          php tests/security-postgres-integration.php
+          php tests/infrastructure-postgres-integration.php
+          php tests/admin-postgres-integration.php
+          php tests/inventory-postgres-integration.php
           php tests/workspaces-postgres-integration.php
           php tests/inventory-crud-postgres-integration.php
           php tests/ipam-postgres-integration.php
@@ -117,17 +129,21 @@ jobs:
           php tests/connector-actions-postgres-integration.php
           python3 tests/connector-actions-https-integration.py
           python3 tests/vmmanager-https-integration.py --postgres
+      - name: Redis integration
+        env:
+          CAJEER_REDIS_TEST: '1'
+        run: php tests/infrastructure-redis-integration.php
       - name: PostgreSQL client version for encrypted backup/restore
         run: |
-          # Match the postgres:18 service. A missing client must fail the integration job.
+          # Match the PostgreSQL service. A missing client must fail the integration job.
           sudo install -d -m 0755 /etc/apt/keyrings
           curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /etc/apt/keyrings/postgresql.gpg
           . /etc/os-release
           echo "deb [signed-by=/etc/apt/keyrings/postgresql.gpg] https://apt.postgresql.org/pub/repos/apt ${VERSION_CODENAME}-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
           sudo apt-get update -qq
-          sudo apt-get install -y postgresql-client-18
+          sudo apt-get install -y postgresql-client-${{ matrix.pg }}
       - name: Encrypted disaster recovery real PostgreSQL roundtrip
         env:
-          PG_DUMP_BINARY: /usr/lib/postgresql/18/bin/pg_dump
-          PG_RESTORE_BINARY: /usr/lib/postgresql/18/bin/pg_restore
+          PG_DUMP_BINARY: /usr/lib/postgresql/${{ matrix.pg }}/bin/pg_dump
+          PG_RESTORE_BINARY: /usr/lib/postgresql/${{ matrix.pg }}/bin/pg_restore
         run: php tests/backup-postgres-integration.php

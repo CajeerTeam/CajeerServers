@@ -10,7 +10,14 @@ final class ConnectorCommands
     public function __construct(private readonly Application $app) {}
     public function run(string $command,array $argv):int
     {
-        $args=array_slice($argv,2); $service=$this->app->container()->get(ConnectorExecutionService::class);
+        $args=array_slice($argv,2);
+        if ($command==='connector:doctor') {
+            if ($args!==[] && $args!==['--json']) throw new \InvalidArgumentException('Usage: connector:doctor [--json]');
+            $report=(new \Cajeer\Servers\Connector\ConnectorReadiness($this->app))->report();
+            fwrite(STDOUT,json_encode($report,JSON_THROW_ON_ERROR|JSON_PRETTY_PRINT)."\n");
+            return $report['ok']?0:1;
+        }
+        $service=$this->app->container()->get(ConnectorExecutionService::class);
         $required=static function(int $n)use($args):void {if (count($args)!==$n) throw new \InvalidArgumentException('Invalid connector command arguments. See help.');};
         switch ($command) {
             case 'connector:run': $required(4); $result=$service->enqueue(...$args); break;

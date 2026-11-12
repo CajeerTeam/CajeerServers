@@ -42,6 +42,8 @@ final class DeploymentVerifier
             return $permissions !== false && ($permissions & 0077) === 0;
         }, 'Private .env must be a regular file with mode 0600 or more restrictive.');
         if ($strict) {
+            $report=(new \Cajeer\Servers\Connector\ConnectorReadiness($this->app))->report();
+            foreach($report['checks'] as $connectorCheck) $checks[]=$connectorCheck;
             $this->probe($checks, 'database_transport', function (): bool {
                 $db = $this->app->config()->get('database.connections.pgsql', []);
                 if (!is_array($db)) return false;

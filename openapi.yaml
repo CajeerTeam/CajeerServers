@@ -1,8 +1,8 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.4.9
-  description: 'CajeerServers 0.4.9: connector lifecycle admin, filtered targets, service grants, runs, signed events and confirmed actions.'
+  version: 0.5.0
+  description: 'CajeerServers 0.5.0: connector lifecycle admin, filtered targets, service grants, runs, signed events and confirmed actions.'
 servers:
 - url: /api/v1
 security: []

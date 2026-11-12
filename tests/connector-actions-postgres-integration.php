@@ -80,10 +80,10 @@ try {
     $authorize();$row=$actions->submit($principal,$id,2,$body,$key);$ok($row['status']==='submitted'&&$driver->posts===1,'durable dispatch');
     $same=$actions->submit($principal,$id,2,$body,$key);$ok($same['id']===$row['id']&&$driver->posts===1,'idempotent duplicate without POST');
     $reject(409,fn()=>$actions->submit($principal,$id,2,$body,'test-idempotency-0002'),'unresolved action blocks duplicate');
-    $authorize();$done=$actions->refresh($principal,$id,$row['id'],2);$ok($done['status']==='succeeded'&&$driver->posts===1,'task confirmed without POST');
+    $authorize();$done=$disabled->refresh($principal,$id,$row['id'],2);$ok($done['status']==='succeeded'&&$driver->posts===1,'task confirmed without POST when writes disabled');
     $driver->fail=true;$authorize();$unknown=$actions->submit($principal,$id,2,$body,'test-idempotency-0002');$ok($unknown['status']==='unknown'&&$driver->posts===2,'ambiguous response persisted');
     $reject(409,fn()=>$actions->submit($principal,$id,2,$body,'test-idempotency-0003'),'unknown blocks repeat');
-    $authorize();$ack=$actions->refresh($principal,$id,$unknown['id'],2,true);$ok($ack['status']==='acknowledged'&&$driver->posts===2,'operator acknowledgement no write');
+    $authorize();$ack=$disabled->refresh($principal,$id,$unknown['id'],2,true);$ok($ack['status']==='acknowledged'&&$driver->posts===2,'operator acknowledgement no write');
     $ok(count($actions->list($principal,$id))===2,'history persisted');
     $pdo->exec("DELETE FROM role_permissions WHERE permission_id IN (SELECT id FROM permissions WHERE scope='connectors.actions.execute')");
     $reject(403,fn()=>$actions->submit($principal,$id,2,$body,'test-idempotency-0003'),'action scope revoked');

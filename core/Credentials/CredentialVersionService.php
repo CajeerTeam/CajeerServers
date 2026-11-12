@@ -184,11 +184,14 @@ LEFT JOIN vault_rotation_validations v
 WHERE b.credential_id=CAST(:credential AS uuid) AND t.state='active'
 SQL);
         $query->execute(['credential'=>$credential,'revision'=>$revision,'version'=>$credentialVersion]);
-        $required=0;$validated=0;$manifests=$this->registry->manifests();
+        $required=0;$validated=0;
         foreach ($query->fetchAll(PDO::FETCH_ASSOC) as $row) {
-            $manifest=$manifests[$row['provider']]??null;
-            if ($manifest===null || !$manifest->supports('validate_rotation') || !$manifest->accepts($row['type'],$row['purpose'])) continue;
-            $required++;$validated+=(int)$row['validated'];
+            // Every active binding requires a valid proof. A removed/disabled extension or
+            // changed capability must not silently bypass verification of an active credential.
+            $required++;
+            try { $manifest=$this->registry->manifest($row['provider'],'validate_rotation'); }
+            catch (HttpException) { continue; }
+            if ($manifest->accepts($row['type'],$row['purpose'])) $validated+=(int)$row['validated'];
         }
         return ['required'=>$required,'validated'=>$validated];
     }
@@ -231,7 +234,7 @@ SQL);
             $target->execute(['connector'=>$connector,'ws'=>$workspace,'version'=>$connectorVersion,'credential'=>$credential]);
             $binding=$target->fetch(PDO::FETCH_ASSOC);
             if (!is_array($binding)) throw new HttpException(409,'Connector binding changed during validation.','conflict');
-            $manifest=$this->registry->require($binding['provider'],'validate_rotation')->manifest();
+            $manifest=$this->registry->manifest($binding['provider'],'validate_rotation');
             if (!$manifest->accepts($row['type'],$binding['purpose'])) throw new HttpException(409,'Connector credential policy changed.','conflict');
             $save=$pdo->prepare(<<<'SQL'
 INSERT INTO vault_rotation_validations

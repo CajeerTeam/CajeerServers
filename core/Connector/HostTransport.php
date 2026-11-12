@@ -45,7 +45,8 @@ final class HostTransport
                     if (feof($pipes[1])) break;
                 }
             }
-            $decoded=json_decode($output,true,16,JSON_THROW_ON_ERROR);
+            try { $decoded=json_decode($output,true,16,JSON_THROW_ON_ERROR); }
+            catch (\JsonException) { throw new ConnectorTransportException('connector_protocol_error'); }
             if (!is_array($decoded)) throw new ConnectorTransportException('connector_protocol_error');
             if (array_keys($decoded)===['error'] && in_array($decoded['error'],['connector_auth_failed','connector_transport_failed','connector_unavailable','connector_protocol_error','connector_trust_failed','connector_dependency_missing'],true))
                 throw new ConnectorTransportException($decoded['error']);
