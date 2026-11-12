@@ -548,3 +548,12 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 - [x] Native smoke и сценарий live PostgreSQL MFA → pending decrypt → Proxmox adapter → proof → activation.
 - [ ] Подтвердить PostgreSQL integration, реальный Proxmox endpoint, Nuxt build/typecheck и browser E2E на изолированном staging.
 - [ ] Добавить lock-файлы, сформированные настоящими Composer/npm dependency resolvers, и выполнить strict release check.
+
+### 0.4.1 — Unified Connector Runtime & Registry (реализовано)
+
+- [x] Исполняемый Registry, DI, типизированные контексты/результаты, проверка capabilities и credential policy.
+- [x] Proxmox переведён на общий inspect/sync/validate_rotation/health runtime, сохранены прежние идентификаторы Inventory.
+- [x] Общий HTTPS transport с проверкой TLS, CIDR, DNS pinning и лимитами; production fail-closed.
+- [x] Admin UI и API отражают реальные зарегистрированные драйверы; native regression и реальный локальный HTTPS fixture.
+- [ ] PostgreSQL integration, реальный appliance, Nuxt production build и browser E2E на staging.
+- [ ] 0.4.2 — Connector Execution & Secure Service Grants: фоновые jobs, worker и ограниченное делегирование Vault.

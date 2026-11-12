@@ -3,6 +3,8 @@ import { apiError } from '~/composables/useApi'
 import { inventoryContextUrl, selectWorkspace } from '~/composables/inventoryNavigation'
 import type { VaultVersion } from '~/composables/vaultProfiles'
 const api=useApi(), auth=useAuth(),route=useRoute()
+type Driver={provider:string;purpose:string;credentialTypes:string[];operations:string[];resourceTypes:string[];transport:string}
+const drivers=ref<Driver[]>([])
 type Workspace={id:string;name:string;role:string}
 type Target={id:string;workspace_id:string;provider:string;name:string;endpoint_host:string;endpoint_port:number;state:string;asset_id:string|null;version:number;etag:string}
 type Binding={id:string;connector_id:string;credential_id:string;purpose:string;type:string;state:string}
@@ -23,18 +25,21 @@ const canRead=computed(()=>auth.can('connectors.targets.read'))
 const canManage=computed(()=>auth.can('connectors.targets.manage')&&['owner','manager'].includes(workspaces.value.find(w=>w.id===workspace.value)?.role||''))
 const canBind=computed(()=>auth.can('connectors.credentials.manage')&&canManage.value)
 const canListBindings=computed(()=>auth.can('connectors.credentials.read'))
-const canRun=computed(()=>canBind.value&&auth.can('vault.credentials.use')&&active.value?.provider==='proxmox'&&active.value?.state==='active')
-const canSync=computed(()=>canRun.value&&auth.can('inventory.assets.create')&&auth.can('inventory.assets.update'))
-const canValidate=computed(()=>canRun.value&&auth.can('vault.credentials.read')&&auth.can('vault.credentials.update'))
+const activeDriver=computed(()=>drivers.value.find(d=>d.provider===active.value?.provider))
+const canExecute=computed(()=>canBind.value&&auth.can('vault.credentials.use')&&!!activeDriver.value&&active.value?.state==='active')
+const canRun=computed(()=>canExecute.value&&!!activeDriver.value?.operations.includes('inspect'))
+const canHealth=computed(()=>canExecute.value&&!!activeDriver.value?.operations.includes('health'))
+const canSync=computed(()=>canExecute.value&&!!activeDriver.value?.operations.includes('sync')&&auth.can('inventory.assets.create')&&auth.can('inventory.assets.update'))
+const canValidate=computed(()=>canExecute.value&&!!activeDriver.value?.operations.includes('validate_rotation')&&auth.can('vault.credentials.read')&&auth.can('vault.credentials.update'))
 const pendingRotation=computed(()=>pendingVersions.value.find(v=>v.state==='pending')||null)
-const apiBinding=computed(()=>bindings.value.find(b=>b.purpose==='api'&&b.state==='active')||null)
+const apiBinding=computed(()=>bindings.value.find(b=>b.purpose===activeDriver.value?.purpose&&b.state==='active'&&activeDriver.value?.credentialTypes.includes(b.type))||null)
 const active=computed(()=>targets.value.find(t=>t.id===selected.value)||null)
 const scopeCredentials=computed(()=>credentials.value.filter(c=>c.state==='active'))
 function fail(e:unknown){error.value=apiError(e).message}
 function reset(){error.value='';message.value=''}
 function versionHeaders(target:Target){return {'If-Match':target.etag}}
 async function init(){if(!canRead.value)return
-  try{workspaces.value=(await api.get<{data:Workspace[]}>('/workspaces')).data;workspace.value=selectWorkspace(workspaces.value,route.query.workspace_id);await load()}
+  try{drivers.value=(await api.get<{data:Driver[]}>('/connectors/drivers')).data;workspaces.value=(await api.get<{data:Workspace[]}>('/workspaces')).data;workspace.value=selectWorkspace(workspaces.value,route.query.workspace_id);await load()}
   catch(e){fail(e)}
 }
 async function load(){targets.value=[];bindings.value=[];credentials.value=[];assets.value=[];pendingVersions.value=[];lastRun.value=null;selected.value='';stepup.password='';stepup.totp='';if(!workspace.value||!canRead.value)return
@@ -49,12 +54,12 @@ async function open(target:Target){selected.value=target.id;assetSelection.value
   try{const loaded=(await api.get<{data:Binding[]}>(`/connectors/targets/${target.id}/credential-bindings`)).data
     if(selected.value!==target.id)return
     bindings.value=loaded
-    const activeApi=loaded.find(b=>b.purpose==='api'&&b.state==='active')
+    const activeApi=loaded.find(b=>b.purpose===activeDriver.value?.purpose&&b.state==='active'&&activeDriver.value?.credentialTypes.includes(b.type))
     if(activeApi&&auth.can('vault.credentials.read')){
       const versions=(await api.get<{data:VaultVersion[]}>(`/vault/credentials/${activeApi.credential_id}/versions`)).data
       if(selected.value===target.id)pendingVersions.value=versions
     }
-  catch(e){fail(e)}
+  }catch(e){fail(e)}
 }
 watch(()=>form.provider,(provider)=>{const item=providers.find(p=>p.id===provider);if(item){form.endpoint_port=item.port;binding.purpose=item.purpose}})
 watch(workspace,()=>{void navigateTo(inventoryContextUrl('connectors',workspace.value),{replace:true});void load()})
@@ -94,16 +99,27 @@ async function saveAsset(){if(!active.value||!canManage.value)return;busy.value=
 }
 async function executeRemote(sync:boolean){
   const item=active.value,credential=apiBinding.value
-  if(!item||!credential||!item.asset_id||!canRun.value||(sync&&!canSync.value))return
+  if(!item||!credential||!item.asset_id||(sync?!canSync.value:!canRun.value))return
   busy.value=true;reset();lastRun.value=null
   try{
     await api.write('POST',`/vault/credentials/${credential.credential_id}/authorize-use`,{
-      asset_id:item.asset_id,purpose:'api',password:stepup.password,totp:stepup.totp})
+      asset_id:item.asset_id,purpose:credential.purpose,password:stepup.password,totp:stepup.totp})
     stepup.password='';stepup.totp=''
     const result=await api.write<{data:{mode:string;discovered:number;types:Record<string,number>;outcomes?:Record<string,number>} }>(
       'POST',`/connectors/targets/${item.id}/${sync?'sync':'inspect'}`,undefined,true,versionHeaders(item))
     lastRun.value=result.data
     message.value=sync?'Инвентаризация завершена.':'Удалённая проверка завершена.'
+  }catch(e){fail(e)}finally{stepup.password='';stepup.totp='';busy.value=false}
+}
+async function checkHealth(){
+  const item=active.value,credential=apiBinding.value
+  if(!item||!credential||!item.asset_id||!canHealth.value)return
+  busy.value=true;reset();lastRun.value=null
+  try{
+    await api.write('POST',`/vault/credentials/${credential.credential_id}/authorize-use`,{
+      asset_id:item.asset_id,purpose:credential.purpose,password:stepup.password,totp:stepup.totp})
+    const result=await api.write<{data:{status:string;duration_ms:number}}>('POST',`/connectors/targets/${item.id}/health`,undefined,true,versionHeaders(item))
+    message.value=`Проверка доступности: ${result.data.status}, ${result.data.duration_ms} мс.`
   }catch(e){fail(e)}finally{stepup.password='';stepup.totp='';busy.value=false}
 }
 async function validatePendingRotation(){
@@ -112,11 +128,11 @@ async function validatePendingRotation(){
   busy.value=true;reset()
   try{
     await api.write('POST',`/vault/credentials/${credential.credential_id}/authorize-use`,{
-      asset_id:item.asset_id,purpose:'api',password:stepup.password,totp:stepup.totp})
+      asset_id:item.asset_id,purpose:credential.purpose,password:stepup.password,totp:stepup.totp})
     const result=await api.write<{data:{validated:boolean;validated_targets:number;required_targets:number}}>(
       'POST',`/connectors/targets/${item.id}/validate-rotation`,{revision},true,versionHeaders(item))
     pendingVersions.value=(await api.get<{data:VaultVersion[]}>(`/vault/credentials/${credential.credential_id}/versions`)).data
-    message.value=`Новая версия проверена через Proxmox API. Подтверждено ${result.data.validated_targets} из ${result.data.required_targets} коннекторов.`
+    message.value=`Новая версия проверена через зарегистрированный драйвер. Подтверждено ${result.data.validated_targets} из ${result.data.required_targets} коннекторов.`
   }catch(e){fail(e)}finally{stepup.password='';stepup.totp='';busy.value=false}
 }
 onMounted(init)
@@ -125,7 +141,7 @@ onMounted(init)
   <div>
     <h1>Конфигурации подключений и Vault</h1>
     <p v-if="auth.can('vault.credentials.read')"><NuxtLink :to="inventoryContextUrl('vault',workspace)">Управление credentials в Vault</NuxtLink></p>
-    <p class="page-subtitle">Рабочая интеграция Proxmox VE: проверка API и загрузка узлов, VM и контейнеров в Inventory. Другие провайдеры пока поддерживают только конфигурацию привязок.</p>
+    <p class="page-subtitle">Исполняемые драйверы загружаются из Registry. Конфигурации без зарегистрированного драйвера не выполняют удалённых операций.</p>
     <div v-if="error" class="alert" role="alert">{{error}}</div>
     <div v-if="message" class="alert success" role="status">{{message}}</div>
     <section v-if="!canRead" class="panel">Недостаточно прав connectors.targets.read.</section>
@@ -137,10 +153,10 @@ onMounted(init)
         <h2>Новая конфигурация</h2>
         <form @submit.prevent="create">
           <label>Название <input v-model="form.name" required maxlength="120" /></label>
-          <label>Провайдер <select v-model="form.provider"><option v-for="p in providers" :key="p.id" :value="p.id">{{p.id}}</option></select></label>
+          <label>Провайдер <select v-model="form.provider"><option v-for="p in providers" :key="p.id" :value="p.id">{{p.id}}{{drivers.some(d=>d.provider===p.id)?'':' (только конфигурация)'}}</option></select></label>
           <label>Адрес (DNS / IPv4 / IPv6, без URL и секретов) <input v-model="form.endpoint_host" required maxlength="253" /></label>
           <label>Порт <input v-model.number="form.endpoint_port" type="number" min="1" max="65535" required /></label>
-          <label>Inventory asset (необязательно для сохранения, обязательно для Proxmox)
+          <label>Inventory asset (необязательно для сохранения, обязательно для исполнения)
             <select v-model="form.asset_id"><option value="">Без привязки</option><option v-for="a in assets" :key="a.id" :value="a.id">{{a.name}} — {{a.type}}</option></select>
           </label>
           <button class="btn" :disabled="busy||!workspace">Создать конфигурацию</button>
@@ -177,22 +193,24 @@ onMounted(init)
           <button class="btn" :disabled="busy||!binding.credential_id">Привязать credential</button>
         </form>
       </section>
-      <section v-if="active&&active.provider==='proxmox'" class="panel">
-        <h2>Proxmox VE — подключение и Inventory</h2>
-        <p>Для запуска требуется активная связка API credential с этой конфигурацией и выбранным Inventory asset, а также такое же назначение credential на самом asset. Доступ выдаётся на одно действие после проверки пароля и TOTP. TLS проверяется; для собственного CA задайте PROXMOX_CA_FILE на сервере.</p>
-        <form v-if="canRun&&apiBinding&&active.asset_id" @submit.prevent="executeRemote(false)">
+      <p v-if="active&&!activeDriver" class="muted">Для этого провайдера пока нет исполняемого драйвера.</p>
+      <section v-if="active&&activeDriver" class="panel">
+        <h2>{{ active.provider }} — подключение и Inventory</h2>
+        <p>Для запуска требуется активная связка credential с этой конфигурацией и выбранным Inventory asset, а также такое же назначение credential на самом asset. Доступ выдаётся на одно действие после проверки пароля и TOTP. TLS проверяется; для собственного CA задайте PROXMOX_CA_FILE на сервере.</p>
+        <form v-if="(canRun||canHealth||canSync||canValidate)&&apiBinding&&active.asset_id" @submit.prevent="executeRemote(false)">
           <label>Подтверждение пароля <input v-model="stepup.password" type="password" autocomplete="off" required /></label>
           <label>TOTP (6 цифр) <input v-model="stepup.totp" type="text" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required /></label>
-          <button class="btn" type="submit" :disabled="busy">Проверить Proxmox API</button>
-          <button v-if="canSync" class="btn" type="button" :disabled="busy" @click="executeRemote(true)">Синхронизировать Inventory</button>
+          <button v-if="canRun" class="btn" type="submit" :disabled="busy">Проверить подключение</button>
+          <button v-if="canHealth" class="btn" type="button" :disabled="busy || !stepup.password || !/^[0-9]{6}$/.test(stepup.totp)" @click="checkHealth">Проверить доступность</button>
+          <button v-if="canSync" class="btn" type="button" :disabled="busy || !stepup.password || !/^[0-9]{6}$/.test(stepup.totp)" @click="executeRemote(true)">Синхронизировать Inventory</button>
           <button v-if="canValidate && pendingRotation" class="btn primary" type="button" :disabled="busy || !stepup.password || !/^[0-9]{6}$/.test(stepup.totp)" data-testid="connector-validate-pending" @click="validatePendingRotation">
             Проверить новую версию №{{ pendingRotation.secret_version }}
           </button>
         </form>
-        <p v-else>Для выполнения операции выберите asset, привяжите активный API credential и проверьте права на использование Vault.</p>
+        <p v-else>Для выполнения операции выберите asset, привяжите активный credential и проверьте права на использование Vault.</p>
         <p v-if="pendingRotation && canValidate" class="muted">Проверка ожидающего секрета использует одноразовое MFA-разрешение, не изменяет Inventory и сохраняет в Vault только подтверждение успешного подключения. После проверки активируйте версию в <NuxtLink :to="inventoryContextUrl('vault',workspace)">Vault</NuxtLink>.</p>
         <div v-if="lastRun" role="status">
-          <p>Обнаружено объектов: {{lastRun.discovered}}. Узлы: {{lastRun.types.hypervisor_node}}, VM: {{lastRun.types.virtual_machine}}, контейнеры: {{lastRun.types.container}}.</p>
+          <p>Обнаружено объектов: {{lastRun.discovered}}. <span v-for="(count, type) in lastRun.types" :key="type">{{type}}: {{count}}. </span></p>
           <p v-if="lastRun.outcomes">Создано: {{lastRun.outcomes.created}}, обновлено: {{lastRun.outcomes.applied}}, без изменений: {{lastRun.outcomes.unchanged}}, конфликтов: {{lastRun.outcomes.conflicted}}.</p>
         </div>
       </section>

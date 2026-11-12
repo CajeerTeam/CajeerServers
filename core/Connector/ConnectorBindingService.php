@@ -9,10 +9,11 @@ use Cajeer\Servers\Database\DatabaseManager;
 use Cajeer\Servers\Http\Exception\HttpException;
 use Cajeer\Servers\Inventory\InventoryRepository;
 use PDO;
+use Cajeer\Servers\Integration\ConnectorRegistry;
 use PDOException;
 
 /** Persisted, workspace-isolated connector configurations and Vault references.
- * Active Proxmox targets are executable via ConnectorRuntimeService; this service never reads a secret.
+ * Registered targets are executable via ConnectorRuntimeService; this service never reads a secret.
  */
 final class ConnectorBindingService
 {
@@ -20,6 +21,7 @@ final class ConnectorBindingService
         private readonly DatabaseManager $db,
         private readonly InventoryRepository $inventory,
         private readonly AuditLogger $audit,
+        private readonly ConnectorRegistry $registry,
     ) {}
 
     private static function uuid(mixed $id):string { return CredentialInput::uuid($id); }
@@ -251,7 +253,7 @@ final class ConnectorBindingService
     }
 
     /** Authorizes a concrete operation. Only a matching active connector AND Inventory binding can use a Vault grant. */
-    public function runtimeContext(string $actor,string $id,int $version):array
+    public function runtimeContext(string $actor,string $id,int $version,string $operation='inspect'):array
     {
         $id=self::uuid($id);
         $pdo=$this->db->connection();
@@ -259,16 +261,18 @@ final class ConnectorBindingService
         $this->inventory->workspaceRole($pdo,$target['workspace_id'],$actor,true);
         if ($version!==$target['version'])throw new HttpException(412,'Connector configuration changed.','precondition_failed');
         if ($target['state']!=='active')throw new HttpException(409,'Connector is disabled.','conflict');
-        if ($target['provider']!=='proxmox')throw new HttpException(501,'Remote discovery is not implemented for this provider.','provider_unavailable');
+        $manifest=$this->registry->require($target['provider'],$operation)->manifest();
+        $purpose=$manifest->purpose;
         if ($target['asset_id']===null)throw new HttpException(409,'Associate an Inventory asset with this connector.','asset_required');
         $asset=$this->inventory->find($pdo,$actor,$target['asset_id']);
         if ($asset===null || $asset['workspace_id']!==$target['workspace_id'])
             throw new HttpException(409,'Connector asset is unavailable.','asset_unavailable');
-        $credential=$this->resolveActive($actor,$id,'api');
-        $check=$pdo->prepare('SELECT 1 FROM inventory_asset_credential_bindings b WHERE b.workspace_id=CAST(:ws AS uuid) AND b.asset_id=CAST(:asset AS uuid) AND b.credential_id=CAST(:credential AS uuid) AND b.purpose=\'api\'');
-        $check->execute(['ws'=>$target['workspace_id'],'asset'=>$target['asset_id'],'credential'=>$credential['credential_id']]);
+        $credential=$this->resolveActive($actor,$id,$purpose);
+        if (!$manifest->accepts($credential['type'],$purpose)) throw new HttpException(403,'Credential not supported by driver.','permission_denied');
+        $check=$pdo->prepare('SELECT 1 FROM inventory_asset_credential_bindings b WHERE b.workspace_id=CAST(:ws AS uuid) AND b.asset_id=CAST(:asset AS uuid) AND b.credential_id=CAST(:credential AS uuid) AND b.purpose=:purpose');
+        $check->execute(['ws'=>$target['workspace_id'],'asset'=>$target['asset_id'],'credential'=>$credential['credential_id'],'purpose'=>$purpose]);
         if (!$check->fetchColumn())throw new HttpException(409,'Attach the same credential to the Inventory asset before execution.','inventory_binding_required');
-        return [...$target,'credential_id'=>$credential['credential_id'],'credential_version'=>$credential['credential_version']];
+        return [...$target,'credential_id'=>$credential['credential_id'],'credential_version'=>$credential['credential_version'],'credential_type'=>$credential['type'],'purpose'=>$purpose];
     }
 
     private function bump(PDO $pdo,string $id):void

@@ -1,3 +1,10 @@
+## [0.4.1] — 2026-11-12 — Unified Connector Runtime & Registry
+
+- Proxmox inspect/sync/validate-rotation теперь исполняются через общий DI Registry, типизированный контекст, проверяемые capabilities и валидируемые наблюдения. Добавлены authenticated drivers и health routes.
+- Общий TLS-verified HTTPS transport: IP pinning, CIDR allowlist, отказ от redirect, ограничение ответа и времени чтения. Production требует явного `CONNECTOR_ALLOWED_NETWORKS`.
+- Общая авторизация Vault и проверка ротации по зарегистрированным драйверам; прежние external IDs и PostgreSQL schema сохранены. UI показывает фактически исполняемые операции.
+- Native regression, реальный локальный HTTPS test и расширенный PostgreSQL integration scenario. Живой PostgreSQL/Proxmox, Nuxt build и browser E2E требуют отдельного стенда.
+
 ## [0.4.0] — 2026-11-11 — Credentials Vault Stable Integration
 
 - Реальная проверка **pending**-секрета Proxmox через уже реализованный TLS-verified connector: отдельный session/MFA/CSRF/RBAC HTTP маршрут, потребление одноразового grant, read-only discovery; без plaintext REST и без записи в Inventory.

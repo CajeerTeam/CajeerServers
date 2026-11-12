@@ -81,7 +81,7 @@ try {
     $ok($vault->check()['ok']===true,'initial verifier validates');
     $audit=new AuditLogger($db);$inventory=new InventoryRepository();
     $store=new CredentialStore($db,$inventory,$vault,$oldCrypto,$audit);
-    $versions=new CredentialVersionService($db,$inventory,$vault,$oldCrypto,$audit);
+    $versions=new CredentialVersionService($db,$inventory,$vault,$oldCrypto,$audit,new \Cajeer\Servers\Integration\ConnectorRegistry(new \Cajeer\Servers\Connector\ProxmoxConnector()));
     $initial='integration-old-secret-'.bin2hex(random_bytes(10));
     $createdCred=$store->create($actor,['workspace_id'=>$ws,'type'=>'api_token','name'=>'test-key','secret'=>$initial]);
     $id=$createdCred['id'];

@@ -8,6 +8,7 @@ use Cajeer\Servers\Config\ConfigRepository;
 use Cajeer\Servers\Connector\ConnectorBindingService;
 use Cajeer\Servers\Connector\ConnectorRuntimeService;
 use Cajeer\Servers\Connector\ProxmoxConnector;
+use Cajeer\Servers\Integration\ConnectorRegistry;
 use Cajeer\Servers\Credentials\SecretAccessService;
 use Cajeer\Servers\Auth\TokenCodec;
 use Cajeer\Servers\Security\SecretBox;
@@ -83,7 +84,16 @@ try {
     $ssh=$store->create($admin,['workspace_id'=>$ws,'name'=>'SSH access','type'=>'ssh_password',
         'secret'=>['username'=>'testuser','password'=>'test-only-password']]);
     $bindingSvc=new CredentialBindingService($db,$repo,$audit);
-    $connector=new ConnectorBindingService($db,$repo,$audit);
+    $remoteCalls=0;
+    $transport=static function(string $url,string $authorization,?string $caFile)use(&$remoteCalls,$ok):string {
+        $ok(str_contains($authorization,'rotated-test-secret-value-123456'),
+            'remote adapter receives staged plaintext, not the old active secret');
+        $remoteCalls++;
+        if (str_ends_with($url,'/api2/json/nodes'))return json_encode(['data'=>[['node'=>'pve-one','status'=>'online']]]);
+        return json_encode(['data'=>[['type'=>'qemu','node'=>'pve-one','vmid'=>500,'status'=>'running','name'=>'vm-500']]]);
+    };
+    $registry=new ConnectorRegistry(new ProxmoxConnector($transport));
+    $connector=new ConnectorBindingService($db,$repo,$audit,$registry);
     $rbac=new Rbac($db,$audit);
     $rbac->requirePermission(['mode'=>'session','user'=>['id'=>$admin]],'connectors.targets.manage');
     $reject(403,fn()=>$rbac->requirePermission(['mode'=>'session','user'=>['id'=>$viewer]],'connectors.targets.manage'),'viewer has no global management permission');
@@ -113,7 +123,7 @@ try {
 
     // 0.4.0: real PostgreSQL validation/activation gate. A staged Proxmox
     // secret is never activated merely on a client-provided confirmed=true.
-    $versions=new CredentialVersionService($db,$repo,$vault,$crypto,$audit);
+    $versions=new CredentialVersionService($db,$repo,$vault,$crypto,$audit,$registry);
     $pending=$versions->stage($admin,$token['id'],$token['version'],[
         'token_id'=>'root@pam!sync','token_secret'=>'rotated-test-secret-value-123456']);
     $ok($pending['state']==='pending' && $pending['version']===2,'staging persists a pending encrypted version');
@@ -146,20 +156,12 @@ try {
         ->execute(['session'=>$session['id'],'actor'=>$admin,'hash'=>$session['hash'],'csrf'=>hash('sha256','test-csrf')]);
     $principal=['mode'=>'session','id'=>$session['id'],'user'=>['id'=>$admin],'mfa_verified'=>true];
     $access=new SecretAccessService($db,$repo,$rbac,$mfa,$rateLimiter,$audit,$vault,$crypto);
-    $remoteCalls=0;
-    $transport=static function(string $url,string $authorization,?string $caFile)use(&$remoteCalls,$ok):string {
-        $ok(str_contains($authorization,'rotated-test-secret-value-123456'),
-            'remote adapter receives staged plaintext, not the old active secret');
-        $remoteCalls++;
-        if (str_ends_with($url,'/api2/json/nodes'))return json_encode(['data'=>[['node'=>'pve-one','status'=>'online']]]);
-        return json_encode(['data'=>[['type'=>'qemu','node'=>'pve-one','vmid'=>500,'status'=>'running','name'=>'vm-500']]]);
-    };
     $history=new HistoryService($db,$repo,$inventory,$audit);
     $runtime=new ConnectorRuntimeService($db,$repo,$connector,$access,$history,$audit,
-        new ProxmoxConnector($transport),null,$versions);
+        $registry, $versions);
     $reject(403,fn()=>$runtime->validatePending($principal,$id,2,$pending['secret_version']),
         'remote validation cannot run without a fresh MFA grant');
-    $totp=TwoFactorManager::totp($totpKey,time());
+    $totp=TwoFactorManager::totp($totpKey,time()-30);
     $ok($access->authorize($principal,$asset['id'],$token['id'],'api',$password,$totp)['authorized'],
         'real password and TOTP issue scoped one-time grant');
     $countBefore=(int)$pdo->query('SELECT count(*) FROM inventory_assets')->fetchColumn();
@@ -209,6 +211,20 @@ try {
     $stmt=$pdo->prepare("SELECT count(*) FROM inventory_assets WHERE workspace_id=:ws AND external_id=:external");
     $stmt->execute(['ws'=>$ws,'external'=>'proxmox:'.$id.':node:rollback']);
     $ok((int)$stmt->fetchColumn()===0,'failed Proxmox import leaves no partial assets');
+
+    // Exercise the actual unified runtime, not only the observation repository.
+    $assetCount=(int)$pdo->query('SELECT count(*) FROM inventory_assets')->fetchColumn();
+    $ok($access->authorize($principal,$asset['id'],$token['id'],'api',$password,TwoFactorManager::totp($totpKey,time()))['authorized'],
+        'fresh grant for sync after rotation');
+    $sync=$runtime->run($principal,$id,2,true);
+    $ok($sync['discovered']===2 && $sync['outcomes']['created']===0 && (int)$pdo->query('SELECT count(*) FROM inventory_assets')->fetchColumn()===$assetCount,
+        'unified sync keeps pre-upgrade Proxmox identities and does not duplicate assets');
+    $reject(403,fn()=>$runtime->run($principal,$id,2,true),'sync grant cannot replay');
+    $ok($access->authorize($principal,$asset['id'],$token['id'],'api',$password,TwoFactorManager::totp($totpKey,time()+30))['authorized'],
+        'fresh grant for health');
+    $health=$runtime->health($principal,$id,2);
+    $ok($health['status']==='healthy' && $health['duration_ms']>=0 && (int)$pdo->query('SELECT count(*) FROM inventory_assets')->fetchColumn()===$assetCount,
+        'health uses shared Vault path without inventory writes');
 
     $disabled=$store->update($admin,$token['id'],$token['version'],['status'=>'disabled']);
     $reject(404,fn()=>$connector->resolveActive($admin,$id,'api'),'revoked secret unusable');

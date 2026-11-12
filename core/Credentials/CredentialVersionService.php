@@ -8,6 +8,7 @@ use Cajeer\Servers\Database\DatabaseManager;
 use Cajeer\Servers\Http\Exception\HttpException;
 use Cajeer\Servers\Inventory\InventoryRepository;
 use PDO;
+use Cajeer\Servers\Integration\ConnectorRegistry;
 
 /** Explicit, auditable staged secret rotation. No plaintext is returned to clients. */
 final class CredentialVersionService
@@ -18,6 +19,7 @@ final class CredentialVersionService
         private readonly CredentialsVault $vault,
         private readonly VaultCrypto $crypto,
         private readonly AuditLogger $audit,
+        private readonly ConnectorRegistry $registry,
     ) {}
 
     private function row(PDO $pdo,string $actor,string $credential,bool $lock=false):array
@@ -110,7 +112,7 @@ final class CredentialVersionService
             $status=$this->validationStatus($pdo,$credential,$secretVersion,(int)$row['version']);
             if ($status['required'] > $status['validated']) {
                 throw new HttpException(409,
-                    'Validate the pending credential against every active Proxmox connector before activation.',
+                    'Validate the pending credential against every active connector requiring validation before activation.',
                     'connector_validation_required');
             }
             $cipher=hex2bin($hex);
@@ -165,20 +167,30 @@ final class CredentialVersionService
     private function validationStatus(PDO $pdo,string $credential,int $revision,int $credentialVersion):array
     {
         $query=$pdo->prepare(<<<'SQL'
-SELECT count(*) AS required, count(v.connector_id) AS validated
+SELECT t.provider,b.purpose,c.type,CASE WHEN v.connector_id IS NOT NULL AND EXISTS (
+    SELECT 1 FROM inventory_assets a JOIN inventory_asset_credential_bindings ab
+      ON ab.asset_id=a.id AND ab.workspace_id=a.workspace_id
+    WHERE a.id=t.asset_id AND a.workspace_id=t.workspace_id AND a.deleted_at IS NULL
+      AND ab.credential_id=b.credential_id AND ab.purpose=b.purpose AND ab.created_at<=v.validated_at
+) THEN 1 ELSE 0 END AS validated
 FROM connector_credential_bindings b
 JOIN connector_targets t ON t.id=b.connector_id AND t.workspace_id=b.workspace_id
+JOIN credentials c ON c.id=b.credential_id AND c.workspace_id=b.workspace_id
 LEFT JOIN vault_rotation_validations v
   ON v.credential_id=b.credential_id AND v.secret_version=:revision
  AND v.connector_id=t.id AND v.connector_version=t.version
  AND v.credential_version=:version
  AND v.validated_at>clock_timestamp()-interval '10 minutes'
-WHERE b.credential_id=CAST(:credential AS uuid) AND b.purpose='api'
-  AND t.provider='proxmox' AND t.state='active'
+WHERE b.credential_id=CAST(:credential AS uuid) AND t.state='active'
 SQL);
         $query->execute(['credential'=>$credential,'revision'=>$revision,'version'=>$credentialVersion]);
-        $result=$query->fetch(PDO::FETCH_ASSOC);
-        return ['required'=>(int)$result['required'],'validated'=>(int)$result['validated']];
+        $required=0;$validated=0;$manifests=$this->registry->manifests();
+        foreach ($query->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $manifest=$manifests[$row['provider']]??null;
+            if ($manifest===null || !$manifest->supports('validate_rotation') || !$manifest->accepts($row['type'],$row['purpose'])) continue;
+            $required++;$validated+=(int)$row['validated'];
+        }
+        return ['required'=>$required,'validated'=>$validated];
     }
 
     /**
@@ -206,18 +218,21 @@ SQL);
             $pending->execute(['credential'=>$credential,'revision'=>$revision]);
             if (!$pending->fetchColumn()) throw new HttpException(409,'Pending version changed.','conflict');
             $target=$pdo->prepare(<<<'SQL'
-SELECT t.version FROM connector_targets t
+SELECT t.provider,b.purpose FROM connector_targets t
 JOIN connector_credential_bindings b ON b.connector_id=t.id AND b.workspace_id=t.workspace_id
 JOIN inventory_assets a ON a.id=t.asset_id AND a.workspace_id=t.workspace_id AND a.deleted_at IS NULL
 JOIN inventory_asset_credential_bindings ab ON ab.asset_id=a.id AND ab.workspace_id=t.workspace_id
-  AND ab.credential_id=b.credential_id AND ab.purpose='api'
+  AND ab.credential_id=b.credential_id AND ab.purpose=b.purpose
 WHERE t.id=CAST(:connector AS uuid) AND t.workspace_id=CAST(:ws AS uuid)
- AND t.provider='proxmox' AND t.state='active' AND t.version=:version
- AND b.credential_id=CAST(:credential AS uuid) AND b.purpose='api'
+ AND t.state='active' AND t.version=:version
+ AND b.credential_id=CAST(:credential AS uuid)
 FOR SHARE OF t,b,ab
 SQL);
             $target->execute(['connector'=>$connector,'ws'=>$workspace,'version'=>$connectorVersion,'credential'=>$credential]);
-            if (!$target->fetchColumn()) throw new HttpException(409,'Connector binding changed during validation.','conflict');
+            $binding=$target->fetch(PDO::FETCH_ASSOC);
+            if (!is_array($binding)) throw new HttpException(409,'Connector binding changed during validation.','conflict');
+            $manifest=$this->registry->require($binding['provider'],'validate_rotation')->manifest();
+            if (!$manifest->accepts($row['type'],$binding['purpose'])) throw new HttpException(409,'Connector credential policy changed.','conflict');
             $save=$pdo->prepare(<<<'SQL'
 INSERT INTO vault_rotation_validations
 (credential_id,secret_version,connector_id,credential_version,connector_version,validated_by)

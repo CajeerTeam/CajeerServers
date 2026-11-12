@@ -42,7 +42,7 @@ try {
     $ok(count($matches)===1,'single exact use authorization endpoint');
     $ok(in_array('POST',$matches[0]['methods'],true),'POST-only authorization');
     $ok(!in_array('GET',$matches[0]['methods'],true),'no GET use');
-    $ok(count($routes)===138,'protected Vault endpoints with connector bindings');
+    $ok(count($routes)===140,'protected Vault endpoints with connector bindings');
     foreach($routes as $route) {
         $url=(string)($route['path']??'');
         $ok(!str_contains($url,'/decrypt') && !str_contains($url,'/reveal') && !str_contains($url,'/consume'),'no public plaintext endpoint');

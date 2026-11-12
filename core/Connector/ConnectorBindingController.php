@@ -8,6 +8,7 @@ use Cajeer\Servers\Http\Exception\HttpException;
 use Cajeer\Servers\Runtime\HttpRequest;
 use Cajeer\Servers\Runtime\HttpResponse;
 use Cajeer\Servers\Security\Rbac;
+use Cajeer\Servers\Integration\ConnectorRegistry;
 
 /** Session/RBAC/CSRF secured connector configuration and credential reference HTTP API. */
 final class ConnectorBindingController
@@ -17,6 +18,7 @@ final class ConnectorBindingController
         private readonly Rbac $rbac,
         private readonly ConnectorBindingService $service,
         private readonly ConnectorRuntimeService $runtime,
+        private readonly ConnectorRegistry $registry,
     ) {}
 
     private function actor(HttpRequest $r,string $permission,bool $write=false):string
@@ -48,6 +50,19 @@ final class ConnectorBindingController
             throw new HttpException(422,'Invalid pagination.','validation_failed');
         if ($name==='limit' && (int)$v<1)throw new HttpException(422,'Invalid pagination.','validation_failed');
         return (int)$v;
+    }
+    public function drivers(HttpRequest $r):HttpResponse
+    {
+        $this->actor($r,'connectors.targets.read');
+        return HttpResponse::json(['data'=>array_values($this->registry->manifests())],200,['Cache-Control'=>'private, no-store']);
+    }
+    public function health(HttpRequest $r):HttpResponse
+    {
+        $principal=$this->auth->authenticate($r,sessionOnly:true);
+        $this->auth->requireCsrf($r,$principal);
+        foreach (['connectors.credentials.manage','vault.credentials.use'] as $scope) $this->rbac->requirePermission($principal,$scope);
+        $id=self::id($r);
+        return HttpResponse::json(['data'=>$this->runtime->health($principal,$id,self::version($r,$id),self::rid($r))],200,['Cache-Control'=>'private, no-store']);
     }
     public function index(HttpRequest $r):HttpResponse
     {

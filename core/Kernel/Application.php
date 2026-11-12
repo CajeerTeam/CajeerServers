@@ -59,6 +59,9 @@ use Cajeer\Servers\Connector\ConnectorBindingService;
 use Cajeer\Servers\Connector\ConnectorBindingController;
 use Cajeer\Servers\Connector\ConnectorRuntimeService;
 use Cajeer\Servers\Connector\ProxmoxConnector;
+use Cajeer\Servers\Connector\EndpointPolicy;
+use Cajeer\Servers\Connector\HttpsTransport;
+use Cajeer\Servers\Integration\ConnectorRegistry;
 use Cajeer\Servers\Workspace\WorkspaceService;
 use Cajeer\Servers\Workspace\WorkspaceController;
 use Cajeer\Servers\Logging\JsonLogger;
@@ -146,7 +149,7 @@ final class Application
         $this->services->singleton(\Cajeer\Servers\Credentials\CredentialVersionService::class,
             fn (ServiceContainer $c): \Cajeer\Servers\Credentials\CredentialVersionService => new \Cajeer\Servers\Credentials\CredentialVersionService(
                 $c->get(DatabaseManager::class),$c->get(InventoryRepository::class),$c->get(CredentialsVault::class),
-                $c->get(VaultCrypto::class),$c->get(AuditLogger::class)));
+                $c->get(VaultCrypto::class),$c->get(AuditLogger::class),$c->get(ConnectorRegistry::class)));
         $this->services->singleton(\Cajeer\Servers\Credentials\CredentialVersionController::class,
             fn (ServiceContainer $c): \Cajeer\Servers\Credentials\CredentialVersionController => new \Cajeer\Servers\Credentials\CredentialVersionController(
                 $c->get(AuthenticationService::class),$c->get(Rbac::class),$c->get(\Cajeer\Servers\Credentials\CredentialVersionService::class)));
@@ -286,16 +289,21 @@ final class Application
         $this->services->singleton(CredentialBindingService::class, fn (ServiceContainer $c): CredentialBindingService => new CredentialBindingService(
             $c->get(DatabaseManager::class),$c->get(InventoryRepository::class),$c->get(AuditLogger::class)));
         $this->services->singleton(ConnectorBindingService::class, fn (ServiceContainer $c): ConnectorBindingService => new ConnectorBindingService(
-            $c->get(DatabaseManager::class),$c->get(InventoryRepository::class),$c->get(AuditLogger::class)));
-        $this->services->singleton(ProxmoxConnector::class, fn (): ProxmoxConnector => new ProxmoxConnector());
+            $c->get(DatabaseManager::class),$c->get(InventoryRepository::class),$c->get(AuditLogger::class),$c->get(ConnectorRegistry::class)));
+        $this->services->singleton(EndpointPolicy::class, fn (ServiceContainer $c): EndpointPolicy => new EndpointPolicy(
+            $c->get(ConfigRepository::class)->get('connectors.allowed_networks',[]),null,
+            !in_array($c->get(ConfigRepository::class)->get('app.env','production'),['local','test','development'],true)));
+        $this->services->singleton(HttpsTransport::class, fn (ServiceContainer $c): HttpsTransport => new HttpsTransport($c->get(EndpointPolicy::class)));
+        $this->services->singleton(ProxmoxConnector::class, fn (ServiceContainer $c): ProxmoxConnector => new ProxmoxConnector(
+            null,($ca=$c->get(ConfigRepository::class)->get('connectors.proxmox_ca_file',''))!==''?(string)$ca:null,$c->get(HttpsTransport::class)));
+        $this->services->singleton(ConnectorRegistry::class, fn (ServiceContainer $c): ConnectorRegistry => new ConnectorRegistry($c->get(ProxmoxConnector::class)));
         $this->services->singleton(ConnectorRuntimeService::class, fn (ServiceContainer $c): ConnectorRuntimeService => new ConnectorRuntimeService(
             $c->get(DatabaseManager::class),$c->get(InventoryRepository::class),$c->get(ConnectorBindingService::class),
             $c->get(SecretAccessService::class),$c->get(HistoryService::class),$c->get(AuditLogger::class),
-            $c->get(ProxmoxConnector::class),
-            ($ca=$c->get(ConfigRepository::class)->get('connectors.proxmox_ca_file',''))!==''?(string)$ca:null,
+            $c->get(ConnectorRegistry::class),
             $c->get(\Cajeer\Servers\Credentials\CredentialVersionService::class)));
         $this->services->singleton(ConnectorBindingController::class, fn (ServiceContainer $c): ConnectorBindingController => new ConnectorBindingController(
-            $c->get(AuthenticationService::class),$c->get(Rbac::class),$c->get(ConnectorBindingService::class),$c->get(ConnectorRuntimeService::class)));
+            $c->get(AuthenticationService::class),$c->get(Rbac::class),$c->get(ConnectorBindingService::class),$c->get(ConnectorRuntimeService::class),$c->get(ConnectorRegistry::class)));
         $this->services->singleton(TransferController::class, fn (ServiceContainer $c): TransferController => new TransferController(
             $c->get(AuthenticationService::class),$c->get(Rbac::class),$c->get(TransferService::class),$c->get(CredentialBindingService::class)));
         $this->services->singleton(WorkspaceService::class, fn (ServiceContainer $c): WorkspaceService => new WorkspaceService(

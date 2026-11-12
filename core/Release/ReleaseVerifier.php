@@ -65,7 +65,9 @@ final class ReleaseVerifier
                   'core/Backup/BackupKey.php', 'core/Cli/BackupCommands.php', 'tests/backup-smoke.php',
                   'tests/backup-postgres-integration.php', 'admin/pages/vault.vue',
                   'admin/composables/vaultProfiles.ts', 'admin/tests/e2e/vault-ui.spec.ts',
-                  'admin/tests/vault-ui-contract.mjs'] as $file) {
+                  'admin/tests/vault-ui-contract.mjs', 'core/Integration/ConnectorRegistry.php',
+                  'core/Connector/ConnectorRuntimeService.php', 'core/Connector/HttpsTransport.php',
+                  'core/Connector/EndpointPolicy.php', 'tests/connector-runtime-smoke.php'] as $file) {
             $check('source:' . $file, is_file($this->root . '/' . $file) && is_readable($this->root . '/' . $file), 'Required source file is available.');
         }
         // Strict deployment checks are intentionally not bypassed by the kernel's native autoload fallback.

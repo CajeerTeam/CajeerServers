@@ -1,8 +1,8 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.4.0
-  description: 'CajeerServers 0.4.0: Credentials Vault stable integration, verified pending-secret Proxmox rotations with MFA and short-lived database proofs.'
+  version: 0.4.1
+  description: 'CajeerServers 0.4.1: registered connector runtime, executable capabilities, secure HTTPS and Vault integration.'
 servers:
 - url: /api/v1
 security: []
@@ -4877,9 +4877,9 @@ paths:
   /vault/credentials/{id}/rotation/{revision}/activate:
     post:
       operationId: activateVaultCredentialRotation
-      summary: Activate a staged secret after mandatory Proxmox verification (when bound)
+      summary: Activate a staged secret after mandatory registered-driver verification (when supported)
       description: >-
-        For active Proxmox connector targets bound to this credential, confirmed=true
+        For active connector targets with rotation validation capability bound to this credential, confirmed=true
         is NOT sufficient. Every target needs a successful server-side pending-secret
         validation via POST /connectors/targets/{id}/validate-rotation within the last
         10 minutes, for the current credential/target versions. Without such targets,
@@ -4915,7 +4915,7 @@ paths:
                 confirmed: {type: boolean, const: true}
       responses:
         '200': {description: Activated version, retired previous, no secrets returned}
-        '409': {description: Pending version missing or fresh Proxmox proof is absent}
+        '409': {description: Pending version missing or fresh connector proof is absent}
         '412': {description: Stale ETag}
         '422': {description: Confirmation required}
   /vault/credentials/{id}/rotation/{revision}/cancel:
@@ -5005,6 +5005,51 @@ paths:
         '422': {$ref: '#/components/responses/UnprocessableEntity'}
         '429': {description: Too many step-up attempts}
         '503': {$ref: '#/components/responses/ServiceUnavailable'}
+  /connectors/drivers:
+    get:
+      operationId: listExecutableConnectorDrivers
+      summary: Зарегистрированные исполняемые драйверы и capabilities
+      security:
+      - sessionAuth: []
+      responses:
+        '200':
+          description: Реальные драйверы, их purpose, credentialTypes, operations, resourceTypes и transport
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /connectors/targets/{id}/health:
+    post:
+      operationId: checkConnectorHealth
+      summary: Проверить доступность зарегистрированного драйвера без записи Inventory
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      - name: If-Match
+        in: header
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Успешная проверка; connector_id, status и duration_ms
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '412':
+          description: Устаревшая версия конфигурации
+        '501':
+          description: Исполняемый драйвер отсутствует
+        '502':
+          description: Удалённая проверка не прошла
   /connectors/targets:
     get:
       operationId: listConnectorTargets
@@ -5415,7 +5460,7 @@ paths:
   /connectors/targets/{id}/inspect:
     post:
       operationId: inspectProxmoxConnector
-      summary: Проверить реальное соединение с Proxmox и получить сводку Inventory
+      summary: Выполнить discovery зарегистрированного драйвера и получить сводку Inventory
       description: Использует одноразовый Vault grant после отдельного password+TOTP step-up; нужен связанный активный Inventory asset и две credential bindings. Секреты и сырой ответ не выдаются. TLS peer и CA проверяются.
       security:
       - sessionAuth: []
@@ -5438,7 +5483,7 @@ paths:
           type: string
       responses:
         '200':
-          description: Количество реально обнаруженных Proxmox nodes, VMs и containers; только счётчики
+          description: Количество реально обнаруженных объектов по типам; только счётчики
         '403':
           $ref: '#/components/responses/Forbidden'
         '409':
@@ -5447,19 +5492,21 @@ paths:
           description: Устаревшая версия конфигурации
         '428':
           description: Требуется If-Match
+        '501':
+          description: Исполняемый драйвер отсутствует
         '502':
           description: Удалённое подключение или TLS проверка не прошли
   /connectors/targets/{id}/validate-rotation:
     post:
       operationId: validatePendingProxmoxCredential
-      summary: Проверить ожидающую версию секрета через реальный Proxmox API
+      summary: Проверить ожидающую версию секрета через зарегистрированный драйвер
       description: >-
         Требует активной MFA-сессии и одноразового grant, выданного через
         POST /vault/credentials/{id}/authorize-use. Читает исключительно
-        зашифрованную pending-версию, делает проверенный HTTPS запрос к Proxmox,
+        зашифрованную pending-версию, выполняет проверку зарегистрированным драйвером,
         не изменяет Inventory и не возвращает секрет. Успех сохраняется на
         10 минут и привязан к версиям credential и connector target. Только
-        после подтверждения всех активных Proxmox targets разрешена активация.
+        после подтверждения всех активных targets, требующих проверки разрешена активация.
       security:
       - sessionAuth: []
       parameters:
@@ -5504,12 +5551,14 @@ paths:
           description: Устаревшая версия коннектора
         '428':
           description: If-Match обязателен
+        '501':
+          description: Исполняемый драйвер отсутствует
         '502':
           description: Неверный секрет, TLS ошибка или удалённый API недоступен
   /connectors/targets/{id}/sync:
     post:
       operationId: syncProxmoxInventory
-      summary: Выполнить реальные запросы Proxmox и атомарно синхронизировать Inventory
+      summary: Выполнить discovery зарегистрированного драйвера и атомарно синхронизировать Inventory
       description: Требует MFA grant и permissions inventory.assets.create/update. Импортирует данные в PostgreSQL через HistoryService с устойчивыми external_id и provenance. Ничего не удаляет при исчезновении объекта.
       security:
       - sessionAuth: []
@@ -5541,6 +5590,8 @@ paths:
           description: Конфигурация изменилась; импорт не начался
         '428':
           description: Требуется If-Match
+        '501':
+          description: Исполняемый драйвер отсутствует
         '502':
           description: Ошибка удалённого API или TLS
 components:

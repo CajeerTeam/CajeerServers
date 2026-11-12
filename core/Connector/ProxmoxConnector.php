@@ -6,17 +6,41 @@ use Cajeer\Servers\Credentials\CredentialProfile;
 use RuntimeException;
 
 /** Read-only Proxmox VE API client. Credentials never leave this server except over verified TLS. */
-final class ProxmoxConnector
+final class ProxmoxConnector implements ConnectorInterface
 {
     private const MAX_RESPONSE = 2_097_152;
     private const MAX_NODES = 256;
     private const MAX_GUESTS = 1500;
 
     /** Optional transport is for isolated real-response tests; production uses verified HTTPS streams. */
-    public function __construct(private readonly ?\Closure $transport = null) {}
+    public function __construct(private readonly ?\Closure $transport = null, private readonly ?string $caFile = null, private readonly ?HttpsTransport $https = null) {}
+
+    public function manifest(): ConnectorManifest
+    {
+        return new ConnectorManifest('proxmox','api',['proxmox_api','api_token'],
+            ['inspect','sync','validate_rotation','health'],['hypervisor_node','virtual_machine','container'],'https');
+    }
+
+    public function execute(ConnectorContext $context,string $operation,#[\SensitiveParameter] string $secret): ConnectorResult
+    {
+        $manifest=$this->manifest();
+        if ($context->provider!==$manifest->provider || !$manifest->supports($operation) || !$manifest->accepts($context->credentialType,'api'))
+            throw new RuntimeException('Unsupported Proxmox operation or credential.');
+        if ($operation==='health') {
+            $authorization=self::authorization($context->credentialType,$secret);
+            try { $nodes=$this->request($context->host,$context->port,'/api2/json/nodes',$authorization,$this->caFile); }
+            finally { sodium_memzero($authorization); }
+            $items=self::observations($nodes,[]);
+        } else {
+            $items=$this->discover($context->host,$context->port,$context->credentialType,$secret,$this->caFile);
+        }
+        if (in_array($operation,['health','validate_rotation'],true) && !array_filter($items,static fn(array $i):bool=>$i['type']==='hypervisor_node'))
+            throw new RuntimeException('Remote API returned no Proxmox nodes.');
+        return new ConnectorResult($items);
+    }
 
     /** @return list<array{type:string,external_id:string,fields:array<string,string>}> */
-    public function discover(string $host, int $port, string $credentialType, string $plaintext, ?string $caFile = null): array
+    public function discover(string $host, int $port, string $credentialType, #[\SensitiveParameter] string $plaintext, ?string $caFile = null): array
     {
         $host = ConnectorBindingService::validateHost($host);
         $port = ConnectorBindingService::validatePort($port);
@@ -84,7 +108,7 @@ final class ProxmoxConnector
             default => 'unknown',
         };
     }
-    private static function authorization(string $type, string $plaintext): string
+    private static function authorization(string $type, #[\SensitiveParameter] string $plaintext): string
     {
         $value = CredentialProfile::decodeForInternalUse($type,$plaintext);
         if ($type==='proxmox_api' && is_array($value)) {
@@ -102,29 +126,13 @@ final class ProxmoxConnector
     }
 
     /** @return list<array<string,mixed>> */
-    private function request(string $host,int $port,string $path,string $authorization,?string $caFile):array
+    private function request(string $host,int $port,string $path,#[\SensitiveParameter] string $authorization,?string $caFile):array
     {
         $endpoint='https://'.(str_contains($host,':')?'['.$host.']':$host).':'.$port.$path;
         if ($this->transport!==null) {
             $body=($this->transport)($endpoint,$authorization,$caFile);
         } else {
-            if ($caFile!==null && (!is_file($caFile) || !is_readable($caFile))) {
-                throw new RuntimeException('Proxmox CA certificate file is unreadable.');
-            }
-            $ssl=['verify_peer'=>true,'verify_peer_name'=>true,'allow_self_signed'=>false,
-                'peer_name'=>$host,'SNI_enabled'=>true];
-            if ($caFile!==null) $ssl['cafile']=$caFile;
-            $context=stream_context_create([
-                'ssl'=>$ssl,
-                'http'=>['method'=>'GET','protocol_version'=>1.1,'follow_location'=>0,
-                    'ignore_errors'=>true,'timeout'=>8,
-                    'header'=>"Accept: application/json\r\nAuthorization: ".$authorization."\r\nConnection: close\r\n"],
-            ]);
-            $body=@file_get_contents($endpoint,false,$context,0,self::MAX_RESPONSE+1);
-            $first=$http_response_header[0]??'';
-            if (!is_string($body) || !preg_match('~^HTTP/\d(?:\.\d)? 200(?:\s|$)~',$first)) {
-                throw new RuntimeException('Proxmox API request failed.');
-            }
+            $body=($this->https??new HttpsTransport())->get($host,$port,$path,$authorization,$caFile);
         }
         if (!is_string($body) || strlen($body)>self::MAX_RESPONSE) throw new RuntimeException('Invalid remote response size.');
         try {$decoded=json_decode($body,true,64,JSON_THROW_ON_ERROR);}catch(\JsonException){throw new RuntimeException('Invalid remote JSON.');}

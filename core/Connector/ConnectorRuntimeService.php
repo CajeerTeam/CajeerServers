@@ -10,9 +10,10 @@ use Cajeer\Servers\Http\Exception\HttpException;
 use Cajeer\Servers\Inventory\HistoryService;
 use Cajeer\Servers\Inventory\InventoryRepository;
 use PDO;
+use Cajeer\Servers\Integration\ConnectorRegistry;
 use Throwable;
 
-/** Real, step-up authorized Proxmox discovery and CMDB reconciliation, without exposing Vault plaintext. */
+/** Real, step-up authorized registered-driver discovery and CMDB reconciliation, without exposing Vault plaintext. */
 final class ConnectorRuntimeService
 {
     public function __construct(
@@ -22,16 +23,15 @@ final class ConnectorRuntimeService
         private readonly SecretAccessService $access,
         private readonly HistoryService $history,
         private readonly AuditLogger $audit,
-        private readonly ProxmoxConnector $proxmox,
-        private readonly ?string $caFile = null,
+        private readonly ConnectorRegistry $registry,
         private readonly ?CredentialVersionService $versions = null,
     ) {}
 
     /**
-     * Check a *pending* Vault rotation against the actual Proxmox HTTPS API.
+     * Check a *pending* Vault rotation against the registered driver.
      * This is a read-only operation: no CMDB update or plaintext HTTP response.
      * A fresh MFA grant is spent exactly once and proof is written only after
-     * the remote API has returned a valid, nonempty node inventory.
+     * the remote API has returned a valid remote response.
      *
      * @param array<string,mixed> $principal
      */
@@ -42,18 +42,16 @@ final class ConnectorRuntimeService
         if ($this->versions===null) throw new HttpException(503,'Vault validation is not configured.','vault_unavailable');
         $actor=$principal['user']['id']??null;
         if (!is_string($actor)) throw new HttpException(403,'Invalid session.','session_required');
-        $target=$this->bindings->runtimeContext($actor,$targetId,$version);
+        $target=$this->bindings->runtimeContext($actor,$targetId,$version,'validate_rotation');
         $items=[];
         try {
-            $this->access->consumePendingForAsset($principal,$target['asset_id'],$target['credential_id'],'api',
+            $this->access->consumePendingForAsset($principal,$target['asset_id'],$target['credential_id'],$target['purpose'],
                 $revision,function(string $secret,string $type) use($target,&$items):void {
-                    $items=$this->proxmox->discover($target['endpoint_host'],$target['endpoint_port'],$type,$secret,$this->caFile);
-                    if (count(array_filter($items,static fn(array $i):bool=>$i['type']==='hypervisor_node'))===0)
-                        throw new \RuntimeException('Remote API returned no Proxmox nodes.');
+                    $items=$this->execute($target,'validate_rotation',$type,$secret)->items;
                 },$requestId);
         } catch (Throwable $e) {
             if ($e instanceof HttpException) throw $e;
-            throw new HttpException(502,'Pending credential could not authenticate to the remote Proxmox API.','connector_validation_failed');
+            throw new HttpException(502,'Pending credential failed remote connector validation.','connector_validation_failed');
         }
         $proof=$this->versions->markValidated($actor,$target['credential_id'],$revision,
             $target['credential_version'],$targetId,$version,$requestId);
@@ -67,13 +65,14 @@ final class ConnectorRuntimeService
     {
         $actor=$principal['user']['id']??null;
         if (!is_string($actor)) throw new HttpException(403,'Invalid session.','session_required');
-        $target=$this->bindings->runtimeContext($actor,$targetId,$version);
+        $operation=$sync?'sync':'inspect';
+        $target=$this->bindings->runtimeContext($actor,$targetId,$version,$operation);
         // The Vault grants authorization only once, for this exact asset, credential and purpose.
         $items=[];
         try {
-            $this->access->consumeForAsset($principal,$target['asset_id'],$target['credential_id'],'api',
-                function(string $secret,string $type) use ($target,&$items):void {
-                    $items=$this->proxmox->discover($target['endpoint_host'],$target['endpoint_port'],$type,$secret,$this->caFile);
+            $this->access->consumeForAsset($principal,$target['asset_id'],$target['credential_id'],$target['purpose'],
+                function(string $secret,string $type) use ($target,&$items,$operation):void {
+                    $items=$this->execute($target,$operation,$type,$secret)->items;
                 },$requestId);
         } catch (Throwable $e) {
             // Do not return endpoint errors, remote response bodies, or plaintext from any adapter.
@@ -85,13 +84,12 @@ final class ConnectorRuntimeService
             throw new HttpException(409,'Remote inventory is empty. No changes were applied.','empty_inventory');
         }
         // Revocation/edits during remote I/O must prevent any inventory write.
-        $current=$this->bindings->runtimeContext($actor,$targetId,$version);
+        $current=$this->bindings->runtimeContext($actor,$targetId,$version,$operation);
         if ($current['credential_id']!==$target['credential_id'] || $current['asset_id']!==$target['asset_id']
             || $current['credential_version']!==$target['credential_version']) {
             throw new HttpException(409,'Connector binding changed during discovery.','conflict');
         }
-        $summary=['hypervisor_node'=>0,'virtual_machine'=>0,'container'=>0];
-        foreach ($items as $item) $summary[$item['type']]++;
+        $summary=(new ConnectorResult($items))->summary($this->registry->require($target['provider'],$operation)->manifest());
         if (!$sync) {
             $this->db->transaction(fn(PDO $pdo) => $this->audit->record($pdo,$actor,'connector.inventory.inspected',
                 'success','connector_target',$targetId,['count'=>count($items)],$requestId));
@@ -101,15 +99,15 @@ final class ConnectorRuntimeService
         $events=[];
         foreach ($items as $item) {
             $events[]=['workspace_id'=>$target['workspace_id'],
-                'external_id'=>'proxmox:'.$targetId.':'.$item['external_id'],
-                'event_key'=>'pve.'.bin2hex(random_bytes(16)),
+                'external_id'=>$target['provider'].':'.$targetId.':'.$item['external_id'],
+                'event_key'=>'connector.'.bin2hex(random_bytes(16)),
                 'type'=>$item['type'],'fields'=>$item['fields']];
         }
         $result=$this->db->transaction(function(PDO $pdo) use($actor,$targetId,$version,$target,$events,$requestId):array {
             // Serialize against workspace membership and target edits before writing to the CMDB.
             $this->inventory->lockWorkspace($pdo,$target['workspace_id']);
             $this->inventory->workspaceRole($pdo,$target['workspace_id'],$actor,true);
-            $latest=$this->bindings->runtimeContext($actor,$targetId,$version);
+            $latest=$this->bindings->runtimeContext($actor,$targetId,$version,'sync');
             if ($latest['credential_id']!==$target['credential_id'] || $latest['credential_version']!==$target['credential_version'])
                 throw new HttpException(409,'Connector was rebound or credential rotated.','conflict');
             $records=$this->history->observeMany($actor,$events,$requestId,true);
@@ -121,4 +119,37 @@ final class ConnectorRuntimeService
         foreach ($result as $record) if (isset($outcomes[$record['outcome']])) $outcomes[$record['outcome']]++;
         return ['connector_id'=>$targetId,'mode'=>'sync','discovered'=>count($items),'types'=>$summary,'outcomes'=>$outcomes];
     }
+    private function execute(array $target,string $operation,string $type,#[\SensitiveParameter] string $secret): ConnectorResult
+    {
+        try {
+            $driver=$this->registry->require($target['provider'],$operation);
+            $manifest=$driver->manifest();
+            if ($type!==$target['credential_type'] || !$manifest->accepts($type,$target['purpose']))
+                throw new \RuntimeException('Credential type changed.');
+            $context=new ConnectorContext($target['provider'],$target['endpoint_host'],$target['endpoint_port'],$type);
+            return $this->registry->execute($context,$operation,$target['purpose'],$secret);
+        } catch (Throwable) {
+            // No driver exception, request header or remote response body reaches HTTP or logs.
+            throw new HttpException(502,'Remote connector operation failed.','connector_failed');
+        }
+    }
+
+    public function health(array $principal,string $targetId,int $version,?string $requestId=null):array
+    {
+        $actor=$principal['user']['id']??null;
+        if (!is_string($actor)) throw new HttpException(403,'Invalid session.','session_required');
+        $target=$this->bindings->runtimeContext($actor,$targetId,$version,'health');
+        $started=microtime(true);
+        try {
+            $this->access->consumeForAsset($principal,$target['asset_id'],$target['credential_id'],$target['purpose'],
+                function(string $secret,string $type) use($target):void { $this->execute($target,'health',$type,$secret); },$requestId);
+        } catch (HttpException $e) { throw $e; } catch (Throwable) { throw new HttpException(502,'Remote connector health check failed.','connector_failed'); }
+        $latest=$this->bindings->runtimeContext($actor,$targetId,$version,'health');
+        if ($latest['credential_id']!==$target['credential_id'] || $latest['credential_version']!==$target['credential_version'])
+            throw new HttpException(409,'Connector binding changed during health check.','conflict');
+        $elapsed=(int)round((microtime(true)-$started)*1000);
+        $this->db->transaction(fn(PDO $pdo)=>$this->audit->record($pdo,$actor,'connector.health.checked','success','connector_target',$targetId,['duration_ms'=>$elapsed],$requestId));
+        return (new ConnectorHealth($targetId,$elapsed))->toArray();
+    }
+
 }

@@ -301,6 +301,7 @@ return static function (Router $router, ServiceContainer $container): void {
                     'asset_id'=>['type'=>'string','format'=>'uuid'],
                 ],'additionalProperties'=>false,
             ];
+            $connectors->get('/drivers',static fn(HttpRequest $r):HttpResponse=>$handler()->drivers($r));
             $connectors->get('/targets',static fn(HttpRequest $r):HttpResponse=>$handler()->index($r));
             $connectors->post('/targets',static fn(HttpRequest $r):HttpResponse=>$handler()->create($r),$create);
             $connectors->get('/targets/{id}',static fn(HttpRequest $r):HttpResponse=>$handler()->show($r));
@@ -321,6 +322,7 @@ return static function (Router $router, ServiceContainer $container): void {
                 'additionalProperties'=>false,
             ]);
             $connectors->delete('/targets/{id}/credential-bindings/{bindingId}',static fn(HttpRequest $r):HttpResponse=>$handler()->unbind($r));
+            $connectors->post('/targets/{id}/health',static fn(HttpRequest $r):HttpResponse=>$handler()->health($r));
             $connectors->post('/targets/{id}/inspect',static fn(HttpRequest $r):HttpResponse=>$handler()->inspect($r));
             $connectors->post('/targets/{id}/validate-rotation',
                 static fn(HttpRequest $r):HttpResponse=>$handler()->validateRotation($r),[
