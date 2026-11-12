@@ -87,6 +87,29 @@ final class ScriptRegistry
     { $this->stepLimit($principal);return $this->db->transaction(function(PDO $p)use($principal,$ws,$id,$v,$in,$approve){$a=$this->access($p,$principal,$ws,'scripts.approve',true);$s=$this->script($p,$ws,$id,true);$r=$this->version($p,$ws,$id,$v,true);if($r['state']==='revoked'||$approve&&($s['archived_at']!==null||$r['state']!=='pending_review'))$this->conflict();$this->step($p,$principal,$a,$in);
         if($approve){$this->verified($p,$ws,$r);$this->q($p,"UPDATE script_versions SET state='approved',approved_by=:a,approved_at=clock_timestamp() WHERE id=:v",['a'=>$a,'v'=>$v]);}else $this->q($p,"UPDATE script_versions SET state='revoked',revoked_at=clock_timestamp() WHERE id=:v",['v'=>$v]);
         $this->audit->record($p,$a,$approve?'script.version.approved':'script.version.revoked','success','script_version',$v);return $this->version($p,$ws,$id,$v);}); }
+    /** Internal execution admission, called inside the worker/enqueue transaction. */
+    public function executionVersion(PDO $p,array $principal,string $ws,string $id,string $v,array $in,bool $stepUp=false):array
+    {
+        $actor=$this->access($p,$principal,$ws,'scripts.execute',true);
+        // Execution requires an MFA-enabled, verified live session, even if user policy changed.
+        if(!$this->q($p,'SELECT 1 FROM auth_sessions s JOIN users u ON u.id=s.user_id WHERE s.id=:s AND s.user_id=:a AND s.mfa_verified AND u.two_factor_enabled AND s.revoked_at IS NULL AND s.expires_at>clock_timestamp()',['s'=>$principal['id'],'a'=>$actor])->fetchColumn())
+            throw new HttpException(403,'Active MFA session required.','mfa_required');
+        $s=$this->script($p,$ws,$id,true);$r=$this->version($p,$ws,$id,$v,true);
+        if($s['archived_at']!==null||$r['state']!=='approved')$this->conflict();
+        $m=$this->verified($p,$ws,$r);$target=isset($in['target_id'])?CredentialInput::uuid($in['target_id']):null;
+        if($m['provider']==='local'?$target!==null:!in_array($target,$m['target_ids'],true))ScriptVersion::invalid();
+        $values=$in['parameters']??[];if(!is_array($values))ScriptVersion::invalid();$values=ScriptVersion::parameters($m,$values);
+        if($stepUp)$this->step($p,$principal,$actor,$in);
+        return ['manifest'=>$m,'source'=>$r['source'],'parameters'=>$values,'target_id'=>$target,'actor_id'=>$actor];
+    }
+    public function limitExecution(array $principal):void {$this->stepLimit($principal);}
+    public function executionHistoryAccess(PDO $p,array $principal,string $ws):string {return $this->access($p,$principal,$ws,'scripts.execute');}
     public function validate(array $principal,string $ws,string $id,string $v,array $in):array
-    { return $this->db->transaction(function(PDO $p)use($principal,$ws,$id,$v,$in){$this->access($p,$principal,$ws,'scripts.execute',true);$s=$this->script($p,$ws,$id);$r=$this->version($p,$ws,$id,$v);if($s['archived_at']!==null||$r['state']!=='approved')$this->conflict();$m=$this->verified($p,$ws,$r);$target=isset($in['target_id'])?CredentialInput::uuid($in['target_id']):null;if($m['provider']==='local'?$target!==null:!in_array($target,$m['target_ids'],true))ScriptVersion::invalid();$values=$in['parameters']??[];if(!is_array($values))ScriptVersion::invalid();ScriptVersion::parameters($m,$values);return ['valid'=>true,'version_id'=>$v,'source_sha256'=>$m['source_sha256'],'execution_enabled'=>false];}); }
+    {
+        return $this->db->transaction(function(PDO $p)use($principal,$ws,$id,$v,$in){
+            $r=$this->executionVersion($p,$principal,$ws,$id,$v,$in);
+            try{$channel=ScriptExecutionPolicy::channel($r['manifest'],$r['source']);}catch(HttpException){$channel=null;}
+            return ['valid'=>true,'version_id'=>$v,'source_sha256'=>$r['manifest']['source_sha256'],'execution_enabled'=>$channel!==null && getenv('SCRIPT_EXECUTION_ENABLED')==='true','channel'=>$channel];
+        });
+    }
 }

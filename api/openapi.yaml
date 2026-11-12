@@ -1,8 +1,8 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.5.2
-  description: 'CajeerServers 0.5.2: immutable scripts, signed templates and MFA approvals.'
+  version: 0.5.3
+  description: 'CajeerServers 0.5.3: secure script execution, signed templates and dry-run.'
 servers:
 - url: /api/v1
 security: []
@@ -8317,6 +8317,288 @@ paths:
                   type: object
                   additionalProperties: true
               required: []
+              additionalProperties: false
+  /workspaces/{workspace}/scripts/{id}/versions/{version}/executions:
+    get:
+      operationId: scriptExecutionsList
+      summary: List own executions
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: workspace
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: version
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          maximum: 10000
+      responses:
+        '200':
+          description: Script execution response
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: true
+        '401':
+          description: Authentication required
+        '403':
+          description: Permission or MFA denied
+        '404':
+          description: Not found
+        '409':
+          description: Conflict
+        '422':
+          description: Invalid input
+        '429':
+          description: Rate limited
+        '503':
+          description: Execution unavailable
+    post:
+      operationId: scriptExecutionEnqueue
+      summary: Queue approved script with fresh MFA
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: workspace
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: version
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          maxLength: 128
+      responses:
+        '202':
+          description: Script execution response
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: object
+                    additionalProperties: true
+        '401':
+          description: Authentication required
+        '403':
+          description: Permission or MFA denied
+        '404':
+          description: Not found
+        '409':
+          description: Conflict
+        '422':
+          description: Invalid input
+        '429':
+          description: Rate limited
+        '503':
+          description: Execution unavailable
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - mode
+              - password
+              - totp
+              additionalProperties: false
+              properties:
+                mode:
+                  type: string
+                  enum:
+                  - execute
+                  - preview
+                target_id:
+                  type: string
+                  format: uuid
+                parameters:
+                  type: object
+                  additionalProperties: true
+                password:
+                  type: string
+                  writeOnly: true
+                  maxLength: 1024
+                totp:
+                  type: string
+                  writeOnly: true
+                  pattern: ^[0-9]{6}$
+  /workspaces/{workspace}/scripts/{id}/versions/{version}/executions/{execution}:
+    get:
+      operationId: scriptExecutionGet
+      summary: Get own execution result
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: workspace
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: version
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: execution
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Script execution response
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: object
+                    additionalProperties: true
+        '401':
+          description: Authentication required
+        '403':
+          description: Permission or MFA denied
+        '404':
+          description: Not found
+        '409':
+          description: Conflict
+        '422':
+          description: Invalid input
+        '429':
+          description: Rate limited
+        '503':
+          description: Execution unavailable
+  /workspaces/{workspace}/scripts/{id}/versions/{version}/executions/{execution}/cancel:
+    post:
+      operationId: scriptExecutionCancel
+      summary: Cancel own queued or running execution
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: workspace
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: version
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: execution
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Script execution response
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: object
+                    additionalProperties: true
+        '401':
+          description: Authentication required
+        '403':
+          description: Permission or MFA denied
+        '404':
+          description: Not found
+        '409':
+          description: Conflict
+        '422':
+          description: Invalid input
+        '429':
+          description: Rate limited
+        '503':
+          description: Execution unavailable
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
               additionalProperties: false
 components:
   schemas:

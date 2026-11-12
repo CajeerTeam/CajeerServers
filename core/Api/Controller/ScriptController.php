@@ -4,11 +4,11 @@ namespace Cajeer\Servers\Api\Controller;
 use Cajeer\Servers\Auth\AuthenticationService;
 use Cajeer\Servers\Credentials\CredentialInput;
 use Cajeer\Servers\Runtime\{HttpRequest,HttpResponse};
-use Cajeer\Servers\Script\{ScriptRegistry,ScriptVersion};
+use Cajeer\Servers\Script\{ScriptRegistry,ScriptVersion,ScriptExecution};
 
 final class ScriptController
 {
-    public function __construct(private readonly AuthenticationService $auth,private readonly ScriptRegistry $registry) {}
+    public function __construct(private readonly AuthenticationService $auth,private readonly ScriptRegistry $registry,private readonly ScriptExecution $executions) {}
     public function dispatch(HttpRequest $r,string $method):HttpResponse
     {
         $p=$this->auth->authenticate($r,sessionOnly:true);if($r->method!=='GET'&&$r->method!=='HEAD')$this->auth->requireCsrf($r,$p);
@@ -21,7 +21,10 @@ final class ScriptController
             'keys'=>$this->registry->keys($p,$w,$offset),'addKey'=>$this->registry->addKey($p,$w,$in),'revokeKey'=>$this->registry->revokeKey($p,$w,$id,$in),
             'sign'=>$this->registry->sign($p,$w,$id,$v,$in),'approve','revoke'=>$this->registry->review($p,$w,$id,$v,$in,$method==='approve'),
             'validate'=>$this->registry->validate($p,$w,$id,$v,$in),
+            'enqueue'=>$this->executions->enqueue($p,$w,$id,$v,$in,$r->header('Idempotency-Key')??''),
+            'executions'=>$this->executions->history($p,$w,$id,$v,$offset),
+            'execution','cancelExecution'=>$this->executions->detail($p,$w,$id,$v,CredentialInput::uuid($r->attribute('execution')),$method==='cancelExecution'),
         };
-        return HttpResponse::json(['data'=>$data],in_array($method,['create','addVersion','addKey'],true)?201:200,['Cache-Control'=>'private, no-store']);
+        return HttpResponse::json(['data'=>$data],$method==='enqueue'?202:(in_array($method,['create','addVersion','addKey'],true)?201:200),['Cache-Control'=>'private, no-store']);
     }
 }

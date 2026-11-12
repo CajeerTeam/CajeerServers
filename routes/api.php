@@ -54,6 +54,11 @@ return static function (Router $router, ServiceContainer $container): void {
         $routes->post($scriptBase.'/{id}/versions/{version}/approve',$scriptHandler('approve'),$step);
         $routes->post($scriptBase.'/{id}/versions/{version}/revoke',$scriptHandler('revoke'),$step);
         $routes->post($scriptBase.'/{id}/versions/{version}/validate',$scriptHandler('validate'),['properties'=>['target_id'=>$str,'parameters'=>['type'=>'object']],'additionalProperties'=>false]);
+        $executionBase=$scriptBase.'/{id}/versions/{version}/executions';
+        $routes->get($executionBase,$scriptHandler('executions'));
+        $routes->post($executionBase,$scriptHandler('enqueue'),['required'=>['mode','password','totp'],'properties'=>['mode'=>$str,'target_id'=>$str,'parameters'=>['type'=>'object']]+$mfa,'additionalProperties'=>false]);
+        $routes->get($executionBase.'/{execution}',$scriptHandler('execution'));
+        $routes->post($executionBase.'/{execution}/cancel',$scriptHandler('cancelExecution'),['additionalProperties'=>false]);
         $routes->group('/auth', static function (Router $auth) use ($container): void {
             $handler = static fn (): AuthController => $container->get(AuthController::class);
             $auth->post('/login', static fn (HttpRequest $r): HttpResponse => $handler()->login($r), [

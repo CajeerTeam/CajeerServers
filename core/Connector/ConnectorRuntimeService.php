@@ -87,16 +87,17 @@ final class ConnectorRuntimeService
     }
 
     /** @param array<string,mixed> $principal */
-    public function run(array $principal, string $targetId, int $version, bool $sync, ?string $requestId=null): array
+    public function run(array $principal, string $targetId, int $version, bool $sync, ?string $requestId=null, ?CollectionPlan $plan=null, ?callable $extraGuard=null, ?callable $complete=null, ?array $expectedScope=null): array
     {
         $actor=$principal['user']['id']??null;
         if (!is_string($actor)) throw new HttpException(403,'Invalid session.','session_required');
         $operation=$sync?'sync':'inspect';
         $target=$this->bindings->runtimeContext($actor,$targetId,$version,$operation);
-        return $this->withExecutionLock($target,function()use($actor,$principal,$target,$targetId,$operation,$requestId):array {
+        if ($expectedScope!==null) foreach ($expectedScope as $key=>$value) if (($target[$key]??null)!==$value) throw new HttpException(409,'Connector execution scope changed.','conflict');
+        return $this->withExecutionLock($target,function()use($actor,$principal,$target,$targetId,$operation,$requestId,$plan,$extraGuard,$complete):array {
             if (ConnectorHealthMonitor::isOpen($this->db->connection(),$targetId)) throw new HttpException(423,'Connector circuit is open. Use a manual health probe or wait for cooldown.','connector_circuit_open');
             return $this->runAuthorized($actor,$target,$operation,
-                fn(callable $consumer)=>$this->access->consumeForAsset($principal,$target['asset_id'],$target['credential_id'],$target['purpose'],$consumer,$requestId),$requestId,$this->sessionGuard($principal));
+                fn(callable $consumer)=>$this->access->consumeForAsset($principal,$target['asset_id'],$target['credential_id'],$target['purpose'],$consumer,$requestId,$target['credential_version'],$extraGuard),$requestId,function(PDO $pdo)use($principal,$extraGuard):void {($this->sessionGuard($principal))($pdo);if($extraGuard!==null)$extraGuard($pdo);},$complete,$plan);
         });
     }
 

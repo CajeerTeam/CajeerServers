@@ -1,0 +1,52 @@
+name: Script sandbox integration
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'core/Script/**'
+      - 'tests/script-sandbox-integration.php'
+      - '.github/workflows/script-sandbox.yml'
+  pull_request:
+    paths:
+      - 'core/Script/**'
+      - 'tests/script-sandbox-integration.php'
+      - '.github/workflows/script-sandbox.yml'
+permissions:
+  contents: read
+jobs:
+  sandbox:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: sodium, posix, pcntl
+          coverage: none
+      - name: Provision dedicated runtime root
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y bubblewrap debootstrap
+          sudo debootstrap --variant=minbase --include=python3,bash,libicu72,libssl3,zlib1g,libgssapi-krb5-2,libstdc++6 bookworm /opt/cajeer-script-ci-root https://deb.debian.org/debian
+          sudo install -d -m 0755 /opt/cajeer-script-ci-root/work /opt/cajeer-script-ci-root/opt/microsoft/powershell/7
+          pwsh_dir=$(dirname "$(readlink -f "$(command -v pwsh)")")
+          sudo cp -a "$pwsh_dir/." /opt/cajeer-script-ci-root/opt/microsoft/powershell/7/
+          sudo ln -s /opt/microsoft/powershell/7/pwsh /opt/cajeer-script-ci-root/usr/bin/pwsh
+          printf 'cajeer-script-root-v1\n' | sudo tee /opt/cajeer-script-ci-root/.cajeer-script-root >/dev/null
+          sudo chmod 0644 /opt/cajeer-script-ci-root/.cajeer-script-root
+          sudo useradd --system --no-create-home --shell /usr/sbin/nologin cajeer-script-ci
+          sudo install -d -m 0755 /opt/cajeer-script-test/tests
+          sudo cp -a core config /opt/cajeer-script-test/
+          sudo cp tests/script-sandbox-integration.php /opt/cajeer-script-test/tests/
+          sudo chown -R root:root /opt/cajeer-script-test
+          sudo chmod -R a+rX /opt/cajeer-script-test
+      - name: Real sandbox, no fallback (non-root cgroup)
+        run: |
+          sudo systemd-run --wait --pipe --collect --uid=cajeer-script-ci --gid=cajeer-script-ci \
+            -p MemoryMax=768M -p MemorySwapMax=0 -p TasksMax=96 -p CPUQuota=100% -p RuntimeMaxSec=180 \
+            -p NoNewPrivileges=yes -p KillMode=control-group \
+            --setenv=SCRIPT_EXECUTION_ENABLED=true --setenv=SCRIPT_SANDBOX_ROOTFS=/opt/cajeer-script-ci-root \
+            --setenv=CAJEER_SCRIPT_SANDBOX_TEST=1 \
+            "$(command -v php)" /opt/cajeer-script-test/tests/script-sandbox-integration.php

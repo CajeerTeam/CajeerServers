@@ -1,0 +1,11 @@
+[Unit]
+Description=Poll CajeerServers script executions
+
+[Timer]
+OnBootSec=5s
+OnUnitInactiveSec=2s
+AccuracySec=1s
+Unit=cajeer-script-worker.service
+
+[Install]
+WantedBy=timers.target

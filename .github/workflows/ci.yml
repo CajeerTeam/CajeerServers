@@ -99,7 +99,7 @@ jobs:
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.4'
-          extensions: pdo_pgsql, sodium, mbstring, intl, openssl
+          extensions: pdo_pgsql, sodium, mbstring, intl, openssl, pcntl, posix
           coverage: none
       - name: PostgreSQL workspace, Inventory CRUD, IPAM and Topology integration
         run: |
@@ -128,6 +128,7 @@ jobs:
           php tests/connector-events-postgres-integration.php
           php tests/connector-actions-postgres-integration.php
           php tests/script-registry-postgres-integration.php
+          php tests/script-execution-postgres-integration.php
           python3 tests/connector-actions-https-integration.py
           python3 tests/vmmanager-https-integration.py --postgres
       - name: Redis integration

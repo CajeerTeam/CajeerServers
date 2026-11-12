@@ -176,9 +176,9 @@ SQL);
      * @param callable(string,string):void $trustedConsumer (serialized secret, type)
      */
     public function consumeForAsset(array $principal, string $asset, string $credential,
-                                   string $purpose, callable $trustedConsumer, ?string $requestId = null): void
+                                   string $purpose, callable $trustedConsumer, ?string $requestId = null, ?int $expectedVersion=null, ?callable $guard=null): void
     {
-        $this->consumeInternal($principal, $asset, $credential, $purpose, $trustedConsumer, null, $requestId);
+        $this->consumeInternal($principal, $asset, $credential, $purpose, $trustedConsumer, null, $requestId,$expectedVersion,$guard);
     }
 
     /**
@@ -236,7 +236,7 @@ SQL);
     /** @param array<string,mixed> $principal */
     private function consumeInternal(array $principal, string $asset, string $credential,
                                      string $purpose, callable $trustedConsumer,
-                                     ?int $pendingRevision, ?string $requestId): void
+                                     ?int $pendingRevision, ?string $requestId, ?int $expectedVersion=null, ?callable $guard=null): void
     {
         [$actor,$session]=self::identity($principal);
         $asset=self::uuid($asset); $credential=self::uuid($credential);
@@ -245,8 +245,10 @@ SQL);
         }
         $this->vault->check();
         try {
-            $material=$this->db->transaction(function(PDO $pdo) use ($principal,$actor,$session,$asset,$credential,$purpose,$pendingRevision,$requestId):array {
+            $material=$this->db->transaction(function(PDO $pdo) use ($principal,$actor,$session,$asset,$credential,$purpose,$pendingRevision,$requestId,$expectedVersion,$guard):array {
+            if($guard!==null)$guard($pdo);
             $binding=$this->claimGrant($pdo,$principal,$actor,$session,$asset,$credential,$purpose);
+            if($expectedVersion!==null && $binding['version']!==$expectedVersion)throw new HttpException(409,'Credential version changed.','conflict');
             if ($pendingRevision === null) {
                 $stmt=$pdo->prepare('SELECT encode(encrypted_payload,\'hex\') FROM credentials WHERE id=CAST(:id AS uuid)');
                 $stmt->execute(['id'=>$credential]);

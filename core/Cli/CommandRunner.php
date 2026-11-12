@@ -57,7 +57,8 @@ final class CommandRunner
                 'vault:key:generate', 'vault:key:status', 'vault:key:rotate', 'vault:init', 'vault:check', 'vault:probe' => (new VaultCommands($this->app))->run($command, $argv),
                 'backup:key:generate', 'backup:create', 'backup:verify', 'backup:restore' => (new BackupCommands($this->app))->run($command, $argv),
                 'collection:list', 'collection:run', 'collection:status', 'connector:doctor', 'connector:sync', 'connector:tick', 'connector:run', 'connector:status', 'connector:cancel', 'connector:work' => (new ConnectorCommands($this->app))->run($command,$argv),
-                'scripts:run', 'update:check' => $this->unavailable($command),
+                'scripts:run', 'scripts:work' => $this->scriptWork($argv[2]??'20'),
+                'update:check' => $this->unavailable($command),
                 default => $this->unknown($command),
             };
         } catch (Throwable $error) {
@@ -66,15 +67,23 @@ final class CommandRunner
         }
     }
 
+    private function scriptWork(string $limit):int
+    {
+        if(!preg_match('/^(?:[1-9]|[1-9][0-9]|100)$/D',$limit))throw new \InvalidArgumentException('Invalid script worker limit.');
+        $count=$this->app->container()->get(\Cajeer\Servers\Script\ScriptExecution::class)->work((int)$limit);
+        echo json_encode(['processed'=>$count],JSON_THROW_ON_ERROR)."\n";return 0;
+    }
+
     private function help(): int
     {
         fwrite(STDOUT, <<<'TEXT'
-CajeerServers CLI 0.5.2
+CajeerServers CLI 0.5.3
 
 Рабочие команды:
   help                 Список доступных команд
   php bin/script-sign.php generate <private-file>  Офлайн-ключ Ed25519
   php bin/script-sign.php sign <private-file> <signing-bytes-file>  Подпись версии
+  scripts:work [max-jobs]                     Обработать очередь утверждённых скриптов (non-root)
   collection:list                              Реестр коллекторов
   collection:run <actor> <target> <grant> <key> <collector>  Поставить сбор
   collection:status <actor> <target> <run>       Результат сбора

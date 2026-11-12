@@ -1,3 +1,9 @@
+## [0.5.3] — 2026-11-12 — Secure Script Execution & Dry Run
+
+- Durable one-shot script executions, MFA, live signature and scope checks, cancellation and history.
+- Local Bash/Python/PowerShell through a fail-closed bubblewrap sandbox; fixed remote collectors through Vault and Connector Runtime.
+- Validate without execution; preview and execute produce bounded JSON results without Inventory writes.
+
 ## [0.5.2] — 2026-11-12 — Script Registry & Signed Templates
 
 - Реестр скриптов, неизменяемые версии, Ed25519, MFA-утверждение и отзыв, шаблоны и проверка параметров.

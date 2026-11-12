@@ -14,7 +14,7 @@ foreach(['source_sha256','timeout_seconds','workspace_id','script_id','version_i
 $reject(fn()=>ScriptVersion::verify($bytes,'modified',$pub,$sig));$reject(fn()=>ScriptVersion::verify($bytes,$input['source'],str_repeat('0',64),$sig));
 $ok(ScriptVersion::parameters($m,['limit'=>5,'enabled'=>true,'mode'=>'a'])===['enabled'=>true,'limit'=>5,'mode'=>'a'],'typed values normalized');
 foreach([['limit'=>11,'enabled'=>true],['limit'=>'5','enabled'=>true],['limit'=>5],['limit'=>5,'enabled'=>true,'extra'=>1],['limit'=>5,'enabled'=>true,'mode'=>'c']] as $bad)$reject(fn()=>ScriptVersion::parameters($m,$bad));
-foreach([['provider'=>'ssh'],['language'=>'powershell'],['source'=>"bad\0"],['timeout_seconds'=>91],['output_limit_bytes'=>300000],['target_ids'=>[$t]],['parameters'=>[['name'=>'x','type'=>'invalid']]]] as $patch)$reject(fn()=>ScriptVersion::manifest($w,$s,$v,array_replace($input,$patch)));
+foreach([['provider'=>'ssh'],['language'=>'powershell','provider'=>'ssh'],['source'=>"bad\0"],['timeout_seconds'=>91],['output_limit_bytes'=>300000],['target_ids'=>[$t]],['parameters'=>[['name'=>'x','type'=>'invalid']]]] as $patch)$reject(fn()=>ScriptVersion::manifest($w,$s,$v,array_replace($input,$patch)));
 $templates=new ScriptTemplate();$ok(count($templates->all())===5,'five templates');foreach($templates->all() as $tpl){$m2=ScriptVersion::manifest($w,$s,$v,$tpl+['target_ids'=>[$t]]);$ok($m2['source_sha256']===hash('sha256',$tpl['source']),'template materialized '.$tpl['id']);}
 $bad=$templates->get('snmp');$bad['source']='{"collector":"snmp.inventory","operation":"sync"}';$reject(fn()=>ScriptVersion::manifest($w,$s,$v,$bad+['target_ids'=>[$t]]));
 $dir=sys_get_temp_dir().'/cajeer-sign-'.bin2hex(random_bytes(8));mkdir($dir,0700);
@@ -27,5 +27,5 @@ try {
 } finally {foreach(glob($dir.'/*') as $f)unlink($f);rmdir($dir);}
 $sql=file_get_contents(dirname(__DIR__).'/migrations/pgsql/0030_script_registry.sql');$statements=(new \Cajeer\Servers\Database\SqlStatementParser())->split($sql);
 $ok(count($statements)===9,'migration parser preserves trigger function');
-$app=(new Application(dirname(__DIR__)))->boot();try{$ok($app->container()->get(\Cajeer\Servers\Script\ScriptRegistry::class) instanceof \Cajeer\Servers\Script\ScriptRegistry,'DI registry');$routes=$app->container()->get(\Cajeer\Servers\Http\Router::class)->routes();$ok(count(array_filter($routes,fn($r)=>str_starts_with($r['path'],'/api/v1/workspaces/{workspace}/scripts')))===16,'16 routes registered');}finally{$app->terminate();}
+$app=(new Application(dirname(__DIR__)))->boot();try{$ok($app->container()->get(\Cajeer\Servers\Script\ScriptRegistry::class) instanceof \Cajeer\Servers\Script\ScriptRegistry,'DI registry');$routes=$app->container()->get(\Cajeer\Servers\Http\Router::class)->routes();$ok(count(array_filter($routes,fn($r)=>str_starts_with($r['path'],'/api/v1/workspaces/{workspace}/scripts')))===20,'20 routes registered');}finally{$app->terminate();}
 echo "Script Registry: $n checks passed.\n";

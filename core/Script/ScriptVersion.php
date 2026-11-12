@@ -18,7 +18,7 @@ final class ScriptVersion
         $language=$input['language']??null;$provider=$input['provider']??null;$source=$input['source']??null;
         if(!in_array($language,['bash','python','powershell','connector'],true)||!in_array($provider,['local','ssh','winrm','snmp','proxmox','vmmanager'],true)
             ||!is_string($source)||strlen($source)<1||strlen($source)>65536||!preg_match('//u',$source)||str_contains($source,"\0")) self::invalid();
-        if(!match($language){'bash','python'=>in_array($provider,['local','ssh'],true),'powershell'=>$provider==='winrm','connector'=>in_array($provider,['snmp','proxmox','vmmanager'],true)}) self::invalid();
+        if(!match($language){'bash','python'=>in_array($provider,['local','ssh'],true),'powershell'=>in_array($provider,['local','winrm'],true),'connector'=>in_array($provider,['snmp','proxmox','vmmanager'],true)}) self::invalid();
         $targets=$input['target_ids']??[];if(!is_array($targets)||!array_is_list($targets)||count($targets)>100) self::invalid();
         $targets=array_map([CredentialInput::class,'uuid'],$targets);$targets=array_values(array_unique($targets));sort($targets,SORT_STRING);
         if(($provider==='local')!==($targets===[])) self::invalid();
