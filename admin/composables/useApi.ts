@@ -1,14 +1,15 @@
 export interface AdminUser { id: string; name: string; email: string }
 export interface AdminSession { user: AdminUser; permissions: string[]; auth_type: 'session' }
-export interface ApiFailure { status?: number; code?: string; message: string; requestId?: string }
+export interface ApiFailure { status?: number; code?: string; message: string; requestId?: string; errors?: {field:string;message:string}[] }
 
 export function apiError(error: unknown): ApiFailure {
-  const err = error as { statusCode?: number; data?: { title?: string; code?: string; request_id?: string } }
+  const err = error as { statusCode?: number; data?: { title?: string; code?: string; request_id?: string; errors?: unknown } }
   const status = err?.statusCode
   const message = typeof err?.data?.title === 'string' ? err.data.title :
     status === 401 ? 'Войдите в систему.' : status === 403 ? 'Недостаточно прав.' :
     status === 503 ? 'Сервис временно недоступен.' : 'Ошибка запроса. Повторите попытку.'
-  return { status, message, code: err?.data?.code, requestId: err?.data?.request_id }
+  const errors = Array.isArray(err?.data?.errors) ? err.data.errors.filter((v):v is {field:string;message:string}=>!!v&&typeof v.field==='string'&&typeof v.message==='string').slice(0,20) : []
+  return { status, message, errors, code: err?.data?.code, requestId: err?.data?.request_id }
 }
 
 /** Same-origin browser transport. No persisted browser credentials. */

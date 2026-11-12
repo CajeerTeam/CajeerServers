@@ -53,6 +53,8 @@ $run('Inventory navigation contract', ['node', '--experimental-strip-types', 'te
 $run('Vault Admin UI contract', ['node', '--experimental-strip-types', 'tests/vault-ui-contract.mjs'], $root . '/admin');
 $run('Connector lifecycle UI policy', ['node', '--experimental-strip-types', 'tests/connector-lifecycle-contract.mjs'], $root . '/admin');
 
+$run('Data collection navigation and UI policy', ['node','--experimental-strip-types','tests/collection-navigation-contract.mjs'], $root . '/admin');
+
 if ($strict) {
     $run('Script sandbox integration', [PHP_BINARY,'tests/script-sandbox-integration.php'], $root);
     $run('Connector stability HTTPS integration', ['python3','tests/connector-stability-https-integration.py'], $root);

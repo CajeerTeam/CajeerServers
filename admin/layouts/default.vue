@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { inventoryContextUrl, queryUuid, type InventorySection } from '~/composables/inventoryNavigation'
 const route = useRoute()
-const sections: InventorySection[] = ['inventory','catalog','history','transfer','ipam','topology','workspaces','connectors','vault']
+const sections: InventorySection[] = ['inventory','catalog','history','transfer','ipam','topology','workspaces','connectors','vault','collections','scripts']
 const auth = useAuth()
+const {ready:authReady,user:authUser}=auth
 const links = computed(() => [
   { to: '/', label: 'Обзор', permission: 'admin.dashboard.read' },
   { to: '/workspaces', label: 'Организации и пространства', permission: 'workspaces.read' },
@@ -14,6 +15,7 @@ const links = computed(() => [
   { to: '/topology', label: 'Связи и топология', permission: 'inventory.relationships.read' },
   { to: '/connectors', label: 'Конфигурации подключений', permission: 'connectors.targets.read' },
   { to: '/vault', label: 'Хранилище учётных данных', permission: 'vault.credentials.read' },
+  { to: '/collections', label: 'Сбор данных', permission: 'connectors.targets.read' },
   { to: '/scripts', label: 'Реестр скриптов', permission: 'scripts.read' },
   { to: '/tasks', label: 'Очередь и задачи', permission: 'admin.jobs.read' },
   { to: '/scheduler', label: 'Планировщик', permission: 'admin.scheduler.read' },
@@ -22,7 +24,7 @@ const links = computed(() => [
   { to: '/audit', label: 'Аудит', permission: 'security.audit.read' },
   { to: '/system', label: 'Диагностика', permission: 'admin.dashboard.read' },
   { to: '/settings', label: 'Профиль и безопасность', permission: '' },
-].filter(item => (!item.permission || auth.can(item.permission)) && (item.to !== '/topology' || (auth.can('inventory.assets.read') && auth.can('inventory.network.read'))))
+].filter(item => (!item.permission || auth.can(item.permission)) && (item.to !== '/collections' || auth.can('workspaces.read')) && (item.to !== '/topology' || (auth.can('inventory.assets.read') && auth.can('inventory.network.read'))))
   .map(item => ({...item, to: sections.includes(item.to.slice(1) as InventorySection)
     ? inventoryContextUrl(item.to.slice(1) as InventorySection, queryUuid(route.query.workspace_id)) : item.to})))
 const loggingOut = ref(false)
@@ -35,12 +37,12 @@ async function logout() {
 }
 </script>
 <template>
-  <div v-if="!auth.ready || !auth.user" class="auth-page" aria-live="polite"><span class="progress">Проверка сессии…</span></div>
+  <div v-if="!authReady || !authUser" class="auth-page" aria-live="polite"><span class="progress">Проверка сессии…</span></div>
   <div v-else class="layout">
     <nav class="sidebar" aria-label="Основная навигация">
       <div class="brand">CajeerServers<span>Панель администратора</span></div>
       <NuxtLink v-for="link in links" :key="link.to" class="nav-link" :to="link.to">{{ link.label }}</NuxtLink>
-      <div class="sidebar-foot"><p>{{ auth.user.name }}</p><p class="mono">{{ auth.user.email }}</p><UiAlert :message="error" /><button class="btn" type="button" :disabled="loggingOut" @click="logout">Выйти</button></div>
+      <div class="sidebar-foot"><p>{{ authUser?.name }}</p><p class="mono">{{ authUser?.email }}</p><UiAlert :message="error" /><button class="btn" type="button" :disabled="loggingOut" @click="logout">Выйти</button></div>
     </nav>
     <main class="main"><slot /></main>
   </div>

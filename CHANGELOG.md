@@ -1,3 +1,9 @@
+## [0.5.9] — 2026-11-12 — Data Collection Admin UI & E2E
+
+- Workspace-scoped collection center, live registry, plans, runs, metrics, ingestion and exports.
+- Fixed script parser request validation, import row errors, source permissions, polling and verified downloads.
+- Real staging browser scenario for scheduled collection, signed push, import/export, signed scripts and scope isolation.
+
 ## [0.5.8] — 2026-11-12 — Exporters, Manual Import & Data SDK
 
 - Manual JSON/CSV preview and confirmed durable import with source-bound grants, provenance, deduplication and row errors.

@@ -48,12 +48,12 @@ return static function (Router $router, ServiceContainer $container): void {
         $routes->patch($scriptBase.'/{id}',$scriptHandler('update'),$meta);
         $routes->delete($scriptBase.'/{id}',$scriptHandler('archive'));
         $routes->get($scriptBase.'/{id}/versions',$scriptHandler('versions'));
-        $routes->post($scriptBase.'/{id}/versions',$scriptHandler('addVersion'),['properties'=>['template'=>$str,'source'=>$str,'language'=>$str,'provider'=>$str,'target_ids'=>['type'=>'array'],'parameters'=>['type'=>'array'],'timeout_seconds'=>['type'=>'integer'],'output_limit_bytes'=>['type'=>'integer']],'additionalProperties'=>false]);
+        $routes->post($scriptBase.'/{id}/versions',$scriptHandler('addVersion'),['properties'=>['template'=>$str,'source'=>$str,'language'=>$str,'provider'=>$str,'target_ids'=>['type'=>'array'],'parameters'=>['type'=>'array'],'timeout_seconds'=>['type'=>'integer'],'output_limit_bytes'=>['type'=>'integer'],'parser'=>['type'=>'string','enum'=>['json','csv','key_value','prometheus']],'output_schema'=>['type'=>'string','enum'=>['document','observations','metrics','events']]],'additionalProperties'=>false]);
         $routes->get($scriptBase.'/{id}/versions/{version}',$scriptHandler('version'));
         $routes->post($scriptBase.'/{id}/versions/{version}/sign',$scriptHandler('sign'),['required'=>['key_id','signature'],'properties'=>['key_id'=>$str,'signature'=>$str],'additionalProperties'=>false]);
         $routes->post($scriptBase.'/{id}/versions/{version}/approve',$scriptHandler('approve'),$step);
         $routes->post($scriptBase.'/{id}/versions/{version}/revoke',$scriptHandler('revoke'),$step);
-        $routes->post($scriptBase.'/{id}/versions/{version}/validate',$scriptHandler('validate'),['properties'=>['target_id'=>$str,'parameters'=>['type'=>'object']],'additionalProperties'=>false]);
+        $routes->post($scriptBase.'/{id}/versions/{version}/validate',$scriptHandler('validate'),['properties'=>['target_id'=>$str,'parameters'=>['type'=>'object'],'sample_output'=>['type'=>'string','maxLength'=>262144]],'additionalProperties'=>false]);
         $executionBase=$scriptBase.'/{id}/versions/{version}/executions';
         $routes->get($executionBase,$scriptHandler('executions'));
         $routes->post($executionBase,$scriptHandler('enqueue'),['required'=>['mode','password','totp'],'properties'=>['mode'=>$str,'target_id'=>$str,'parameters'=>['type'=>'object']]+$mfa,'additionalProperties'=>false]);

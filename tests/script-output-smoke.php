@@ -44,4 +44,16 @@ $runner=new ScriptRunner(new ConfigRepository(dirname(__DIR__).'/config'));$exch
 $run=function(string $stdout,array $policy)use($runner,$exchange){$pipes=[];$proc=proc_open(['/usr/bin/python3','-c','import sys;sys.stdin.read();sys.stdout.write(sys.argv[1])',$stdout],[0=>['pipe','r'],1=>['pipe','w'],2=>['pipe','w']],$pipes);try{return $exchange->invokeArgs($runner,[$proc,&$pipes,"{}\n",3,4096,fn()=>null,$policy]);}finally{if(proc_get_status($proc)['running'])proc_terminate($proc,9);foreach($pipes as $f)if(is_resource($f))fclose($f);proc_close($proc);}};
 foreach(['json'=>'{"metric":"x","value":1}','csv'=>"metric,value\nx,1\n",'key_value'=>"metric=x\nvalue=1\n",'prometheus'=>"x 1\n"] as $format=>$raw)$ok($run($raw,['parser'=>$format,'output_schema'=>'metrics'])['normalized']['count']===1,'real subprocess '.$format);
 $bad(fn()=>$run('x NaN',['parser'=>'prometheus','output_schema'=>'metrics']));
+// Verify the actual registered request validators accept the UI's signed parser policy.
+$app=(new \Cajeer\Servers\Kernel\Application(dirname(__DIR__)))->boot();
+try {
+    $router=$app->container()->get(\Cajeer\Servers\Http\Router::class);
+    $registered=(new ReflectionProperty($router,'routes'))->getValue($router);
+    $base='/api/v1/workspaces/{workspace}/scripts/{id}/versions';
+    $schemaFor=function(string $path)use($registered):array{foreach($registered as $r)if($r['path']===$path&&in_array('POST',$r['methods'],true))return $r['json'];throw new RuntimeException('Missing route');};
+    $validate=function(string $path,array $body)use($schemaFor){return \Cajeer\Servers\Http\Validation\JsonInput::parseAndValidate(new \Cajeer\Servers\Runtime\HttpRequest('POST',$path,['Content-Type'=>'application/json'],json_encode($body,JSON_THROW_ON_ERROR)), $schemaFor($path));};
+    $ok($validate($base,['language'=>'python','provider'=>'local','source'=>'print(1)','parser'=>'csv','output_schema'=>'metrics'])['parser']==='csv','registered HTTP version schema accepts parser policy');
+    $ok($validate($base.'/{version}/validate',['parameters'=>(object)[],'sample_output'=>"metric,value\nx,1"])['sample_output']==="metric,value\nx,1",'registered HTTP preview schema accepts sample');
+    foreach ([[$base,['parser'=>'invalid']],[$base.'/{version}/validate',['sample_output'=>[]]]] as [$path,$body]) {try{$validate($path,$body);throw new RuntimeException('Expected request validation rejection');}catch(HttpException $e){$ok($e->status===422&&$e->errorCode==='validation_failed','HTTP request rejects invalid parser policy');}}
+} finally {$app->terminate();}
 echo "Script output: $n checks passed (parsers, normalization, signed policy, real process I/O).\n";

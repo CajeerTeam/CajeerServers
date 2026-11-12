@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { collectionUrl } from '~/composables/collectionNavigation'
 import { apiError } from '~/composables/useApi'
 import { inventoryContextUrl, selectWorkspace, queryUuid, inventoryAssetUrl } from '~/composables/inventoryNavigation'
 import type { VaultVersion } from '~/composables/vaultProfiles'
@@ -251,8 +252,9 @@ onMounted(init)
           <button class="btn" :disabled="busy||!binding.credential_id">Привязать credential</button>
         </form>
       </section>
+      <NuxtLink v-if="active" class="btn" :to="collectionUrl(workspace,active.id,'plans')">Открыть центр сбора данных</NuxtLink>
       <ConnectorLifecycle v-if="active" :key="active.id" :target="active" :binding="apiBinding" :operations="activeDriver?.operations||[]" :collectors="activeDriver?.collectors||[]" :actions="activeDriver?.actions||[]" :write-actions="activeDriver?.write_actions_enabled===true" :manage="canBind" v-model:busy="busy" @changed="refreshAfterLifecycle" />
-      <ConnectorIngestion v-if="active && canRead && auth.can('inventory.assets.read') && auth.can('ingestion.read')" :key="active.id+'-ingestion'" :target-id="active.id" :can-manage="canBind && auth.can('ingestion.manage')" />
+      <ConnectorIngestion v-if="active && canRead && auth.can('inventory.assets.read') && auth.can('ingestion.read')" :key="active.id+'-ingestion'" :target-id="active.id" :target="active" :binding="apiBinding" :can-manage="['owner','manager'].includes(workspaces.find(w=>w.id===workspace)?.role||'') && auth.can('ingestion.manage')" />
       <ConnectorDataExport v-if="active && canRead && auth.can('inventory.assets.read') && auth.can('inventory.transfer.read')" :key="active.id+'-exports'" :target-id="active.id" :can-ingestion="auth.can('ingestion.read')" />
       <ConnectorMetrics v-if="active && canRead && auth.can('inventory.assets.read')" :key="active.id+'-metrics'" :target-id="active.id" />
       <p v-if="active&&!activeDriver" class="muted">Для этого провайдера пока нет исполняемого драйвера.</p>

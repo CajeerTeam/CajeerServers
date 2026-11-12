@@ -2,11 +2,11 @@
 import { apiError } from '~/composables/useApi'
 import { usableGrant,grantLimits,canPowerResource,isRunPending,canRedrive,canAcknowledge,actionConfirmation } from '~/composables/connectorLifecycle'
 import type { LifecycleTarget,LifecycleBinding,ServiceGrant,ConnectorRun,WebhookSource,ConnectorEvent,ConnectorAction,LifecycleResource,CollectorDefinition,CollectionJobPlan } from '~/composables/connectorLifecycle'
-const props=defineProps<{target:LifecycleTarget;binding:LifecycleBinding|null;operations:string[];collectors?:CollectorDefinition[];actions:string[];writeActions:boolean;manage:boolean;busy:boolean}>()
+const props=defineProps<{target:LifecycleTarget;binding:LifecycleBinding|null;operations:string[];collectors?:CollectorDefinition[];actions:string[];writeActions:boolean;manage:boolean;busy:boolean;initialTab?:'plans'|'runs'}>()
 const emit=defineEmits<{(e:'update:busy',v:boolean):void;(e:'changed'):void}>()
 const api=useApi(),auth=useAuth()
 const path=`/connectors/targets/${props.target.id}` // keyed by target in parent
-const tab=ref<'grants'|'runs'|'events'|'actions'|'plans'>('runs')
+const tab=ref<'grants'|'runs'|'events'|'actions'|'plans'>(props.initialTab||'runs')
 const plans=ref<CollectionJobPlan[]>([])
 const planForm=reactive({name:'',collector:'',operation:'inspect',ttl:86400,kind:'interval',interval:300,cron:'*/5 * * * *',timezone:'UTC',jitter:0})
 const planOps=computed(()=>allowedOps.value.filter(op=>op!=='health'))
@@ -121,7 +121,7 @@ onBeforeUnmount(()=>{disposed=true;sequence++;if(timer)clearInterval(timer);clea
         <label>Расписание<select v-model="planForm.kind"><option value="interval">Интервал</option><option value="cron">Cron</option></select></label>
         <label v-if="planForm.kind==='interval'">Интервал (секунды)<input v-model.number="planForm.interval" type="number" min="60" max="86400" required /></label>
         <template v-else><label>Cron (5 полей)<input v-model="planForm.cron" required maxlength="120" /></label><label>Часовой пояс IANA<input v-model="planForm.timezone" required maxlength="64" /></label></template>
-        <div class="form-row"><label>Пароль для MFA<input v-model="password" type="password" autocomplete="off" required /></label><label>TOTP<input v-model="totp" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required /></label></div>
+        <div class="form-row"><label>Пароль для MFA<input v-model="password" type="password" autocomplete="off" required data-testid="lifecycle-password" /></label><label>TOTP<input v-model="totp" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required data-testid="lifecycle-totp" /></label></div>
         <button class="btn primary" :disabled="busy||!mfaReady||!planCollectors.some(c=>c.name===planForm.collector)">Создать план</button>
       </fieldset></form>
       <div class="table-wrap"><table class="table"><thead><tr><th>План</th><th>Расписание</th><th>Разрешение</th><th>Действия</th></tr></thead><tbody><tr v-for="p in plans" :key="p.id"><td>{{p.name}}<br>{{p.collector_name}} · {{p.operation}}</td><td>{{p.interval_seconds?`${p.interval_seconds} с`:`${p.cron_expression} (${p.timezone})`}}<br>{{p.enabled?'Следующий: '+p.next_due_at:'Пауза'}}</td><td>{{p.expires_at}}<br>{{p.revoked_at?'Отозвано':Date.parse(p.expires_at)<=now?'Истекло':'Действует'}}</td><td><button type="button" class="btn" :disabled="busy" @click="switchTab('runs',p.id)">История</button><button v-if="manage&&(p.enabled||livePlan(p))" type="button" class="btn" :disabled="busy" @click="changePlan(p)">{{p.enabled?'Пауза':'Возобновить'}}</button><button v-if="manage&&livePlan(p)" type="button" class="btn" :disabled="busy" @click="runPlan(p.id)">Запустить</button></td></tr></tbody></table></div>

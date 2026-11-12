@@ -42,7 +42,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         path = urllib.parse.unquote(self.path)
         with self.lock:
             if path == '/api2/json/nodes':
-                self.reply([{'node': NODE, 'status': 'online'}])
+                self.reply([{'node': NODE, 'status': 'online', 'cpu': 0.25, 'mem': 4096, 'maxmem': 8192, 'uptime': 120}])
             elif path == '/api2/json/cluster/resources?type=vm':
                 self.reply([{'type': 'qemu', 'node': NODE, 'vmid': VM, 'name': 'cajeer-e2e-vm', 'status': Handler.state}])
             elif path.startswith(f'/api2/json/nodes/{NODE}/tasks/') and path.endswith('/status'):
