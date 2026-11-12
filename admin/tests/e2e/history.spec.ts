@@ -1,3 +1,4 @@
+import {freshAdminTotp} from './admin-totp'
 import { test, expect } from '@playwright/test'
 /** Requires disposable staging Inventory; creates persistent import observations and revisions. */
 const email=process.env.E2E_ADMIN_EMAIL||''
@@ -7,7 +8,7 @@ test('CMDB history, idempotent observations and manual override conflicts',async
   await page.goto('/login')
   await page.getByLabel('Email').fill(email)
   await page.getByLabel('Пароль').fill(password)
-  if(process.env.E2E_ADMIN_MFA)await page.getByLabel(/Код TOTP/).fill(process.env.E2E_ADMIN_MFA)
+  {const code=await freshAdminTotp();if(code)await page.getByLabel(/Код TOTP/).fill(code)}
   await page.getByRole('button',{name:'Войти',exact:true}).click()
   await expect(page).toHaveURL(/\/$/)
   await page.getByRole('link',{name:'История CMDB'}).click()

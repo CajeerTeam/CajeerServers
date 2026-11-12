@@ -1,3 +1,4 @@
+import {freshAdminTotp} from './admin-totp'
 import { test, expect, type Page } from '@playwright/test'
 
 /**
@@ -52,7 +53,7 @@ async function neverLeaks(page: Page, id: string, secrets: string[]) {
 
 test('Vault UI: create, edit/ETag, disable, two-stage rotation, replace, archive', async ({ page }) => {
   test.skip(!enabled || !email || !password, 'Vault E2E requires explicitly authorized disposable staging with initialized Vault')
-  await signIn(page, email, password, process.env.E2E_ADMIN_MFA)
+  await signIn(page, email, password, await freshAdminTotp())
   const workspaces = await page.request.get(`${api}/workspaces`)
   expect(workspaces.ok()).toBe(true)
   const spaces = (await workspaces.json()).data as { id: string; role: string }[]
@@ -182,7 +183,7 @@ test('Vault UI: create, edit/ETag, disable, two-stage rotation, replace, archive
 
 test('Vault UI: typed secret profile is sent encrypted, never reflected in metadata', async ({ page }) => {
   test.skip(!enabled || !email || !password, 'Requires writable isolated Vault staging')
-  await signIn(page, email, password, process.env.E2E_ADMIN_MFA)
+  await signIn(page, email, password, await freshAdminTotp())
   const spaces = (await (await page.request.get(`${api}/workspaces`)).json()).data as { id: string; role: string }[]
   const ws = spaces.find(s => ['owner', 'manager'].includes(s.role))?.id
   expect(ws).toBeTruthy()

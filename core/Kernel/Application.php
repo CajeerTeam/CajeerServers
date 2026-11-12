@@ -329,7 +329,7 @@ final class Application
             $c->get(DatabaseManager::class),$c->get(ConnectorBindingService::class),$c->get(InventoryRepository::class),$c->get(Rbac::class),$c->get(ConnectorExecutionService::class),$c->get(CredentialsVault::class),$c->get(VaultCrypto::class),$c->get(RateLimiter::class),$c->get(AuditLogger::class)));
         $this->services->singleton(\Cajeer\Servers\Connector\ConnectorEventController::class, fn (ServiceContainer $c) => new \Cajeer\Servers\Connector\ConnectorEventController($c->get(AuthenticationService::class),$c->get(\Cajeer\Servers\Connector\ConnectorEventService::class)));
         $this->services->singleton(ConnectorBindingController::class, fn (ServiceContainer $c): ConnectorBindingController => new ConnectorBindingController(
-            $c->get(AuthenticationService::class),$c->get(Rbac::class),$c->get(ConnectorBindingService::class),$c->get(ConnectorRuntimeService::class),$c->get(ConnectorRegistry::class),$c->get(ConnectorExecutionService::class)));
+            $c->get(AuthenticationService::class),$c->get(Rbac::class),$c->get(ConnectorBindingService::class),$c->get(ConnectorRuntimeService::class),$c->get(ConnectorRegistry::class),$c->get(ConnectorExecutionService::class),$c->get(ConfigRepository::class)->get('connectors.write_actions',false)===true));
         $this->services->singleton(TransferController::class, fn (ServiceContainer $c): TransferController => new TransferController(
             $c->get(AuthenticationService::class),$c->get(Rbac::class),$c->get(TransferService::class),$c->get(CredentialBindingService::class)));
         $this->services->singleton(WorkspaceService::class, fn (ServiceContainer $c): WorkspaceService => new WorkspaceService(

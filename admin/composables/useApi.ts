@@ -28,7 +28,7 @@ export function useApi() {
     }
     if (body !== undefined) headers['Content-Type'] = 'application/json'
     return await $fetch<T>(`${base}${path}`, {
-      method, credentials: 'include', cache: 'no-store', headers,
+      method, retry: 0, credentials: 'include', cache: 'no-store', headers,
       ...(body === undefined ? {} : { body }),
     }) as T
   }

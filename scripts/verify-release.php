@@ -54,6 +54,7 @@ foreach (['runtime', 'http', 'database', 'installer', 'auth', 'security', 'infra
 $run('Admin frontend static', ['node', 'tests/static-check.mjs'], $root . '/admin');
 $run('Inventory navigation contract', ['node', '--experimental-strip-types', 'tests/navigation-contract.mjs'], $root . '/admin');
 $run('Vault Admin UI contract', ['node', '--experimental-strip-types', 'tests/vault-ui-contract.mjs'], $root . '/admin');
+$run('Connector lifecycle UI policy', ['node', '--experimental-strip-types', 'tests/connector-lifecycle-contract.mjs'], $root . '/admin');
 
 if ($strict) {
     $run('Connector actions HTTPS integration', ['python3','tests/connector-actions-https-integration.py'], $root);
@@ -92,8 +93,8 @@ if ($strict) {
     } else {
         $run('Real deployed HTTP', [PHP_BINARY, 'scripts/smoke-http.php'], $root);
     }
-    if (!getenv('E2E_ADMIN_EMAIL') || !getenv('E2E_ADMIN_PASSWORD') || !getenv('E2E_BASE_URL') || getenv('E2E_ALLOW_WRITES') !== '1' || getenv('E2E_ISOLATED_STAGING') !== '1') {
-        fwrite(STDERR, "FAIL: strict verification requires disposable E2E staging, credentials, E2E_ALLOW_WRITES=1 and E2E_ISOLATED_STAGING=1.\n"); $failures++;
+    if (!getenv('E2E_ADMIN_EMAIL') || !getenv('E2E_ADMIN_PASSWORD') || !getenv('E2E_BASE_URL') || getenv('E2E_ALLOW_WRITES') !== '1' || getenv('E2E_ISOLATED_STAGING') !== '1' || getenv('E2E_CONNECTOR_UI') !== '1' || !getenv('E2E_ADMIN_TOTP_SECRET') || !getenv('E2E_CONNECTOR_FIXTURE_HOST')) {
+        fwrite(STDERR, "FAIL: strict verification requires disposable E2E staging, credentials, E2E_ALLOW_WRITES=1, E2E_ISOLATED_STAGING=1, E2E_CONNECTOR_UI=1, E2E_ADMIN_TOTP_SECRET and fixture host.\n"); $failures++;
     } else {
         $run('Playwright E2E preflight', ['npm', 'run', 'test:e2e:preflight'], $root . '/admin');
         $run('Playwright E2E', ['npm', 'run', 'test:e2e'], $root . '/admin');

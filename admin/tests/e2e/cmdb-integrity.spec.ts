@@ -1,3 +1,4 @@
+import {freshAdminTotp} from './admin-totp'
 import { test, expect } from '@playwright/test'
 
 /** Read-only end-to-end integrity probe against an installed, isolated staging deployment. */
@@ -11,7 +12,7 @@ test('CMDB integrity requires session and reports verified live PostgreSQL state
   await page.goto('/login')
   await page.getByLabel('Email').fill(process.env.E2E_ADMIN_EMAIL!)
   await page.getByLabel('Пароль').fill(process.env.E2E_ADMIN_PASSWORD!)
-  if (process.env.E2E_ADMIN_MFA) await page.getByLabel(/Код TOTP/).fill(process.env.E2E_ADMIN_MFA)
+  {const code=await freshAdminTotp();if(code)await page.getByLabel(/Код TOTP/).fill(code)}
   await page.getByRole('button', { name: 'Войти', exact: true }).click()
   await expect(page).toHaveURL(/\/$/)
 

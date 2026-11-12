@@ -149,7 +149,7 @@ final class ConnectorExecutionService
     }
     private function runRow(PDO $pdo,string $id):array
     {
-        $r=$this->query($pdo,"SELECT r.*,CASE WHEN r.cancelled_at IS NOT NULL THEN 'cancelled' WHEN r.result IS NOT NULL THEN 'succeeded' WHEN r.error_code IS NOT NULL OR j.status='failed' OR j.id IS NULL THEN 'failed' WHEN j.status='running' THEN 'running' ELSE 'queued' END AS status,COALESCE(j.attempts,0) AS attempts FROM connector_runs r LEFT JOIN queue_jobs j ON j.id=r.id WHERE r.id=:id",['id'=>CredentialInput::uuid($id)])->fetch(PDO::FETCH_ASSOC);
+        $r=$this->query($pdo,"SELECT r.*,g.operation,CASE WHEN r.cancelled_at IS NOT NULL THEN 'cancelled' WHEN r.result IS NOT NULL THEN 'succeeded' WHEN r.error_code IS NOT NULL OR j.status='failed' OR j.id IS NULL THEN 'failed' WHEN j.status='running' THEN 'running' ELSE 'queued' END AS status,COALESCE(j.attempts,0) AS attempts FROM connector_runs r JOIN connector_service_grants g ON g.id=r.grant_id LEFT JOIN queue_jobs j ON j.id=r.id WHERE r.id=:id",['id'=>CredentialInput::uuid($id)])->fetch(PDO::FETCH_ASSOC);
         if (!$r) throw new HttpException(404,'Connector run not found.','not_found');
         if ($r['status']==='failed' && $r['error_code']===null) $r['error_code']='lease_exhausted';
         unset($r['idempotency_key']);

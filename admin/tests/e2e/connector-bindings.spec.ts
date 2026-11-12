@@ -1,3 +1,4 @@
+import {freshAdminTotp} from './admin-totp'
 import {test,expect} from '@playwright/test'
 
 /** Actual browser -> Nuxt -> PHP -> PostgreSQL test; writes ONLY to disposable staging. */
@@ -11,7 +12,7 @@ test('Vault credential -> connector target binding -> disable -> unbind -> clean
   await page.goto('/login')
   await page.getByLabel('Email').fill(email)
   await page.getByLabel('Пароль').fill(password)
-  if(process.env.E2E_ADMIN_MFA)await page.getByLabel(/Код TOTP/).fill(process.env.E2E_ADMIN_MFA)
+  {const code=await freshAdminTotp();if(code)await page.getByLabel(/Код TOTP/).fill(code)}
   await page.getByRole('button',{name:'Войти',exact:true}).click()
   await expect(page).toHaveURL(/\/$/)
   const csrf=async ()=>{
@@ -37,7 +38,7 @@ test('Vault credential -> connector target binding -> disable -> unbind -> clean
     await expect(page.getByRole('heading',{name:'Конфигурации подключений и Vault'})).toBeVisible()
     const form=page.locator('section.panel').filter({has:page.getByRole('heading',{name:'Новая конфигурация'})})
     await form.locator('input').first().fill(label)
-    await form.locator('select').selectOption('proxmox')
+    await form.getByLabel('Провайдер').selectOption('proxmox')
     await form.locator('input').nth(1).fill('pve-e2e.internal')
     await form.getByRole('button',{name:'Создать конфигурацию'}).click()
     await expect(page.getByRole('status')).toContainText('Конфигурация сохранена')

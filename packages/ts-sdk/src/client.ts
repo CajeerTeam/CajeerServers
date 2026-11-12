@@ -1,4 +1,4 @@
-import type { InfrastructureAsset, Driver, Target, TargetInput, ServiceGrant, Run, Operation, PowerAction, Action, Problem } from './types.js'
+import type { InfrastructureAsset, Driver, Target, TargetInput, ServiceGrant, Run, EnqueuedRun, Operation, PowerAction, Action, Problem } from './types.js'
 export class ApiError extends Error {
   constructor(public readonly status: number, public readonly problem: Problem) { super(problem.title || `HTTP ${status}`); this.name = 'ApiError' }
 }
@@ -54,7 +54,7 @@ export class CajeerServersClient {
   grant(id:string,etag:string,operation:Operation,ttlSeconds:number,intervalSeconds?:number):Promise<ServiceGrant> { return this.write('POST',`${this.target(id)}/service-grants`,{operation,ttl_seconds:ttlSeconds,...(intervalSeconds===undefined?{}:{interval_seconds:intervalSeconds})},{'If-Match':etag}) }
   grants(id:string):Promise<ServiceGrant[]> { return this.data(`${this.target(id)}/service-grants`) }
   revokeGrant(id:string,grantId:string):Promise<void> { return this.write('DELETE',`${this.target(id)}/service-grants/${this.id(grantId)}`) }
-  enqueue(id:string,grantId:string,key:string):Promise<Run> { return this.write('POST',`${this.target(id)}/runs`,{grant_id:grantId},{'Idempotency-Key':key}) }
+  enqueue(id:string,grantId:string,key:string):Promise<EnqueuedRun> { return this.write('POST',`${this.target(id)}/runs`,{grant_id:grantId},{'Idempotency-Key':key}) }
   runs(id:string,limit=50,offset=0):Promise<Run[]> { return this.data(`${this.target(id)}/runs?limit=${limit}&offset=${offset}`) }
   run(id:string,runId:string):Promise<Run> { return this.data(`${this.target(id)}/runs/${this.id(runId)}`) }
   cancel(id:string,runId:string):Promise<Run> { return this.write('POST',`${this.target(id)}/runs/${this.id(runId)}/cancel`) }

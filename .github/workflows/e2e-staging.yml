@@ -1,4 +1,4 @@
-name: Admin + Vault E2E (disposable staging)
+name: Admin + Vault + Connector E2E (disposable staging)
 on:
   workflow_dispatch:
     inputs:
@@ -6,6 +6,14 @@ on:
         description: 'HTTPS URL of an installed DISPOSABLE staging Nuxt + PHP application'
         type: string
         required: true
+      connector_fixture_host:
+        description: 'DNS/IP of the supplied isolated TLS Proxmox fixture, reachable from staging PHP'
+        type: string
+        required: true
+      connector_fixture_port:
+        description: 'Fixture HTTPS port'
+        type: string
+        default: '8443'
       confirm_disposable_environment:
         description: 'I confirm this endpoint is a disposable staging database, NOT production'
         type: boolean
@@ -23,7 +31,11 @@ jobs:
       E2E_BASE_URL: ${{ inputs.base_url }}
       E2E_ADMIN_EMAIL: ${{ secrets.E2E_ADMIN_EMAIL }}
       E2E_ADMIN_PASSWORD: ${{ secrets.E2E_ADMIN_PASSWORD }}
-      E2E_ADMIN_MFA: ${{ secrets.E2E_ADMIN_MFA }}
+      E2E_ADMIN_TOTP_SECRET: ${{ secrets.E2E_ADMIN_TOTP_SECRET }}
+      E2E_CONNECTOR_UI: '1'
+      E2E_CONNECTOR_FIXTURE_HOST: ${{ inputs.connector_fixture_host }}
+      E2E_CONNECTOR_FIXTURE_PORT: ${{ inputs.connector_fixture_port }}
+      E2E_VAULT_BINDINGS: '1'
       E2E_ISOLATED_STAGING: '1'
       E2E_ALLOW_WRITES: '1'
       E2E_TRANSFER_WRITABLE: '1'

@@ -1,3 +1,4 @@
+import {freshAdminTotp} from './admin-totp'
 import { test, expect } from '@playwright/test'
 
 /** Requires an isolated installed PHP+PostgreSQL+Redis instance and a dedicated admin test account. */
@@ -15,7 +16,7 @@ test('end-to-end authentication, dashboard, audit and diagnostic job', async ({ 
   await page.goto('/login')
   await page.getByLabel('Email').fill(email)
   await page.getByLabel('Пароль').fill(password)
-  if (process.env.E2E_ADMIN_MFA) await page.getByLabel(/Код TOTP/).fill(process.env.E2E_ADMIN_MFA)
+  {const code=await freshAdminTotp();if(code)await page.getByLabel(/Код TOTP/).fill(code)}
   await page.getByRole('button', { name: 'Войти', exact: true }).click()
   await expect(page).toHaveURL(/\/$/)
   await expect(page.getByRole('heading', { name: 'Обзор инфраструктурной платформы' })).toBeVisible()
@@ -49,7 +50,7 @@ test('workspace administration: create organization and workspace via secured UI
   await page.goto('/login')
   await page.getByLabel('Email').fill(email)
   await page.getByLabel('Пароль').fill(password)
-  if (process.env.E2E_ADMIN_MFA) await page.getByLabel(/Код TOTP/).fill(process.env.E2E_ADMIN_MFA)
+  {const code=await freshAdminTotp();if(code)await page.getByLabel(/Код TOTP/).fill(code)}
   await page.getByRole('button', { name: 'Войти', exact: true }).click()
   await page.getByRole('link', { name: 'Организации и пространства' }).click()
   await expect(page.getByRole('heading', { name: 'Организации и рабочие пространства' })).toBeVisible()

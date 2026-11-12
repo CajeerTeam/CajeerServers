@@ -20,6 +20,7 @@ final class ConnectorBindingController
         private readonly ConnectorRuntimeService $runtime,
         private readonly ConnectorRegistry $registry,
         private readonly ?ConnectorExecutionService $execution=null,
+        private readonly bool $writeActions=false,
     ) {}
 
     private function actor(HttpRequest $r,string $permission,bool $write=false):string
@@ -93,7 +94,7 @@ final class ConnectorBindingController
     public function drivers(HttpRequest $r):HttpResponse
     {
         $this->actor($r,'connectors.targets.read');
-        return HttpResponse::json(['data'=>array_values(array_map(fn($m)=>[...get_object_vars($m),'actions'=>$this->registry->actions($m->provider)],$this->registry->manifests()))],200,['Cache-Control'=>'private, no-store']);
+        return HttpResponse::json(['data'=>array_values(array_map(fn($m)=>[...get_object_vars($m),'actions'=>$this->registry->actions($m->provider),'write_actions_enabled'=>$this->writeActions],$this->registry->manifests()))],200,['Cache-Control'=>'private, no-store']);
     }
     public function health(HttpRequest $r):HttpResponse
     {
@@ -106,8 +107,10 @@ final class ConnectorBindingController
     public function index(HttpRequest $r):HttpResponse
     {
         return HttpResponse::json(['data'=>$this->service->list($this->actor($r,'connectors.targets.read'),self::queryUuid($r),
-            self::integer($r,'limit',50,100),self::integer($r,'offset',0,10000))],200,['Cache-Control'=>'private, no-store']);
+            self::integer($r,'limit',50,100),self::integer($r,'offset',0,10000),self::filter($r,'search'),self::filter($r,'provider'),self::filter($r,'state'))],200,['Cache-Control'=>'private, no-store']);
     }
+    private static function filter(HttpRequest $r,string $name):?string
+    { $value=$r->query[$name]??null;if ($value!==null&&!is_string($value)) throw new HttpException(422,'Invalid connector filter.','validation_failed');return $value; }
     public function create(HttpRequest $r):HttpResponse
     {
         return self::etag($this->service->create($this->actor($r,'connectors.targets.manage',true),$r->attribute('json'),self::rid($r)),201);

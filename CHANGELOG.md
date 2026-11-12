@@ -1,3 +1,10 @@
+## [0.4.9] — 2026-11-12 — Connector Admin UI & E2E
+
+- Полный цикл управления подключениями в `/connectors`: поиск, фильтры, пагинация, настройки, Vault-привязки, health и Discovery.
+- Service grants и расписания с MFA, история/отмена запусков и автообновление; webhook sources, одноразовый ключ, rotation/revoke и redrive; Proxmox power actions с явным подтверждением и проверкой UPID.
+- Серверные фильтры, политика write-actions, актуальная версия credential в binding metadata и операция в run history. Без новых миграций.
+- Реальный staging E2E с изолированным HTTPS Proxmox fixture, PostgreSQL, Vault, Scheduler, Worker; динамический TOTP, RBAC и Workspace isolation.
+
 ## [0.4.8] — 2026-11-12 — Connector Actions & Extension SDK
 
 - Proxmox QEMU start/shutdown with opt-in, RBAC, MFA, ETag, explicit confirmation, idempotency, durable intent and remote UPID status. No automatic write retry.

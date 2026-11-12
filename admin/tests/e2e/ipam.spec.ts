@@ -1,3 +1,4 @@
+import {freshAdminTotp} from './admin-totp'
 import { test, expect } from '@playwright/test'
 
 /** Requires installed isolated PHP+Nuxt+PostgreSQL staging. No device configuration is changed. */
@@ -14,7 +15,7 @@ test('IPAM end-to-end: subnet, interface, reservation, assignment and release', 
   await page.goto('/login')
   await page.getByLabel('Email').fill(email)
   await page.getByLabel('Пароль').fill(password)
-  if (process.env.E2E_ADMIN_MFA) await page.getByLabel(/Код TOTP/).fill(process.env.E2E_ADMIN_MFA)
+  {const code=await freshAdminTotp();if(code)await page.getByLabel(/Код TOTP/).fill(code)}
   await page.getByRole('button', { name: 'Войти', exact: true }).click()
   await expect(page).toHaveURL(/\/$/)
 

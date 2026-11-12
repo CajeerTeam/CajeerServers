@@ -72,7 +72,7 @@ final class ReleaseVerifier
                   'migrations/pgsql/0023_connector_execution.sql', 'tests/connector-execution-smoke.php',
                   'migrations/pgsql/0024_connector_reconciliation.sql', 'tests/connector-reconciliation-smoke.php', 'core/Connector/VmmanagerConnector.php',
                   'core/Connector/ConnectorTransportException.php', 'tests/vmmanager-runtime-smoke.php',
-                  'tests/vmmanager-https-integration.py', 'tests/vmmanager-postgres-integration.php'] as $file) {
+                  'tests/vmmanager-https-integration.py', 'tests/vmmanager-postgres-integration.php', 'admin/components/ConnectorLifecycle.vue', 'admin/composables/connectorLifecycle.ts', 'admin/tests/connector-lifecycle-contract.mjs', 'admin/tests/e2e/connector-lifecycle.spec.ts', 'tests/connector-e2e-fixture.py', 'docs/Connector-Admin-UI-E2E-0.4.9.md'] as $file) {
             $check('source:' . $file, is_file($this->root . '/' . $file) && is_readable($this->root . '/' . $file), 'Required source file is available.');
         }
         // Strict deployment checks are intentionally not bypassed by the kernel's native autoload fallback.

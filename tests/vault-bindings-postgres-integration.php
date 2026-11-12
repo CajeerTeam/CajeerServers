@@ -104,6 +104,13 @@ try {
     $id=$createdTarget['id'];
     $ok($createdTarget['version']===1 && $createdTarget['asset_id']===$asset['id'],'real target persisted with inventory relation');
     $ok(count($connector->list($admin,$ws))===1,'workspace target listed');
+    $ok(count($connector->list($admin,$ws,50,0,'pve-01','proxmox','active'))===1,'literal case-insensitive name filter');
+    $ok(count($connector->list($admin,$ws,50,0,'PVE.INTERNAL'))===1,'host search');
+    $ok(count($connector->list($admin,$ws,50,0,'%'))===0,'search wildcard is literal');
+    $ok(count($connector->list($admin,$ws,50,0,null,'ssh'))===0,'provider filter');
+    $ok(count($connector->list($admin,$ws,50,0,null,null,'disabled'))===0,'state filter');
+    $reject(422,fn()=>$connector->list($admin,$ws,50,0,null,'invalid'),'invalid filter rejected');
+    $reject(422,fn()=>$connector->list($admin,$ws,50,0,null,null,'invalid'),'invalid state rejected');
     $reject(404,fn()=>$connector->show($other,$id),'other workspace target hidden');
     $reject(403,fn()=>$connector->create($viewer,['workspace_id'=>$ws,'provider'=>'proxmox','name'=>'no','endpoint_host'=>'host','endpoint_port'=>8006]),'viewer cannot create');
     $reject(404,fn()=>$connector->create($admin,['workspace_id'=>$ws2,'provider'=>'ssh','name'=>'no','endpoint_host'=>'host','endpoint_port'=>22]),'owner cannot create in other workspace');
@@ -111,7 +118,7 @@ try {
     $reject(403,fn()=>$connector->bind($admin,$id,$token['id'],'ssh',1),'purpose mismatch refused');
     $link=$connector->bind($admin,$id,$token['id'],'api',1);
     $ok($link['credential_id']===$token['id'],'real connector binding inserted');
-    $ok(count($connector->listBindings($admin,$id))===1,'bindings query returns row');
+    $ok(count($connector->listBindings($admin,$id))===1 && (int)$connector->listBindings($admin,$id)[0]['credential_version']===$token['version'],'bindings query returns credential version');
     $ok($connector->show($admin,$id)['version']===2,'binding increments optimistic target version');
     $reject(412,fn()=>$connector->unbind($admin,$id,$link['id'],1),'stale ETag cannot detach');
     $reject(409,fn()=>$connector->bind($admin,$id,$token['id'],'api',2),'duplicate purpose forbidden');
@@ -273,7 +280,7 @@ try {
     $ok($execution->execute($reclaimed)==$out && $remoteCalls===$before+2,'lost ACK replays result without network call');
     $queue->succeed($reclaimed,$out);
     $ok((int)$pdo->query('SELECT count(*) FROM inventory_observations')->fetchColumn()===$observations,'replay cannot duplicate observations');
-    $ok($execution->status($admin,$id,$queued['id'])['status']==='succeeded','run status succeeds');
+    $ok($execution->status($admin,$id,$queued['id'])['status']==='succeeded' && $execution->status($admin,$id,$queued['id'])['operation']==='sync','run status succeeds and exposes operation');
     $execution->once();$execution->once();$execution->once();
     $ok($remoteCalls===$before+2,'cancelled, revoked and expired grants do not use remote secrets');
     $ok($execution->status($admin,$id,$revoked['id'])['status']==='failed' && $execution->status($admin,$id,$expired['id'])['status']==='failed','terminal auth failures persisted');

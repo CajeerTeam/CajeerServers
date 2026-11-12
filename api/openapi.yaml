@@ -1,8 +1,8 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.4.8
-  description: 'CajeerServers 0.4.8: confirmed connector power actions, trusted extension SDK and typed API client.'
+  version: 0.4.9
+  description: 'CajeerServers 0.4.9: connector lifecycle admin, filtered targets, service grants, runs, signed events and confirmed actions.'
 servers:
 - url: /api/v1
 security: []
@@ -5013,7 +5013,7 @@ paths:
       - sessionAuth: []
       responses:
         '200':
-          description: Реальные драйверы, их purpose, credentialTypes, operations, resourceTypes, transport и actions
+          description: Реальные драйверы, их purpose, credentialTypes, operations, resourceTypes, transport, actions и write_actions_enabled
         '403':
           $ref: '#/components/responses/Forbidden'
   /connectors/targets/{id}/service-grants:
@@ -5321,6 +5321,9 @@ paths:
                         workspace_id:
                           type: string
                           format: uuid
+                        operation:
+                          type: string
+                          enum: [inspect, sync, health]
                         status:
                           type: string
                           enum:
@@ -5478,6 +5481,9 @@ paths:
                       workspace_id:
                         type: string
                         format: uuid
+                      operation:
+                        type: string
+                        enum: [inspect, sync, health]
                       status:
                         type: string
                         enum:
@@ -5568,6 +5574,9 @@ paths:
                       workspace_id:
                         type: string
                         format: uuid
+                      operation:
+                        type: string
+                        enum: [inspect, sync, health]
                       status:
                         type: string
                         enum:
@@ -5670,6 +5679,16 @@ paths:
           type: integer
           minimum: 0
           maximum: 10000
+      - name: search
+        in: query
+        schema: {type: string, maxLength: 120}
+        description: Literal case-insensitive substring of name or endpoint host
+      - name: provider
+        in: query
+        schema: {type: string, enum: [proxmox, vmmanager, ssh, winrm, snmp, custom]}
+      - name: state
+        in: query
+        schema: {type: string, enum: [active, disabled]}
       responses:
         '200':
           description: Authorized safe metadata; no secret bytes
@@ -5941,7 +5960,7 @@ paths:
   /connectors/targets/{id}/credential-bindings:
     get:
       operationId: listConnectorCredentialBindings
-      summary: List binding IDs and credential type/state only
+      summary: List binding IDs, credential type/state and metadata version
       description: Session authentication, server-side RBAC and workspace membership are enforced; mutation requires CSRF. No plaintext
         or ciphertext is returned.
       security:
