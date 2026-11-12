@@ -52,6 +52,15 @@ final class ConnectorReadiness
             foreach($queries as $sql) if((string)$pdo->query($sql)->fetchColumn()!=='0')return false;
             return true;
         },'Connector run, queue, grant and event scopes must be consistent; migrations must be applied.');
+        $probe('connector_proxmox_profiles',function()use($cfg):bool {
+            $pdo=$this->app->container()->get(DatabaseManager::class)->connection();
+            $q=$pdo->query("SELECT endpoint_host,endpoint_port,proxmox_profile,state FROM connector_targets WHERE provider='proxmox'");
+            while($row=$q->fetch(\PDO::FETCH_ASSOC)){
+                if($row['proxmox_profile']===null){if($row['state']==='active'&&$cfg->get('connectors.proxmox_require_profile',false)===true)return false;continue;}
+                ProxmoxProfile::normalize(json_decode($row['proxmox_profile'],true,32,JSON_THROW_ON_ERROR),$row['endpoint_host'],(int)$row['endpoint_port']);
+            }
+            return true;
+        },'Stored Proxmox profiles must be valid; mandatory profile mode requires trust for every active PVE target.');
         $probe('connector_ssh_trust',function()use($cfg):bool {
             $pdo=$this->app->container()->get(DatabaseManager::class)->connection();
             $n=$pdo->query("SELECT count(*) FROM connector_targets WHERE provider='ssh' AND state='active'")->fetchColumn();

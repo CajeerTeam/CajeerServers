@@ -105,7 +105,7 @@ final class ConnectorActionService
                 $this->access->consumeForAsset($p,$t['asset_id'],$t['credential_id'],$t['purpose'],function(#[\SensitiveParameter] string $secret,string $type)use($p,$t,$driver,$body,$key,$actor,$resource,&$id,&$node,&$task,&$result,&$failure):void {
                     try {
                         $this->current($p,$t);
-                        $ctx=new ConnectorContext($t['provider'],$t['endpoint_host'],$t['endpoint_port'],$type);
+                        $ctx=new ConnectorContext($t['provider'],$t['endpoint_host'],$t['endpoint_port'],$type,$t['proxmox_profile']??null);
                         $remote=$driver->prepareAction($ctx,$body['action'],$body['external_id'],$secret);
                         $node=$remote['node'];
                         // Commit durable intent before the only POST. Crash after this point is ambiguous, never retried.
@@ -150,7 +150,7 @@ final class ConnectorActionService
             if ($r['credential_id']!==$t['credential_id']||(int)$r['credential_version']!==$t['credential_version']||(int)$r['target_version']!==$t['version']) throw new HttpException(409,'Original action binding changed. Verify the task externally.','conflict');
             $d=$this->driver($t,$r['action']);$status=null;
             try {$this->access->consumeForAsset($p,$t['asset_id'],$t['credential_id'],$t['purpose'],function(#[\SensitiveParameter] string $secret,string $type)use($p,$t,$r,$d,&$status):void {
-                $this->current($p,$t);$status=$d->actionStatus(new ConnectorContext($t['provider'],$t['endpoint_host'],$t['endpoint_port'],$type),$r['node'],$r['remote_task'],$secret);
+                $this->current($p,$t);$status=$d->actionStatus(new ConnectorContext($t['provider'],$t['endpoint_host'],$t['endpoint_port'],$type,$t['proxmox_profile']??null),$r['node'],$r['remote_task'],$secret);
             });}catch(\Throwable $e){throw $e instanceof HttpException?$e:new HttpException(502,'Task status unavailable; action was not repeated.','connector_failed');}
             if (!in_array($status,['submitted','succeeded','failed'],true)) throw new HttpException(502,'Invalid task result.','connector_failed');
             return $this->db->transaction(function(PDO $pdo)use($p,$t,$id,$status,$r):array {

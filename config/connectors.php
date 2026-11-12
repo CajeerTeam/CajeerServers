@@ -5,6 +5,7 @@ return [
     'extension_file' => getenv('CONNECTOR_EXTENSION_FILE') ?: '',
     // Operator-owned TLS CA and optional CIDR allowlist for outbound connector traffic.
     'prometheus_ca_file' => getenv('PROMETHEUS_CA_FILE') ?: '',
+    'proxmox_require_profile' => getenv('PROXMOX_REQUIRE_PROFILE') === 'true',
     'proxmox_ca_file' => getenv('PROXMOX_CA_FILE') ?: '',
     'vmmanager_ca_file' => getenv('VMMANAGER_CA_FILE') ?: '',
     'python' => getenv('CONNECTOR_PYTHON') ?: '/usr/bin/python3',

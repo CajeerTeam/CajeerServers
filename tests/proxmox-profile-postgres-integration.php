@@ -1,0 +1,71 @@
+#!/usr/bin/env php
+<?php
+declare(strict_types=1);
+/** Real upgrade, Vault and runtime integration in a disposable PostgreSQL schema. */
+require dirname(__DIR__).'/core/autoload.php';
+use Cajeer\Servers\Audit\AuditLogger;
+use Cajeer\Servers\Auth\TokenCodec;
+use Cajeer\Servers\Config\ConfigRepository;
+use Cajeer\Servers\Connector\{ConnectorBindingService,ConnectorRuntimeService,ConnectorExecutionService,ProxmoxConnector};
+use Cajeer\Servers\Credentials\{CredentialStore,CredentialVersionService,CredentialsVault,SecretAccessService,VaultCrypto,VaultMasterKey};
+use Cajeer\Servers\Database\{ConnectionFactory,DatabaseManager,MigrationRunner};
+use Cajeer\Servers\Http\Exception\HttpException;
+use Cajeer\Servers\Integration\ConnectorRegistry;
+use Cajeer\Servers\Inventory\{HistoryService,InventoryRepository,InventoryService};
+use Cajeer\Servers\Security\{RateLimiter,Rbac,SecretBox,TwoFactorManager};
+if(getenv('CAJEER_PG_TEST')!=='1'||!preg_match('/^cajeer_test_[a-z0-9_]+$/D',getenv('CAJEER_PG_TEST_DATABASE')?:'')){fwrite(STDERR,"REFUSED: isolated PostgreSQL test database required.\n");exit(2);}
+if(!extension_loaded('pdo_pgsql')){fwrite(STDERR,"FAIL: pdo_pgsql required.\n");exit(1);}
+$root=dirname(__DIR__);$schema='cajeer_pve_'.bin2hex(random_bytes(8));$dir=sys_get_temp_dir().'/'.$schema;mkdir($dir,0700);
+$pdo=null;$created=false;$failed=false;$n=0;
+$ok=static function(bool $v,string $m)use(&$n):void{if(!$v)throw new RuntimeException($m);$n++;};
+$reject=static function(int $status,callable $f)use($ok):void{try{$f();}catch(HttpException $e){$ok($e->status===$status,'HTTP '.$status.' got '.$e->status);return;}throw new RuntimeException('Expected '.$status);};
+try{
+    $db=new DatabaseManager(new ConfigRepository($root.'/config'),new ConnectionFactory(),['driver'=>'pgsql','host'=>getenv('CAJEER_PG_TEST_HOST')?:'127.0.0.1','port'=>getenv('CAJEER_PG_TEST_PORT')?:'5432','database'=>getenv('CAJEER_PG_TEST_DATABASE'),'username'=>getenv('CAJEER_PG_TEST_USERNAME')?:'cajeer','password'=>getenv('CAJEER_PG_TEST_PASSWORD')?:'','sslmode'=>getenv('CAJEER_PG_TEST_SSLMODE')?:'prefer']);
+    $pdo=$db->connection();$ok((int)$pdo->query("SELECT current_setting('server_version_num')")->fetchColumn()>=170000,'PG17+');
+    $pdo->exec('CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public');$pdo->exec('CREATE SCHEMA "'.$schema.'"');$created=true;$pdo->exec('SET search_path TO "'.$schema.'",public');
+    foreach(glob($root.'/migrations/pgsql/*.sql') as $f)if(basename($f)!=='0037_proxmox_profiles.sql')copy($f,$dir.'/'.basename($f));
+    $runner=new MigrationRunner($db,$dir);$runner->run();
+    $password='fixture-only-password-123!';$q=$pdo->prepare('INSERT INTO users(email,name,password_hash,two_factor_enabled) VALUES(:email,:name,:hash,true) RETURNING id::text');
+    $user=static function(string $name)use($q,$password):string{$q->execute(['email'=>$name.'@example.invalid','name'=>$name,'hash'=>password_hash($password,PASSWORD_ARGON2ID)]);return (string)$q->fetchColumn();};
+    $actor=$user('pve-owner');$manager=$user('pve-manager');$other=$user('pve-other');
+    $pdo->prepare("INSERT INTO user_roles(user_id,role_id) SELECT :id,id FROM roles WHERE slug='administrator'")->execute(['id'=>$actor]);
+    $ws=(string)$pdo->query("SELECT id::text FROM workspaces WHERE slug='default'")->fetchColumn();
+    $q=$pdo->prepare('INSERT INTO workspace_members(workspace_id,user_id,role) VALUES(:ws,:id,:role)');$q->execute(['ws'=>$ws,'id'=>$actor,'role'=>'owner']);$q->execute(['ws'=>$ws,'id'=>$manager,'role'=>'manager']);
+    $q=$pdo->prepare("INSERT INTO connector_targets(workspace_id,provider,name,endpoint_host,endpoint_port,created_by) VALUES(:ws,'proxmox','Legacy PVE','pve-a.test',8006,:actor) RETURNING id::text");$q->execute(['ws'=>$ws,'actor'=>$actor]);$legacy=(string)$q->fetchColumn();
+    copy($root.'/migrations/pgsql/0037_proxmox_profiles.sql',$dir.'/0037_proxmox_profiles.sql');
+    $ok($runner->run()['applied']===['0037_proxmox_profiles']&&$runner->validate()['valid']&&$runner->run()['applied']===[],'0.6.0 upgrade and replay');
+    $audit=new AuditLogger($db);$repo=new InventoryRepository();$inventory=new InventoryService($db,$repo,$audit);$rbac=new Rbac($db,$audit);
+    $key=new VaultMasterKey('base64:'.base64_encode(random_bytes(32)));$crypto=new VaultCrypto($key);$vault=new CredentialsVault($db,$crypto,$key);$vault->initialize();$store=new CredentialStore($db,$repo,$vault,$crypto,$audit);
+    $calls=0;$driver=new ProxmoxConnector(static function(string $url,string $auth,?string $ca)use(&$calls):string{
+        $calls++;if($auth!=='PVEAPIToken=svc@pve!read=fixture-secret')throw new RuntimeException('wrong Vault credential');
+        return json_encode(['data'=>match(parse_url($url,PHP_URL_PATH)){'/api2/json/version'=>['version'=>'9.0.3'],'/api2/json/cluster/status'=>[['type'=>'cluster','name'=>'prod','quorate'=>1],['type'=>'node','name'=>'pve-a','nodeid'=>1,'local'=>1]],'/api2/json/access/permissions'=>['/'=>['Sys.Audit'=>1]],'/api2/json/nodes'=>[['node'=>'pve-a','status'=>'online']],'/api2/json/cluster/resources'=>[['type'=>'qemu','node'=>'pve-a','vmid'=>100,'status'=>'running']],default=>throw new RuntimeException('unexpected path')}],JSON_THROW_ON_ERROR);
+    });
+    $registry=new ConnectorRegistry($driver);$bindings=new ConnectorBindingService($db,$repo,$audit,$registry);
+    $old=$bindings->show($actor,$legacy);$ok($old['proxmox_profile']===null&&$old['version']===1,'legacy target unchanged');
+    $profile=['cluster'=>'prod','anchor_node'=>'pve-a','anchor_id'=>1,'primary_pin'=>str_repeat('a',64),'fallbacks'=>[]];
+    $asset=$inventory->create($actor,['workspace_id'=>$ws,'type'=>'server','name'=>'PVE endpoint']);
+    $input=['workspace_id'=>$ws,'provider'=>'proxmox','name'=>'Profiled PVE','endpoint_host'=>'pve-a.test','endpoint_port'=>8006,'asset_id'=>$asset['id'],'proxmox_profile'=>$profile];
+    $reject(403,fn()=>$bindings->create($manager,$input));$target=$bindings->create($actor,$input);$id=$target['id'];
+    $ok($target['proxmox_profile']==$profile&&$bindings->show($actor,$id)['proxmox_profile']==$profile,'profile persisted');
+    $reject(404,fn()=>$bindings->show($other,$id));$reject(403,fn()=>$bindings->update($manager,$id,1,['proxmox_profile'=>$profile]));
+    $reject(422,fn()=>$bindings->update($actor,$id,1,['proxmox_profile'=>null]));$reject(409,fn()=>$bindings->update($actor,$id,1,['proxmox_profile'=>array_replace($profile,['cluster'=>'wrong'])]));
+    $reject(422,fn()=>$bindings->update($actor,$id,1,['endpoint_host'=>'elsewhere.test']));
+    $cred=$store->create($actor,['workspace_id'=>$ws,'name'=>'PVE read','type'=>'proxmox_api','secret'=>['token_id'=>'svc@pve!read','token_secret'=>'fixture-secret']]);$cid=$cred['id'];$bindings->bind($actor,$id,$cid,'api',1,null,true);
+    $secretBox=new SecretBox('pve-test-app-key-'.bin2hex(random_bytes(24)));$limiter=new RateLimiter($secretBox);$mfa=new TwoFactorManager($db,$secretBox,$audit,$limiter);$totpKey=random_bytes(20);
+    $pdo->prepare("INSERT INTO user_mfa(user_id,secret_ciphertext,enabled_at) VALUES(:id,decode(:cipher,'hex'),now())")->execute(['id'=>$actor,'cipher'=>bin2hex($secretBox->seal(TwoFactorManager::base32($totpKey),'mfa:'.$actor))]);
+    $session=TokenCodec::issue('cs1');$pdo->prepare("INSERT INTO auth_sessions(id,user_id,secret_hash,csrf_hash,expires_at,mfa_verified) VALUES(:s,:a,:h,:c,now()+interval '1 hour',true)")->execute(['s'=>$session['id'],'a'=>$actor,'h'=>$session['hash'],'c'=>hash('sha256','fixture-csrf')]);
+    $principal=['mode'=>'session','id'=>$session['id'],'user'=>['id'=>$actor],'mfa_verified'=>true];
+    $access=new SecretAccessService($db,$repo,$rbac,$mfa,$limiter,$audit,$vault,$crypto);$history=new HistoryService($db,$repo,$inventory,$audit);$versions=new CredentialVersionService($db,$repo,$vault,$crypto,$audit,$registry);
+    $runtime=new ConnectorRuntimeService($db,$repo,$bindings,$access,$history,$audit,$registry,$versions);$exec=new ConnectorExecutionService($db,$bindings,$repo,$rbac,$access,$vault,$crypto,$audit,$runtime);
+    $authorize=static function()use($pdo,$actor,$principal,$access,$asset,$cid,$password,$totpKey):void{$pdo->exec('DELETE FROM security_rate_limits');$pdo->prepare('UPDATE user_mfa SET last_counter=NULL WHERE user_id=:id')->execute(['id'=>$actor]);$access->authorize($principal,$asset['id'],$cid,'api',$password,TwoFactorManager::totp($totpKey,time()));};
+    $authorize();$health=$runtime->health($principal,$id,2);$ok($health['connection']['version']==='9.0.3'&&$health['connection']['root_privileges']===['Sys.Audit']&&$calls===4,'MFA Vault health runtime');
+    $authorize();$grant=$exec->issue($principal,$id,2,'inspect',3600);$run=$exec->enqueue($actor,$id,$grant['id'],'pve-profile-run','proxmox.inventory');
+    $ok($exec->once()['status']==='succeeded','worker actual profiled read');$result=$exec->status($actor,$id,$run['id']);$ok($result['result']['connection']['cluster']==='prod'&&$result['result']['collection']['complete']===false,'saved profiled collection');
+    $changed=$bindings->update($actor,$id,2,['proxmox_profile'=>array_replace($profile,['primary_pin'=>str_repeat('b',64)])]);$ok($changed['version']===3,'pin update fences grants');
+    $reject(412,fn()=>$bindings->update($actor,$id,2,['proxmox_profile'=>$profile]));
+    try{$exec->enqueue($actor,$id,$grant['id'],'pve-old-grant','proxmox.inventory');throw new RuntimeException('stale grant accepted');}catch(HttpException $e){$ok(in_array($e->status,[403,409,412],true),'stale grant rejected');}
+    $ok(!str_contains(json_encode($changed),'fixture-secret'),'no plaintext in target');
+    echo "Proxmox profile PostgreSQL: $n PASS\n";
+}catch(Throwable $e){$failed=true;fwrite(STDERR,'FAIL: '.$e->getMessage()."\n");}
+finally{if($created&&$pdo instanceof PDO){$pdo->exec('SET search_path TO public');$pdo->exec('DROP SCHEMA "'.$schema.'" CASCADE');}foreach(glob($dir.'/*.sql') as $f)unlink($f);rmdir($dir);}
+exit($failed?1:0);

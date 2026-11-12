@@ -32,7 +32,7 @@ final class CollectionReadiness
         },'Required collectors and exporters must be registered.');
         $probe('collection_migrations',function()use($c):bool{
             $v=$c->get(MigrationRunner::class)->validate();return $v['valid']&&count($v['rows'])>=36&&array_column($v['rows'],'status')!==[]&&!array_diff(array_column($v['rows'],'status'),['applied']);
-        },'All PostgreSQL migrations, including 0036, must be applied and checksum-valid.');
+        },'All PostgreSQL migrations, including 0037, must be applied and checksum-valid.');
         $queries=[
             'collection_plan_scope'=>"SELECT 1 FROM collection_plans p JOIN connector_service_grants g ON g.id=p.grant_id WHERE g.interval_seconds IS NOT NULL OR g.operation NOT IN ('inspect','sync') UNION ALL SELECT 1 FROM connector_runs r JOIN collection_plans p ON p.grant_id=r.grant_id WHERE r.collection_plan_id IS DISTINCT FROM p.id OR r.collector_name IS DISTINCT FROM p.collector_name LIMIT 1",
             'collection_redrive_scope'=>"SELECT 1 FROM connector_runs r JOIN connector_runs old ON old.id=r.redrive_of WHERE r.target_id<>old.target_id OR r.workspace_id<>old.workspace_id OR r.collection_plan_id IS DISTINCT FROM old.collection_plan_id LIMIT 1",

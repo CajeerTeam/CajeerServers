@@ -1,7 +1,7 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.6.0
+  version: 0.6.1
   description: 'CajeerServers 0.5.7: signed external data ingestion, durable inbox and time series.'
 servers:
 - url: /api/v1
@@ -6236,7 +6236,21 @@ paths:
           type: string
       responses:
         '200':
-          description: Успешная проверка; connector_id, status и duration_ms
+          description: Успешная проверка; для профиля PVE возвращается connection
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [connector_id, status, duration_ms]
+                    properties:
+                      connector_id: {type: string, format: uuid}
+                      status: {type: string}
+                      duration_ms: {type: integer, minimum: 0}
+                      connection: {$ref: '#/components/schemas/ProxmoxConnection'}
         '403':
           $ref: '#/components/responses/Forbidden'
         '412':
@@ -6356,6 +6370,8 @@ paths:
                   type: integer
                   minimum: 1
                   maximum: 65535
+                proxmox_profile:
+                  $ref: '#/components/schemas/ProxmoxProfile'
                 asset_id:
                   type:
                   - string
@@ -6467,6 +6483,8 @@ paths:
                   type: integer
                   minimum: 1
                   maximum: 65535
+                proxmox_profile:
+                  $ref: '#/components/schemas/ProxmoxProfile'
                 asset_id:
                   type:
                   - string
@@ -10883,6 +10901,42 @@ components:
         kind: {type: string, enum: [gauge, counter]}
         unit: {type: [string, 'null']}
         last_seen_at: {type: string, format: date-time}
+    ProxmoxConnection:
+      type: object
+      properties:
+        version: {type: string}
+        cluster: {type: [string, 'null']}
+        anchor_node: {type: string}
+        anchor_id: {type: [integer, 'null']}
+        endpoint_host: {type: string}
+        endpoint_port: {type: integer}
+        failover: {type: boolean}
+        visible_members: {type: integer}
+        quorate: {type: [boolean, 'null']}
+        permissions_visible: {type: boolean}
+        root_privileges:
+          type: array
+          items: {type: string}
+    ProxmoxProfile:
+      type: object
+      additionalProperties: false
+      required: [anchor_node, primary_pin]
+      properties:
+        cluster: {type: [string, 'null'], maxLength: 120}
+        anchor_node: {type: string, maxLength: 120}
+        anchor_id: {type: [integer, 'null'], minimum: 1}
+        primary_pin: {type: string, pattern: '^[a-fA-F0-9]{64}$'}
+        fallbacks:
+          type: array
+          maxItems: 2
+          items:
+            type: object
+            additionalProperties: false
+            required: [host, port, pin]
+            properties:
+              host: {type: string, maxLength: 253}
+              port: {type: integer, minimum: 1, maximum: 65535}
+              pin: {type: string, pattern: '^[a-fA-F0-9]{64}$'}
     ConnectorTargetWithHealth:
       type: object
       required: [id, workspace_id, provider, name, endpoint_host, endpoint_port, state, version, etag, health_status, health_checked_at, health_success_at, health_duration_ms, health_error_code, circuit_open_until, consecutive_failures]
@@ -10893,6 +10947,10 @@ components:
         name: {type: string}
         endpoint_host: {type: string}
         endpoint_port: {type: integer, minimum: 1, maximum: 65535}
+        proxmox_profile:
+          oneOf:
+            - $ref: '#/components/schemas/ProxmoxProfile'
+            - {type: 'null'}
         asset_id: {type: [string, 'null'], format: uuid}
         state: {type: string, enum: [active, disabled]}
         version: {type: integer, minimum: 1}

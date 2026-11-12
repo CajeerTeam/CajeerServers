@@ -51,6 +51,13 @@ final class ConnectorBindingService
         return $port;
     }
 
+    private static function requireProfileOwner(PDO $pdo,string $actor,string $role):void
+    {
+        if($role!=='owner')throw new HttpException(403,'Only a workspace owner can configure Proxmox trust.','permission_denied');
+        $q=$pdo->prepare('SELECT 1 FROM users WHERE id=:actor AND is_active=true AND two_factor_enabled=true FOR SHARE');$q->execute(['actor'=>$actor]);
+        if(!$q->fetchColumn())throw new HttpException(403,'MFA must be enabled to configure Proxmox trust.','mfa_required');
+    }
+
     private static function identifier():string
     {
         $bytes=random_bytes(16);
@@ -64,6 +71,7 @@ final class ConnectorBindingService
     private static function present(array $row):array
     {
         foreach (['id','workspace_id','asset_id'] as $key) if (isset($row[$key])) $row[$key]=(string)$row[$key];
+        $row['proxmox_profile']=isset($row['proxmox_profile'])?json_decode($row['proxmox_profile'],true,32,JSON_THROW_ON_ERROR):null;
         $row['version']=(int)$row['version'];$row['endpoint_port']=(int)$row['endpoint_port'];
         $row['health_duration_ms']=isset($row['health_duration_ms'])?(int)$row['health_duration_ms']:null;
         $row['consecutive_failures']=(int)($row['consecutive_failures']??0);
@@ -73,7 +81,7 @@ final class ConnectorBindingService
 
     private function target(PDO $pdo,string $actor,string $id,bool $lock=false):array
     {
-        $query=$pdo->prepare('SELECT t.id::text,t.workspace_id::text,t.provider,t.name,t.endpoint_host,t.endpoint_port,t.asset_id::text,t.state,t.version,t.created_at::text,t.updated_at::text,h.health_status,h.health_checked_at::text,h.health_success_at::text,h.health_duration_ms,h.health_error_code,h.circuit_open_until::text,h.consecutive_failures FROM connector_targets t JOIN connector_health_current h ON h.target_id=t.id JOIN workspace_members wm ON wm.workspace_id=t.workspace_id AND wm.user_id=CAST(:actor AS uuid) JOIN users u ON u.id=wm.user_id AND u.is_active=true WHERE t.id=CAST(:id AS uuid)'.($lock?' FOR UPDATE OF t':''));
+        $query=$pdo->prepare('SELECT t.id::text,t.workspace_id::text,t.provider,t.name,t.endpoint_host,t.endpoint_port,t.proxmox_profile,t.asset_id::text,t.state,t.version,t.created_at::text,t.updated_at::text,h.health_status,h.health_checked_at::text,h.health_success_at::text,h.health_duration_ms,h.health_error_code,h.circuit_open_until::text,h.consecutive_failures FROM connector_targets t JOIN connector_health_current h ON h.target_id=t.id JOIN workspace_members wm ON wm.workspace_id=t.workspace_id AND wm.user_id=CAST(:actor AS uuid) JOIN users u ON u.id=wm.user_id AND u.is_active=true WHERE t.id=CAST(:id AS uuid)'.($lock?' FOR UPDATE OF t':''));
         $query->execute(['id'=>$id,'actor'=>$actor]);
         $row=$query->fetch(PDO::FETCH_ASSOC);
         if (!is_array($row)) throw new HttpException(404,'Connector configuration not found.','not_found');
@@ -83,24 +91,27 @@ final class ConnectorBindingService
     /** @param array<string,mixed> $data */
     public function create(string $actor,array $data,?string $requestId=null):array
     {
-        if (array_diff(array_keys($data),['workspace_id','provider','name','endpoint_host','endpoint_port','asset_id'])!==[])
+        if (array_diff(array_keys($data),['workspace_id','provider','name','endpoint_host','endpoint_port','asset_id','proxmox_profile'])!==[])
             throw new HttpException(422,'Invalid connector fields.','validation_failed');
         $ws=self::uuid($data['workspace_id']??null);
         $provider=BindingPolicy::provider($data['provider']??null);
         $name=self::validateName($data['name']??null);
         $host=self::validateHost($data['endpoint_host']??null);
         $port=self::validatePort($data['endpoint_port']??null);
+        $profile=null;
+        if(array_key_exists('proxmox_profile',$data)){if($provider!=='proxmox')throw new HttpException(422,'Proxmox profile requires Proxmox provider.','validation_failed');$profile=ProxmoxProfile::normalize($data['proxmox_profile'],$host,$port);}
         $asset=isset($data['asset_id'])?self::uuid($data['asset_id']):null;
-        return $this->db->transaction(function(PDO $pdo)use($actor,$ws,$provider,$name,$host,$port,$asset,$requestId):array {
+        return $this->db->transaction(function(PDO $pdo)use($actor,$ws,$provider,$name,$host,$port,$asset,$profile,$requestId):array {
             $this->inventory->lockWorkspace($pdo,$ws);
-            $this->inventory->workspaceRole($pdo,$ws,$actor,true);
+            $role=$this->inventory->workspaceRole($pdo,$ws,$actor,true);
+            if($profile!==null)self::requireProfileOwner($pdo,$actor,$role);
             if ($asset!==null) {
                 $row=$this->inventory->find($pdo,$actor,$asset);
                 if (!$row || $row['workspace_id']!==$ws) throw new HttpException(404,'Asset unavailable in workspace.','not_found');
             }
             $id=self::identifier();
-            $stmt=$pdo->prepare('INSERT INTO connector_targets(id,workspace_id,provider,name,endpoint_host,endpoint_port,asset_id,created_by) VALUES(CAST(:id AS uuid),CAST(:ws AS uuid),:provider,:name,:host,:port,CAST(:asset AS uuid),CAST(:actor AS uuid))');
-            try {$stmt->execute(['id'=>$id,'ws'=>$ws,'provider'=>$provider,'name'=>$name,'host'=>$host,'port'=>$port,'asset'=>$asset,'actor'=>$actor]);}
+            $stmt=$pdo->prepare('INSERT INTO connector_targets(id,workspace_id,provider,name,endpoint_host,endpoint_port,asset_id,proxmox_profile,created_by) VALUES(CAST(:id AS uuid),CAST(:ws AS uuid),:provider,:name,:host,:port,CAST(:asset AS uuid),CAST(:profile AS jsonb),CAST(:actor AS uuid))');
+            try {$stmt->execute(['id'=>$id,'ws'=>$ws,'provider'=>$provider,'name'=>$name,'host'=>$host,'port'=>$port,'asset'=>$asset,'profile'=>$profile===null?null:json_encode($profile,JSON_THROW_ON_ERROR),'actor'=>$actor]);}
             catch(PDOException $e) {
                 if (($e->errorInfo[0]??$e->getCode())==='23505')
                     throw new HttpException(409,'Connector name already exists in workspace.','conflict');
@@ -120,7 +131,7 @@ final class ConnectorBindingService
         if ($search!==null && $search!=='') { $search=self::validateName($search);$filters.=' AND (strpos(lower(t.name),lower(:search_name))>0 OR strpos(lower(t.endpoint_host),lower(:search_host))>0)';$params[':search_name']=$search;$params[':search_host']=$search; }
         if ($provider!==null && $provider!=='') {if (!in_array($provider,BindingPolicy::PROVIDERS,true)) throw new HttpException(422,'Invalid provider filter.','validation_failed');$filters.=' AND t.provider=:provider';$params[':provider']=$provider;}
         if ($state!==null && $state!=='') {if (!in_array($state,['active','disabled'],true)) throw new HttpException(422,'Invalid state filter.','validation_failed');$filters.=' AND t.state=:state';$params[':state']=$state;}
-        $q=$pdo->prepare('SELECT t.id::text,t.workspace_id::text,t.provider,t.name,t.endpoint_host,t.endpoint_port,t.asset_id::text,t.state,t.version,t.created_at::text,t.updated_at::text,h.health_status,h.health_checked_at::text,h.health_success_at::text,h.health_duration_ms,h.health_error_code,h.circuit_open_until::text,h.consecutive_failures FROM connector_targets t JOIN connector_health_current h ON h.target_id=t.id WHERE t.workspace_id=CAST(:ws AS uuid)'.$filters.' ORDER BY t.created_at DESC,t.id DESC LIMIT :limit OFFSET :offset');
+        $q=$pdo->prepare('SELECT t.id::text,t.workspace_id::text,t.provider,t.name,t.endpoint_host,t.endpoint_port,t.proxmox_profile,t.asset_id::text,t.state,t.version,t.created_at::text,t.updated_at::text,h.health_status,h.health_checked_at::text,h.health_success_at::text,h.health_duration_ms,h.health_error_code,h.circuit_open_until::text,h.consecutive_failures FROM connector_targets t JOIN connector_health_current h ON h.target_id=t.id WHERE t.workspace_id=CAST(:ws AS uuid)'.$filters.' ORDER BY t.created_at DESC,t.id DESC LIMIT :limit OFFSET :offset');
         foreach ($params as $key=>$value) $q->bindValue($key,$value,PDO::PARAM_STR);
         $q->bindValue(':ws',$workspace);$q->bindValue(':limit',$limit,PDO::PARAM_INT);$q->bindValue(':offset',$offset,PDO::PARAM_INT);$q->execute();
         return array_map(self::present(...),$q->fetchAll(PDO::FETCH_ASSOC));
@@ -135,7 +146,7 @@ final class ConnectorBindingService
     public function update(string $actor,string $id,int $version,array $patch,?string $requestId=null):array
     {
         $id=self::uuid($id);
-        if ($patch===[] || array_diff(array_keys($patch),['name','endpoint_host','endpoint_port','state','asset_id'])!==[])
+        if ($patch===[] || array_diff(array_keys($patch),['name','endpoint_host','endpoint_port','state','asset_id','proxmox_profile'])!==[])
             throw new HttpException(422,'Invalid connector update.','validation_failed');
         $changes=[];
         foreach ($patch as $key=>$value) {
@@ -143,15 +154,35 @@ final class ConnectorBindingService
                 'name'=>self::validateName($value),'endpoint_host'=>self::validateHost($value),
                 'endpoint_port'=>self::validatePort($value),
                 'state'=>in_array($value,['active','disabled'],true)?$value:throw new HttpException(422,'Invalid connector state.','validation_failed'),
+                'proxmox_profile'=>$value,
                 'asset_id'=>$value===null?null:self::uuid($value),
             };
         }
         return $this->db->transaction(function(PDO $pdo)use($actor,$id,$version,$changes,$requestId):array {
             $old=$this->target($pdo,$actor,$id);
+            if(array_key_exists('proxmox_profile',$changes)) {
+                $lock=$pdo->prepare('SELECT pg_try_advisory_xact_lock(hashtextextended(:id,4202))');$lock->execute(['id'=>$id]);
+                if(!in_array($lock->fetchColumn(),[true,'t','1',1],true))throw new HttpException(409,'Connector already executing.','connector_busy');
+            }
             $ws=$old['workspace_id'];$this->inventory->lockWorkspace($pdo,$ws);
-            $this->inventory->workspaceRole($pdo,$ws,$actor,true);
+            $role=$this->inventory->workspaceRole($pdo,$ws,$actor,true);
             $current=$this->target($pdo,$actor,$id,true);
             if ($current['version']!==$version) throw new HttpException(412,'Connector was modified.','precondition_failed');
+            if(array_key_exists('proxmox_profile',$changes)) {
+                if($current['provider']!=='proxmox')throw new HttpException(422,'Proxmox profile requires Proxmox provider.','validation_failed');
+                self::requireProfileOwner($pdo,$actor,$role);
+                $profile=ProxmoxProfile::normalize($changes['proxmox_profile'],$changes['endpoint_host']??$current['endpoint_host'],$changes['endpoint_port']??$current['endpoint_port']);
+                $previous=$current['proxmox_profile'];
+                if($previous!==null) {
+                    // A different identity must never inherit this target's inventory or action history.
+                    foreach(['cluster','anchor_node','anchor_id'] as $key)if($previous[$key]!==$profile[$key])throw new HttpException(409,'Create a new target for a different Proxmox identity.','connector_endpoint_changed');
+                }
+                $q=$pdo->prepare("SELECT 1 FROM connector_actions WHERE target_id=:id AND status IN ('dispatching','submitted','unknown') LIMIT 1");$q->execute(['id'=>$id]);
+                if($q->fetchColumn())throw new HttpException(409,'Resolve outstanding actions before changing trust.','action_unresolved');
+                $changes['proxmox_profile']=json_encode($profile,JSON_THROW_ON_ERROR);
+            } elseif($current['proxmox_profile']!==null && (($changes['endpoint_host']??$current['endpoint_host'])!==$current['endpoint_host']||($changes['endpoint_port']??$current['endpoint_port'])!==$current['endpoint_port'])) {
+                throw new HttpException(422,'Explicit Proxmox trust profile required when changing endpoint.','validation_failed');
+            }
             if (($changes['endpoint_host']??$current['endpoint_host'])!==$current['endpoint_host'] || ($changes['endpoint_port']??$current['endpoint_port'])!==$current['endpoint_port']) {
                 $discovered=$pdo->prepare('SELECT 1 FROM connector_discovery_state WHERE target_id=:id'); $discovered->execute(['id'=>$id]);
                 if ($discovered->fetchColumn()) throw new HttpException(409,'Create a new target when changing a discovered endpoint.','connector_endpoint_changed');
@@ -161,7 +192,7 @@ final class ConnectorBindingService
                 if (!$asset || $asset['workspace_id']!==$ws) throw new HttpException(404,'Asset unavailable in workspace.','not_found');
             }
             $parts=['version=version+1','updated_at=clock_timestamp()'];$params=['id'=>$id,'version'=>$version];
-            foreach ($changes as $key=>$value) {$parts[]=$key.'=:'.$key;$params[$key]=$value;}
+            foreach ($changes as $key=>$value) {$parts[]=$key.($key==='proxmox_profile'?'=CAST(:proxmox_profile AS jsonb)':'=:'.$key);$params[$key]=$value;}
             $stmt=$pdo->prepare('UPDATE connector_targets SET '.implode(',',$parts).' WHERE id=CAST(:id AS uuid) AND version=:version');
             try {$stmt->execute($params);}
             catch(PDOException $e) {

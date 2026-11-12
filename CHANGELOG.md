@@ -1,3 +1,10 @@
+## [0.6.1] — 2026-11-12 — Connection Profiles & API Client
+
+- Persist optional PVE trust profiles in existing connector targets; owner/MFA configuration, immutable cluster identity and version fencing.
+- Shared PVE API client with certificate SHA-256 pinning before credentials, version/cluster/permissions diagnostics and whole-read failover on transient errors only.
+- Preserve Vault, collectors, metrics, existing power actions and task tracking; primary-only rotation and write dispatch, optional mandatory profiles.
+- Admin trust profile editor, typed SDK health method, migration 0037 and actual two-endpoint TLS fixture; PostgreSQL upgrade scenario in strict gate.
+
 ## [0.6.0] — 2026-11-12 — Data Collection Layer Stable
 
 - Preserve large metric integers and precise decimal text through script normalization and import/export; explicit decimal strings and counter kind.

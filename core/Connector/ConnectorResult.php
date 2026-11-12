@@ -8,7 +8,7 @@ use RuntimeException;
 /** Normalized discovery output. Validate even trusted adapters before persistence. */
 final readonly class ConnectorResult
 {
-    public function __construct(public array $items, public bool $complete = false, public array $metricSamples = []) {}
+    public function __construct(public array $items, public bool $complete = false, public array $metricSamples = [], public array $connection = []) {}
     public function validated(ConnectorManifest $manifest): self
     {
         if (!array_is_list($this->items) || count($this->items)>2000) throw new RuntimeException('Invalid discovery size.');
@@ -39,7 +39,7 @@ final readonly class ConnectorResult
                 $visited[$parent]=true; if (!isset($parents[$parent])) break; $parent=$parents[$parent];
             }
         }
-        return new self($items, $this->complete && $items !== [], \Cajeer\Servers\Metrics\MetricBatch::normalize($this->metricSamples));
+        return new self($items, $this->complete && $items !== [], \Cajeer\Servers\Metrics\MetricBatch::normalize($this->metricSamples),$manifest->provider==='proxmox'?$this->connection:[]);
     }
     public function summary(ConnectorManifest $manifest): array
     {

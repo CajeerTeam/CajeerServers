@@ -42,6 +42,7 @@ jobs:
           python3 tests/ingestion-https-integration.py
           python3 tests/data-export-https-integration.py
           python3 tests/connector-https-integration.py
+          python3 tests/proxmox-profile-https-integration.py
           python3 tests/connector-actions-https-integration.py
           python3 tests/vmmanager-https-integration.py
           python3 tests/host-transport-integration.py --ssh
@@ -119,6 +120,7 @@ jobs:
           php tests/vault-access-postgres-integration.php
           php tests/vault-rotation-postgres-integration.php
           php tests/vault-bindings-postgres-integration.php
+          php tests/proxmox-profile-postgres-integration.php
           php tests/connector-reconciliation-postgres-integration.php
           php tests/host-hardware-postgres-integration.php
           php tests/connector-health-postgres-integration.php

@@ -12,14 +12,14 @@ final class HttpsTransport
         private readonly int $timeout=8,private readonly int $maxBytes=2097152) {
         if ($timeout<1 || $timeout>60 || $maxBytes<1 || $maxBytes>16777216) throw new RuntimeException('Invalid HTTPS limits.');
     }
-    public function get(string $host,int $port,string $path,#[\SensitiveParameter] string $authorization,?string $caFile=null,string $credentialHeader='Authorization'):string
-    { return $this->request('GET',$host,$port,$path,$authorization,$caFile,$credentialHeader); }
+    public function get(string $host,int $port,string $path,#[\SensitiveParameter] string $authorization,?string $caFile=null,string $credentialHeader='Authorization',?string $pin=null):string
+    { return $this->request('GET',$host,$port,$path,$authorization,$caFile,$credentialHeader,pin:$pin); }
     public function getText(string $host,int $port,string $path,#[\SensitiveParameter] string $authorization,?string $caFile=null):string
     {return $this->request('GET',$host,$port,$path,$authorization,$caFile,'Authorization','text/plain; version=0.0.4');}
-    public function powerPost(string $host,int $port,string $path,#[\SensitiveParameter] string $authorization,?string $caFile=null):string
+    public function powerPost(string $host,int $port,string $path,#[\SensitiveParameter] string $authorization,?string $caFile=null,?string $pin=null):string
     {
         if (!preg_match('~^/api2/json/nodes/[A-Za-z0-9][A-Za-z0-9._-]{0,119}/qemu/[1-9][0-9]{0,8}/status/(start|shutdown)$~D',$path)) throw new RuntimeException('Unsupported power request.');
-        return $this->request('POST',$host,$port,$path,$authorization,$caFile,'Authorization');
+        return $this->request('POST',$host,$port,$path,$authorization,$caFile,'Authorization',pin:$pin);
     }
     /** Operator-configured delivery only. Signature and all extra headers are generated internally. */
     public function postArtifact(string $host,int $port,string $path,string $deliveryId,string $body,string $mime,#[\SensitiveParameter] string $secret,?string $caFile=null):string
@@ -100,7 +100,7 @@ final class HttpsTransport
         }
         return $body;
     }
-    private function request(string $method,string $host,int $port,string $path,#[\SensitiveParameter] string $authorization,?string $caFile,string $credentialHeader,string $accept='application/json',string $payload='',string $extraHeaders='',bool $accept2xx=false):string
+    private function request(string $method,string $host,int $port,string $path,#[\SensitiveParameter] string $authorization,?string $caFile,string $credentialHeader,string $accept='application/json',string $payload='',string $extraHeaders='',bool $accept2xx=false,?string $pin=null):string
     {
         $host=ConnectorBindingService::validateHost($host); $port=ConnectorBindingService::validatePort($port);
         if (!in_array($credentialHeader,['Authorization','x-xsrf-token','X-Cajeer-Signature'],true) || $authorization==='' || strlen($authorization)>16384 || !preg_match('~^/[A-Za-z0-9/_?.=&%:-]+$~D',$path) || str_starts_with($path,'//') || preg_match('/[\x00-\x1f\x7f]/',$authorization))
@@ -112,6 +112,7 @@ final class HttpsTransport
         $ssl=['verify_peer'=>true,'verify_peer_name'=>true,'allow_self_signed'=>false,'peer_name'=>$host,'SNI_enabled'=>true,
             'crypto_method'=>STREAM_CRYPTO_METHOD_TLSv1_2_CLIENT|STREAM_CRYPTO_METHOD_TLSv1_3_CLIENT];
         if ($caFile!==null) $ssl['cafile']=$caFile;
+        if ($pin!==null) { if (!preg_match('/^[a-f0-9]{64}$/D',$pin)) throw new ConnectorTransportException('connector_trust_failed'); $ssl['capture_peer_cert']=true; }
         $context=stream_context_create(['ssl'=>$ssl]);
         $stream=@stream_socket_client('tcp://'.$bracket($ip).':'.$port,$errno,$errstr,self::remaining($deadline),STREAM_CLIENT_CONNECT,$context);
         if ($stream===false) self::transport();
@@ -120,6 +121,11 @@ final class HttpsTransport
             if (@stream_socket_enable_crypto($stream,true,$ssl['crypto_method'])!==true) {
                 if (stream_get_meta_data($stream)['timed_out'] || hrtime(true)>=$deadline) self::transport();
                 throw new ConnectorTransportException('connector_trust_failed');
+            }
+            if ($pin!==null) {
+                $certificate=stream_context_get_params($stream)['options']['ssl']['peer_certificate']??null;
+                $fingerprint=$certificate===null?false:openssl_x509_fingerprint($certificate,'sha256');
+                if (!is_string($fingerprint)||!hash_equals($pin,$fingerprint)) throw new ConnectorTransportException('connector_trust_failed');
             }
             $request="$method $path HTTP/1.1\r\nHost: ".$bracket($host).":$port\r\nAccept: $accept\r\n$credentialHeader: $authorization\r\nConnection: close\r\n".($method==='POST'?"Content-Length: ".strlen($payload)."\r\n":'').$extraHeaders."\r\n".$payload;
             try {

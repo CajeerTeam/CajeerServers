@@ -22,7 +22,7 @@ try{
     $db=new DatabaseManager(new ConfigRepository($root.'/config'),new ConnectionFactory(),['driver'=>'pgsql','host'=>getenv('CAJEER_PG_TEST_HOST')?:'127.0.0.1','port'=>getenv('CAJEER_PG_TEST_PORT')?:'5432','database'=>getenv('CAJEER_PG_TEST_DATABASE'),'username'=>getenv('CAJEER_PG_TEST_USERNAME')?:'cajeer','password'=>getenv('CAJEER_PG_TEST_PASSWORD')?:'','sslmode'=>getenv('CAJEER_PG_TEST_SSLMODE')?:'prefer']);
     $pdo=$db->connection();$ok((int)$pdo->query("SELECT current_setting('server_version_num')")->fetchColumn()>=170000,'PG17+');
     $pdo->exec('CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public');$pdo->exec('CREATE SCHEMA "'.$schema.'"');$created=true;$pdo->exec('SET search_path TO "'.$schema.'", public');
-    foreach(glob($root.'/migrations/pgsql/*.sql') as $file)if(!str_starts_with(basename($file),'0024_')&&!str_starts_with(basename($file),'0025_')&&!str_starts_with(basename($file),'0026_'))copy($file,$dir.'/'.basename($file));
+    foreach(glob($root.'/migrations/pgsql/*.sql') as $file)if(strcmp(substr(basename($file),0,4),'0024')<0)copy($file,$dir.'/'.basename($file));
     $runner=new MigrationRunner($db,$dir);$runner->run();
     $actor=(string)$pdo->query("INSERT INTO users(email,name,password_hash) VALUES('reconcile@example.invalid','Reconcile','test-only') RETURNING id::text")->fetchColumn();
     $ws=(string)$pdo->query("SELECT id::text FROM workspaces WHERE slug='default'")->fetchColumn();
@@ -41,7 +41,7 @@ try{
     copy($root.'/migrations/pgsql/0024_connector_reconciliation.sql',$dir.'/0024_connector_reconciliation.sql');
     $ok(count($runner->run()['applied'])===1 && $runner->run()['applied']===[],'0024 migration and replay');
     copy($root.'/migrations/pgsql/0025_connector_host_hardware.sql',$dir.'/0025_connector_host_hardware.sql');
-    copy($root.'/migrations/pgsql/0026_connector_health.sql',$dir.'/0026_connector_health.sql');$runner->run();
+    foreach(glob($root.'/migrations/pgsql/*.sql') as $file)if(strcmp(substr(basename($file),0,4),'0025')>=0)copy($file,$dir.'/'.basename($file));$runner->run();
     $service=new ReconciliationService($repo,$history,$audit);
     $rows=fn()=>array_column($service->resources($pdo,$actor,$target,100,0),null,'external_id');
     $ok($rows()['qemu:42']['asset_id']===$legacy && $rows()['qemu:42']['presence']==='unknown','legacy UUID preserved');

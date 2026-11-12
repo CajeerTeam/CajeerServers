@@ -152,6 +152,7 @@ final class ConnectorRuntimeService
         if (!$sync) {
             $result=$operation==='health' ? (new ConnectorHealth($targetId,$elapsed))->toArray()
                 : ['connector_id'=>$targetId,'mode'=>'inspect','discovered'=>count($items),'types'=>$summary];
+            if($snapshot->connection!==[])$result['connection']=$snapshot->connection;
             return $this->db->transaction(function(PDO $pdo) use($actor,$targetId,$operation,$items,$requestId,$guard,$complete,$result,$target,$snapshot,$reconciliation,$elapsed,$collection):array {
                 $this->inventory->lockWorkspace($pdo,$target['workspace_id']);
                 if ($guard!==null) $guard($pdo);
@@ -188,6 +189,7 @@ final class ConnectorRuntimeService
                 ['count'=>count($items),'complete'=>$snapshot->complete,'blocked'=>$delta['snapshot']['blocked']],$requestId);
             $result=['connector_id'=>$targetId,'mode'=>'sync','discovered'=>count($items),'types'=>$summary,...$delta];
             if ($collection!==null) $result['collection']=$collection;
+            if($snapshot->connection!==[])$result['connection']=$snapshot->connection;
             if ($complete!==null) $complete($pdo,$result);
             return $result;
         });
@@ -249,7 +251,7 @@ final class ConnectorRuntimeService
             $manifest=$this->registry->manifest($target['provider'],$operation);
             if ($type!==$target['credential_type'] || !$manifest->accepts($type,$target['purpose']))
                 throw new \RuntimeException('Credential type changed.');
-            $context=new ConnectorContext($target['provider'],$target['endpoint_host'],$target['endpoint_port'],$type);
+            $context=new ConnectorContext($target['provider'],$target['endpoint_host'],$target['endpoint_port'],$type,$target['proxmox_profile']??null);
         } catch (Throwable) {
             // No driver exception, request header or remote response body reaches HTTP or logs.
             throw new HttpException(502,'Remote connector operation failed.','connector_failed');
@@ -264,7 +266,7 @@ final class ConnectorRuntimeService
         if (!is_string($actor)) throw new HttpException(403,'Invalid session.','session_required');
         $target=$this->bindings->runtimeContext($actor,$targetId,$version,'health');
         return $this->withExecutionLock($target,fn()=> $this->runAuthorized($actor,$target,'health',
-            fn(callable $consumer)=>$this->access->consumeForAsset($principal,$target['asset_id'],$target['credential_id'],$target['purpose'],$consumer,$requestId),$requestId,$this->sessionGuard($principal)));
+            fn(callable $consumer)=>$this->access->consumeForAsset($principal,$target['asset_id'],$target['credential_id'],$target['purpose'],$consumer,$requestId,$target['credential_version']),$requestId,$this->sessionGuard($principal)));
     }
 
     private function withExecutionLock(array $target,callable $operation):array
@@ -273,7 +275,11 @@ final class ConnectorRuntimeService
         $lock=$pdo->prepare('SELECT pg_try_advisory_lock(hashtextextended(:id,4202))');$lock->execute(['id'=>$id]);
         if (!in_array($lock->fetchColumn(),[true,'t','1',1],true)) throw new HttpException(409,'Connector already executing.','connector_busy');
         $slots=[];
-        try {$slots=ConnectorConcurrency::acquire($pdo,$target);return $operation();}
+        try {
+            $current=$pdo->prepare('SELECT version,state FROM connector_targets WHERE id=:id');$current->execute(['id'=>$id]);$row=$current->fetch(PDO::FETCH_ASSOC);
+            if(!$row||(int)$row['version']!==(int)$target['version']||$row['state']!=='active')throw new HttpException(412,'Connector changed before execution.','precondition_failed');
+            $slots=ConnectorConcurrency::acquire($pdo,$target);return $operation();
+        }
         finally {
             try {ConnectorConcurrency::release($pdo,$slots);}
             finally {$unlock=$pdo->prepare('SELECT pg_advisory_unlock(hashtextextended(:id,4202))');$unlock->execute(['id'=>$id]);}

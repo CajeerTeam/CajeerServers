@@ -2,18 +2,16 @@
 declare(strict_types=1);
 namespace Cajeer\Servers\Connector;
 
-use Cajeer\Servers\Credentials\CredentialProfile;
 use RuntimeException;
 
-/** Read-only Proxmox VE API client. Credentials never leave this server except over verified TLS. */
+/** Proxmox VE driver using the shared verified API client. */
 final class ProxmoxConnector implements ConnectorInterface, ConnectorActionDriver, \Cajeer\Servers\Metrics\MetricDriver
 {
-    private const MAX_RESPONSE = 2_097_152;
     private const MAX_NODES = 256;
     private const MAX_GUESTS = 1500;
 
     /** Optional transport is for isolated real-response tests; production uses verified HTTPS streams. */
-    public function __construct(private readonly ?\Closure $transport = null, private readonly ?string $caFile = null, private readonly ?HttpsTransport $https = null) {}
+    public function __construct(private readonly ?\Closure $transport = null, private readonly ?string $caFile = null, private readonly ?HttpsTransport $https = null, private readonly bool $requireProfile=false) {}
 
     public function manifest(): ConnectorManifest
     {
@@ -26,26 +24,21 @@ final class ProxmoxConnector implements ConnectorInterface, ConnectorActionDrive
         $manifest=$this->manifest();
         if ($context->provider!==$manifest->provider || !$manifest->supports($operation) || !$manifest->accepts($context->credentialType,'api'))
             throw new RuntimeException('Unsupported Proxmox operation or credential.');
-        if ($operation==='health') {
-            $authorization=self::authorization($context->credentialType,$secret);
-            try { $nodes=$this->request($context->host,$context->port,'/api2/json/nodes',$authorization,$this->caFile); }
-            finally { sodium_memzero($authorization); }
-            $items=self::observations($nodes,[]);
-        } else {
-            $items=$this->discover($context->host,$context->port,$context->credentialType,$secret,$this->caFile);
-        }
+        [$items,$info]=$this->client()->read($context,$secret,static function(callable $get,array $info)use($operation):array {
+            $nodes=ProxmoxApiClient::rows($get('/api2/json/nodes'));
+            $guests=$operation==='health'?[]:ProxmoxApiClient::rows($get('/api2/json/cluster/resources?type=vm'));
+            return [self::observations($nodes,$guests),$info];
+        },$operation==='validate_rotation',$operation==='health');
         if (in_array($operation,['health','validate_rotation'],true) && !array_filter($items,static fn(array $i):bool=>$i['type']==='hypervisor_node'))
             throw new RuntimeException('Remote API returned no Proxmox nodes.');
-        // Full means a successful visible-inventory read, not proof of cluster-wide ACL visibility.
-        $complete=$operation!=='health' && $items!==[] && count(array_filter($items,static fn(array $i):bool=>$i['type']==='hypervisor_node'))>0;
-        return new ConnectorResult($items,$complete);
+        // Hardened profiles deliberately never claim ACL-filtered discovery is authoritative.
+        $complete=$context->proxmoxProfile===null && $operation!=='health' && $items!==[] && count(array_filter($items,static fn(array $i):bool=>$i['type']==='hypervisor_node'))>0;
+        return new ConnectorResult($items,$complete,[],$info);
     }
 
     public function metrics(ConnectorContext $context,#[\SensitiveParameter] string $secret):array
     {
-        $auth=self::authorization($context->credentialType,$secret);
-        try {$nodes=$this->request($context->host,$context->port,'/api2/json/nodes',$auth,$this->caFile);$guests=$this->request($context->host,$context->port,'/api2/json/cluster/resources?type=vm',$auth,$this->caFile);}
-        finally{sodium_memzero($auth);}
+        [$nodes,$guests]=$this->client()->read($context,$secret,static fn(callable $get)=>[ProxmoxApiClient::rows($get('/api2/json/nodes')),ProxmoxApiClient::rows($get('/api2/json/cluster/resources?type=vm'))]);
         self::observations($nodes,$guests);$out=[];
         foreach([...$nodes,...$guests] as $r){$id=isset($r['vmid'])?$r['type'].':'.$r['vmid']:'node:'.$r['node'];
             foreach(['cpu'=>['cpu.utilization','ratio','gauge'],'mem'=>['memory.used','bytes','gauge'],'maxmem'=>['memory.total','bytes','gauge'],'disk'=>['disk.used','bytes','gauge'],'maxdisk'=>['disk.total','bytes','gauge'],'uptime'=>['uptime','seconds','gauge'],'netin'=>['network.receive','bytes','counter'],'netout'=>['network.transmit','bytes','counter'],'diskread'=>['disk.read','bytes','counter'],'diskwrite'=>['disk.write','bytes','counter']] as $key=>[$name,$unit,$kind]) {
@@ -62,7 +55,7 @@ final class ProxmoxConnector implements ConnectorInterface, ConnectorActionDrive
     public function prepareAction(ConnectorContext $context,string $action,string $externalId,#[\SensitiveParameter] string $secret): array
     {
         if ($context->provider!=='proxmox'||!in_array($action,$this->actions(),true)||!preg_match('/^qemu:([1-9][0-9]{0,8})$/D',$externalId,$m)) throw new RuntimeException('Unsupported VM action.');
-        $items=$this->discover($context->host,$context->port,$context->credentialType,$secret,$this->caFile);
+        $items=$this->client()->read($context,$secret,static function(callable $get,array $info):array {if(($info['quorate']??null)===false)throw new ConnectorTransportException('connector_unavailable');return self::observations(ProxmoxApiClient::rows($get('/api2/json/nodes')),ProxmoxApiClient::rows($get('/api2/json/cluster/resources?type=vm')));},true);
         foreach ($items as $item) if ($item['external_id']===$externalId) {
             $node=self::node(substr($item['parent_external_id'],5));
             return ['node'=>$node,'vmid'=>(int)$m[1]];
@@ -73,16 +66,11 @@ final class ProxmoxConnector implements ConnectorInterface, ConnectorActionDrive
     {
         $node=self::node($resource['node']??null);$id=$resource['vmid']??null;
         if ($context->provider!=='proxmox'||!is_int($id)||$id<1||$id>999999999||!in_array($action,$this->actions(),true)) throw new RuntimeException('Invalid power action.');
-        $auth=self::authorization($context->credentialType,$secret);
-        try {
-            $path='/api2/json/nodes/'.$node.'/qemu/'.$id.'/status/'.($action==='vm.start'?'start':'shutdown');
-            $body=($this->https??new HttpsTransport())->powerPost($context->host,$context->port,$path,$auth,$this->caFile);
-            $task=HttpsTransport::jsonObject($body)->data??null;
-            $task=self::taskId($task,$node);
-            $parts=explode(':',$task);
-            if ($parts[5]!==($action==='vm.start'?'qmstart':'qmshutdown') || $parts[6]!== (string)$id) throw new RuntimeException('Remote task does not match requested action.');
-            return $task;
-        } finally { sodium_memzero($auth); }
+        $path='/api2/json/nodes/'.$node.'/qemu/'.$id.'/status/'.($action==='vm.start'?'start':'shutdown');
+        $task=self::taskId($this->client()->power($context,$path,$secret),$node);
+        $parts=explode(':',$task);
+        if ($parts[5]!==($action==='vm.start'?'qmstart':'qmshutdown') || $parts[6]!== (string)$id) throw new RuntimeException('Remote task does not match requested action.');
+        return $task;
     }
     private static function taskId(mixed $task,string $node):string
     {
@@ -92,33 +80,25 @@ final class ProxmoxConnector implements ConnectorInterface, ConnectorActionDrive
     public function actionStatus(ConnectorContext $context,string $node,string $task,#[\SensitiveParameter] string $secret): string
     {
         $node=self::node($node);self::taskId($task,$node);
-        $auth=self::authorization($context->credentialType,$secret);
-        try {
-            $body=($this->https??new HttpsTransport())->get($context->host,$context->port,'/api2/json/nodes/'.$node.'/tasks/'.rawurlencode($task).'/status',$auth,$this->caFile);
-            $data=HttpsTransport::jsonObject($body)->data??null;
+        return $this->client()->read($context,$secret,static function(callable $get)use($node,$task):string {
+            $data=$get('/api2/json/nodes/'.$node.'/tasks/'.rawurlencode($task).'/status');
             if (!$data instanceof \stdClass) throw new RuntimeException('Invalid task status.');
             return match($data->status??null) {
                 'running'=>'submitted',
                 'stopped'=>is_string($data->exitstatus??null)&&$data->exitstatus!==''?($data->exitstatus==='OK'?'succeeded':'failed'):throw new RuntimeException('Missing task result.'),
                 default=>throw new RuntimeException('Invalid task state.'),
             };
-        } finally { sodium_memzero($auth); }
+        });
     }
 
     /** @return list<array{type:string,external_id:string,fields:array<string,string>}> */
     public function discover(string $host, int $port, string $credentialType, #[\SensitiveParameter] string $plaintext, ?string $caFile = null): array
     {
-        $host = ConnectorBindingService::validateHost($host);
-        $port = ConnectorBindingService::validatePort($port);
-        $authorization = self::authorization($credentialType, $plaintext);
-        try {
-            $nodes = $this->request($host, $port, '/api2/json/nodes', $authorization, $caFile);
-            $guests = $this->request($host, $port, '/api2/json/cluster/resources?type=vm', $authorization, $caFile);
-        } finally {
-            sodium_memzero($authorization);
-        }
-        return self::observations($nodes, $guests);
+        $ctx=new ConnectorContext('proxmox',$host,$port,$credentialType);
+        return $this->client($caFile)->read($ctx,$plaintext,static fn(callable $get)=>self::observations(ProxmoxApiClient::rows($get('/api2/json/nodes')),ProxmoxApiClient::rows($get('/api2/json/cluster/resources?type=vm'))));
     }
+    private function client(?string $caFile=null):ProxmoxApiClient
+    {return new ProxmoxApiClient($this->https??new HttpsTransport(),$caFile??$this->caFile,$this->transport,$this->requireProfile);}
 
     /** @return list<array{type:string,external_id:string,fields:array<string,string>}> */
     public static function observations(array $nodes, array $guests): array
@@ -174,41 +154,5 @@ final class ProxmoxConnector implements ConnectorInterface, ConnectorActionDrive
             'paused', 'suspended' => $guest ? 'maintenance' : 'unknown',
             default => 'unknown',
         };
-    }
-    private static function authorization(string $type, #[\SensitiveParameter] string $plaintext): string
-    {
-        $value = CredentialProfile::decodeForInternalUse($type,$plaintext);
-        if ($type==='proxmox_api' && is_array($value)) {
-            $tokenId=$value['token_id']; $tokenSecret=$value['token_secret'];
-        } elseif ($type==='api_token' && is_string($value) && str_contains($value,'=')) {
-            [$tokenId,$tokenSecret]=explode('=',$value,2);
-        } else {
-            throw new RuntimeException('Proxmox API credentials required.');
-        }
-        if (preg_match('/^[a-zA-Z0-9._@-]+![a-zA-Z0-9._-]{1,128}$/D',$tokenId)!==1
-            || $tokenSecret==='' || strlen($tokenSecret)>8192 || preg_match('/[\x00-\x20\x7f]/',$tokenSecret)) {
-            throw new RuntimeException('Invalid Proxmox token format.');
-        }
-        return 'PVEAPIToken='.$tokenId.'='.$tokenSecret;
-    }
-
-    /** @return list<array<string,mixed>> */
-    private function request(string $host,int $port,string $path,#[\SensitiveParameter] string $authorization,?string $caFile):array
-    {
-        $endpoint='https://'.(str_contains($host,':')?'['.$host.']':$host).':'.$port.$path;
-        if ($this->transport!==null) {
-            $body=($this->transport)($endpoint,$authorization,$caFile);
-        } else {
-            $body=($this->https??new HttpsTransport())->get($host,$port,$path,$authorization,$caFile);
-        }
-        if (!is_string($body) || strlen($body)>self::MAX_RESPONSE) throw new RuntimeException('Invalid remote response size.');
-        $decoded=HttpsTransport::jsonObject($body);
-        if (!isset($decoded->data) || !is_array($decoded->data)) {
-            throw new RuntimeException('Unexpected Proxmox API response.');
-        }
-        return array_map(static function(mixed $row):array {
-            if (!$row instanceof \stdClass) throw new ConnectorTransportException('connector_protocol_error');
-            return (array)$row;
-        },$decoded->data);
     }
 }

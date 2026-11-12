@@ -5,12 +5,19 @@ import {readFileSync} from 'node:fs'
 import {CajeerServersClient,ApiError} from './index.js'
 const dir=process.argv[2], id='11111111-1111-4111-8111-111111111111', etag=`"${id}:2"`
 let csrf=0, posts=0
+const profile={cluster:"prod",anchor_node:"pve-a",anchor_id:1,primary_pin:"a".repeat(64),fallbacks:[{host:"pve-b.test",port:8006,pin:"b".repeat(64)}]}
 const exportBytes='metric,value\nnetwork.bytes,18446744073709551615\n', exportDigest=createHash('sha256').update(exportBytes).digest('hex')
 const server=createServer({key:readFileSync(`${dir}/key.pem`),cert:readFileSync(`${dir}/cert.pem`)},async(req,res)=>{
   const chunks=[];for await(const chunk of req)chunks.push(chunk);const body=chunks.length?JSON.parse(Buffer.concat(chunks)):null
   const reply=(status,data)=>{res.writeHead(status,{'Content-Type':'application/json'});res.end(JSON.stringify(data))}
   if(req.url==='/api/v1/auth/csrf')return reply(200,{csrf_token:`csrf-${++csrf}`})
   if(req.url===`/api/v1/connectors/targets/${id}`&&req.method==='GET')return reply(200,{data:{id,etag}})
+  if(req.url===`/api/v1/connectors/targets/${id}`&&req.method==='PATCH'){
+    assert.equal(req.headers['x-csrf-token'],`csrf-${csrf}`);assert.equal(req.headers['if-match'],etag);assert.deepEqual(body,{proxmox_profile:profile});return reply(200,{data:{id,etag,proxmox_profile:profile}})
+  }
+  if(req.url===`/api/v1/connectors/targets/${id}/health`&&req.method==='POST'){
+    assert.equal(req.headers['x-csrf-token'],`csrf-${csrf}`);assert.equal(req.headers['if-match'],etag);return reply(200,{data:{connector_id:id,status:'healthy',duration_ms:13,connection:{version:'9.0.3',cluster:'prod',failover:true,endpoint_host:'pve-b.test',endpoint_port:8006}}})
+  }
   if(req.url===`/api/v1/connectors/targets/${id}/actions`&&req.method==='POST'){
     assert.equal(req.headers['x-csrf-token'],`csrf-${csrf}`);assert.equal(req.headers['if-match'],etag);assert.equal(req.headers['idempotency-key'],'test-idempotency-0001');assert.deepEqual(body,{action:'vm.start',external_id:'qemu:101',confirm:'vm.start qemu:101'});posts++;return reply(202,{data:{id,status:'submitted'}})
   }
@@ -71,6 +78,8 @@ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve))
 try {
   const c=new CajeerServersClient(`https://127.0.0.1:${server.address().port}/api/v1`)
   assert.equal((await c.getTarget(id)).etag,etag)
+  assert.deepEqual((await c.updateTarget(id,etag,{proxmox_profile:profile})).proxmox_profile,profile)
+  assert.equal((await c.checkHealth(id,etag)).connection.failover,true)
   assert.throws(()=>c.power(id,etag,'vm.start','qemu:101','yes','test-idempotency-0001'))
   const r=await c.power(id,etag,'vm.start','qemu:101','vm.start qemu:101','test-idempotency-0001');assert.equal(r.status,'submitted');assert.equal(posts,1)
   assert.equal((await c.enqueue(id,id,'collect-01','proxmox.inventory')).id,id)
@@ -96,5 +105,5 @@ try {
   assert.equal((await c.cancelDataExport(id,id)).status,'cancelled')
   await c.revokeIngestionSource(id,id)
   await assert.rejects(c.runs(id),e=>e instanceof ApiError&&e.status===403&&e.problem.code==='permission_denied')
-  console.log('TypeScript SDK compile, real TLS fetch, CSRF, ETag, confirmation, collection plans, metric queries, ingestion lifecycle, manual import, data exports, typed errors PASS')
+  console.log('TypeScript SDK compile, real TLS fetch, Proxmox profiles/health, CSRF, ETag, confirmation, collection plans, metric queries, ingestion lifecycle, manual import, data exports, typed errors PASS')
 }finally{await new Promise(resolve=>server.close(resolve))}

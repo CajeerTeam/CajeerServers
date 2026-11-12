@@ -1,4 +1,4 @@
-import type { InfrastructureAsset, Driver, Target, TargetInput, ServiceGrant, Run, EnqueuedRun, Operation, PowerAction, Action, Problem, CollectionJobPlan, CollectionPlanInput, MetricSeries, MetricQuery, MetricAggregation, IngestionKind, IngestionSource, IngestionSourceSecret, IngestionBatch, IngestedEvent, DataExportInput, DataExportJob, DataExportList, ManualImportInput, ManualImportPreview, ManualImportResult } from './types.js'
+import type { InfrastructureAsset, Driver, Target, TargetInput, ProxmoxProfile, ProxmoxConnection, ServiceGrant, Run, EnqueuedRun, Operation, PowerAction, Action, Problem, CollectionJobPlan, CollectionPlanInput, MetricSeries, MetricQuery, MetricAggregation, IngestionKind, IngestionSource, IngestionSourceSecret, IngestionBatch, IngestedEvent, DataExportInput, DataExportJob, DataExportList, ManualImportInput, ManualImportPreview, ManualImportResult } from './types.js'
 export class ApiError extends Error {
   constructor(public readonly status: number, public readonly problem: Problem) { super(problem.title || `HTTP ${status}`); this.name = 'ApiError' }
 }
@@ -43,13 +43,14 @@ export class CajeerServersClient {
   targets(workspace:string,limit=50,offset=0):Promise<Target[]> { return this.data(`/connectors/targets?workspace_id=${this.id(workspace)}&limit=${limit}&offset=${offset}`) }
   getTarget(id:string):Promise<Target> { return this.data(this.target(id)) }
   createTarget(input:TargetInput):Promise<Target> { return this.write('POST','/connectors/targets',input) }
-  updateTarget(id:string,etag:string,patch:Partial<Pick<Target,'name'|'endpoint_host'|'endpoint_port'|'asset_id'|'state'>>):Promise<Target> { return this.write('PATCH',this.target(id),patch,{'If-Match':etag}) }
+  updateTarget(id:string,etag:string,patch:Partial<Pick<Target,'name'|'endpoint_host'|'endpoint_port'|'asset_id'|'state'>> & {proxmox_profile?:ProxmoxProfile}):Promise<Target> { return this.write('PATCH',this.target(id),patch,{'If-Match':etag}) }
   deleteTarget(id:string,etag:string):Promise<void> { return this.write('DELETE',this.target(id),undefined,{'If-Match':etag}) }
   bindings(id:string):Promise<unknown> { return this.data(`${this.target(id)}/credential-bindings`) }
   unbind(id:string,etag:string,bindingId:string):Promise<void> { return this.write('DELETE',`${this.target(id)}/credential-bindings/${this.id(bindingId)}`,undefined,{'If-Match':etag}) }
   validateRotation(id:string,etag:string,revision:number):Promise<unknown> { return this.write('POST',`${this.target(id)}/validate-rotation`,{revision},{'If-Match':etag}) }
   bind(id:string,etag:string,credentialId:string,purpose:string,attachToAsset=true):Promise<unknown> { return this.write('POST',`${this.target(id)}/credential-bindings`,{credential_id:credentialId,purpose,attach_to_asset:attachToAsset},{'If-Match':etag}) }
   authorizeUse(credentialId:string,assetId:string,purpose:string,password:string,totp:string):Promise<unknown> { return this.write('POST',`/vault/credentials/${this.id(credentialId)}/authorize-use`,{asset_id:assetId,purpose,password,totp}) }
+  checkHealth(id:string,etag:string):Promise<{connector_id:string;status:string;duration_ms:number;connection?:ProxmoxConnection}> { return this.write('POST',`${this.target(id)}/health`,undefined,{'If-Match':etag}) }
   operate(id:string,etag:string,operation:Operation):Promise<unknown> { return this.write('POST',`${this.target(id)}/${operation}`,undefined,{'If-Match':etag}) }
   grant(id:string,etag:string,operation:Operation,ttlSeconds:number,intervalSeconds?:number):Promise<ServiceGrant> { return this.write('POST',`${this.target(id)}/service-grants`,{operation,ttl_seconds:ttlSeconds,...(intervalSeconds===undefined?{}:{interval_seconds:intervalSeconds})},{'If-Match':etag}) }
   grants(id:string):Promise<ServiceGrant[]> { return this.data(`${this.target(id)}/service-grants`) }

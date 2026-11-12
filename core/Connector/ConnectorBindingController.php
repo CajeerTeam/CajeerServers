@@ -142,9 +142,17 @@ final class ConnectorBindingController
     }
     private static function filter(HttpRequest $r,string $name):?string
     { $value=$r->query[$name]??null;if ($value!==null&&!is_string($value)) throw new HttpException(422,'Invalid connector filter.','validation_failed');return $value; }
+    private function profileSession(HttpRequest $r):void
+    {
+        if(array_key_exists('proxmox_profile',$r->attribute('json'))){
+            $p=$this->auth->authenticate($r,sessionOnly:true);
+            if(($p['mfa_verified']??false)!==true)throw new HttpException(403,'Active MFA session required to configure Proxmox trust.','mfa_required');
+        }
+    }
     public function create(HttpRequest $r):HttpResponse
     {
-        return self::etag($this->service->create($this->actor($r,'connectors.targets.manage',true),$r->attribute('json'),self::rid($r)),201);
+        $actor=$this->actor($r,'connectors.targets.manage',true);$this->profileSession($r);
+        return self::etag($this->service->create($actor,$r->attribute('json'),self::rid($r)),201);
     }
     public function show(HttpRequest $r):HttpResponse
     {
@@ -153,6 +161,7 @@ final class ConnectorBindingController
     public function update(HttpRequest $r):HttpResponse
     {
         $actor=$this->actor($r,'connectors.targets.manage',true);$id=self::id($r);
+        $this->profileSession($r);
         return self::etag($this->service->update($actor,$id,self::version($r,$id),$r->attribute('json'),self::rid($r)));
     }
     public function delete(HttpRequest $r):HttpResponse

@@ -7,7 +7,11 @@ const api=useApi(), auth=useAuth(),route=useRoute()
 type Driver={provider:string;purpose:string;credentialTypes:string[];operations:string[];resourceTypes:string[];transport:string;actions:string[];write_actions_enabled:boolean;collectors?:import('~/composables/connectorLifecycle').CollectorDefinition[]}
 const drivers=ref<Driver[]>([])
 type Workspace={id:string;name:string;role:string}
-type Target={id:string;workspace_id:string;provider:string;name:string;endpoint_host:string;endpoint_port:number;state:string;asset_id:string|null;version:number;etag:string;health_status:string;health_checked_at:string|null;health_success_at:string|null;health_duration_ms:number|null;health_error_code:string|null;circuit_open_until:string|null;consecutive_failures:number}
+type PveProfile={cluster:string|null;anchor_node:string;anchor_id:number|null;primary_pin:string;fallbacks:{host:string;port:number;pin:string}[]}
+type PveConnection={version:string;cluster:string|null;anchor_node:string;anchor_id:number|null;endpoint_host:string;endpoint_port:number;failover:boolean;visible_members:number;quorate:boolean|null;permissions_visible?:boolean;root_privileges?:string[]}
+const profileText=ref(''),pveConnection=ref<PveConnection|null>(null)
+const canProfile=computed(()=>canManage.value&&workspaces.value.find(w=>w.id===workspace.value)?.role==='owner')
+type Target={proxmox_profile?:PveProfile|null;id:string;workspace_id:string;provider:string;name:string;endpoint_host:string;endpoint_port:number;state:string;asset_id:string|null;version:number;etag:string;health_status:string;health_checked_at:string|null;health_success_at:string|null;health_duration_ms:number|null;health_error_code:string|null;circuit_open_until:string|null;consecutive_failures:number}
 type Binding={id:string;connector_id:string;credential_id:string;purpose:string;type:string;state:string;credential_version:number|string}
 type Credential={credential_id:string;name:string;type:string;state:string}
 type Asset={id:string;name:string;type:string}
@@ -76,7 +80,7 @@ async function load(){const seq=++loadSequence,ws=workspace.value;openSequence++
     await searchAssets()
   }catch(e){if(seq===loadSequence)fail(e)}finally{if(seq===loadSequence)loading.value=false}
 }
-async function open(target:Target){if(target.workspace_id!==workspace.value)return;const seq=++openSequence;resources.value=[];resourceOffset.value=0;resourceHasMore.value=false;resolutionAssets.value={};selected.value=target.id;selectedTarget.value=target;assetSelection.value=target.asset_id||'';Object.assign(edit,{name:target.name,endpoint_host:target.endpoint_host,endpoint_port:target.endpoint_port});editEtag.value=target.etag;bindings.value=[];binding.credential_id='';manualCredential.value=false;binding.purpose=drivers.value.find(d=>d.provider===target.provider)?.purpose||providers.find(p=>p.id===target.provider)?.purpose||'api';pendingVersions.value=[];lastRun.value=null;stepup.password='';stepup.totp='';reset();
+async function open(target:Target){if(target.workspace_id!==workspace.value)return;const seq=++openSequence;resources.value=[];resourceOffset.value=0;resourceHasMore.value=false;resolutionAssets.value={};selected.value=target.id;selectedTarget.value=target;profileText.value=target.proxmox_profile?JSON.stringify(target.proxmox_profile,null,2):'';pveConnection.value=null;assetSelection.value=target.asset_id||'';Object.assign(edit,{name:target.name,endpoint_host:target.endpoint_host,endpoint_port:target.endpoint_port});editEtag.value=target.etag;bindings.value=[];binding.credential_id='';manualCredential.value=false;binding.purpose=drivers.value.find(d=>d.provider===target.provider)?.purpose||providers.find(p=>p.id===target.provider)?.purpose||'api';pendingVersions.value=[];lastRun.value=null;stepup.password='';stepup.totp='';reset();
   await navigateTo(`${inventoryContextUrl('connectors',workspace.value)}&target_id=${target.id}`,{replace:true});
   await loadResources(target,0);if(seq!==openSequence||selected.value!==target.id)return
   try{
@@ -95,6 +99,12 @@ watch(()=>form.provider,(provider)=>{const item=providers.find(p=>p.id===provide
 watch(workspace,()=>{if(!initialized)return;targetOffset.value=0;targetSearch.value='';providerFilter.value='';stateFilter.value='';form.asset_id='';assetSearch.value='';void navigateTo(inventoryContextUrl('connectors',workspace.value),{replace:true});void load()})
 async function filterTargets(){targetOffset.value=0;await load();await navigateTo(inventoryContextUrl('connectors',workspace.value),{replace:true})}
 async function targetPage(delta:number){targetOffset.value=Math.max(0,Math.min(10000,targetOffset.value+delta));await load();await navigateTo(inventoryContextUrl('connectors',workspace.value),{replace:true})}
+async function savePveProfile(){
+  const item=active.value;if(!item||!canProfile.value||busy.value)return
+  let profile:PveProfile;try{profile=JSON.parse(profileText.value)}catch{error.value='Некорректный JSON профиля.';return}
+  if(!confirm('Подтвердить доверенные endpoints и SHA-256 сертификатов? Прежние grants будут недействительны.'))return
+  busy.value=true;reset();try{const updated=(await api.write<{data:Target}>('PATCH',`/connectors/targets/${item.id}`,{proxmox_profile:profile},true,{'If-Match':item.etag})).data;await open(updated);message.value='Профиль сохранён. Выполните MFA health check.'}catch(e){fail(e)}finally{busy.value=false}
+}
 async function editTarget(){const item=active.value;if(!item||!canManage.value||busy.value)return;const patch:Record<string,string|number>={};if(edit.name!==item.name)patch.name=edit.name;if(edit.endpoint_host!==item.endpoint_host)patch.endpoint_host=edit.endpoint_host;if(edit.endpoint_port!==item.endpoint_port)patch.endpoint_port=edit.endpoint_port;if(!Object.keys(patch).length)return;if(!confirm('Изменение конфигурации делает прежние сервисные разрешения неактуальными. Продолжить?'))return;busy.value=true;reset();try{const updated=(await api.write<{data:Target}>('PATCH',`/connectors/targets/${item.id}`,patch,true,{'If-Match':editEtag.value})).data;await refreshHealth();await open(updated);message.value='Конфигурация обновлена.'}catch(e){fail(e)}finally{busy.value=false}}
 async function create(){if(!canManage.value||!workspace.value)return;busy.value=true;reset()
   try{const result=await api.write<{data:Target}>('POST','/connectors/targets',{
@@ -171,7 +181,8 @@ async function checkHealth(){
   try{
     await api.write('POST',`/vault/credentials/${credential.credential_id}/authorize-use`,{
       asset_id:item.asset_id,purpose:credential.purpose,password:stepup.password,totp:stepup.totp})
-    const result=await api.write<{data:{status:string;duration_ms:number}}>('POST',`/connectors/targets/${item.id}/health`,undefined,true,versionHeaders(item))
+    const result=await api.write<{data:{status:string;duration_ms:number;connection?:PveConnection}}>('POST',`/connectors/targets/${item.id}/health`,undefined,true,versionHeaders(item))
+    pveConnection.value=result.data.connection||null
     message.value=`Проверка доступности: ${result.data.status}, ${result.data.duration_ms} мс.`
   }catch(e){fail(e)}finally{stepup.password='';stepup.totp='';await refreshHealth();busy.value=false}
 }
@@ -226,6 +237,16 @@ onMounted(init)
               <button v-if="canManage" class="btn" type="button" :disabled="busy" @click="toggle(t)">{{t.state==='active'?'Отключить':'Включить'}}</button>
               <button v-if="canManage" class="btn" type="button" :disabled="busy" @click="remove(t)">Удалить</button></td></tr></tbody></table></div>
         <div class="inline-actions"><button class="btn" type="button" :disabled="busy||loading||targetOffset===0" @click="targetPage(-50)">Назад</button><span>Страница {{targetOffset/50+1}}</span><button class="btn" type="button" :disabled="busy||loading||!targetMore||targetOffset>=10000" @click="targetPage(50)">Далее</button></div>
+      </section>
+      <section v-if="active?.provider==='proxmox'" class="panel">
+        <h2>Профиль доверия Proxmox VE</h2>
+        <p>{{active.proxmox_profile?'TLS pin + проверка идентичности кластера':'Совместимый режим: CA и hostname, без failover. Настройте профиль для усиленной защиты.'}}</p>
+        <form v-if="canProfile" @submit.prevent="savePveProfile">
+          <label>Профиль JSON (SHA-256 сертификатов без двоеточий)<textarea v-model="profileText" rows="10" placeholder='{"cluster":"production","anchor_node":"pve-01","anchor_id":1,"primary_pin":"…","fallbacks":[]}' required /></label>
+          <button class="btn" :disabled="busy">Сохранить профиль доверия</button>
+        </form>
+        <p v-if="active.proxmox_profile">Кластер: {{active.proxmox_profile.cluster||'Standalone'}} · опорный узел: {{active.proxmox_profile.anchor_node}} · резервных endpoints: {{active.proxmox_profile.fallbacks.length}}</p>
+        <dl v-if="pveConnection" class="kv-grid"><div><dt>PVE</dt><dd>{{pveConnection.version}}</dd></div><div><dt>Endpoint проверки</dt><dd>{{pveConnection.endpoint_host}}:{{pveConnection.endpoint_port}} {{pveConnection.failover?'(резервный)':'(основной)'}}</dd></div><div><dt>Quorum</dt><dd>{{pveConnection.quorate===null?'—':pveConnection.quorate?'Есть':'Нет'}}</dd></div><div><dt>Права на /</dt><dd>{{pveConnection.permissions_visible?(pveConnection.root_privileges||[]).join(', ')||'Нет видимых прав':'Не доступны'}}</dd></div></dl>
       </section>
       <section v-if="active&&canManage" class="panel"><h2>Настройки: {{active.name}}</h2><form @submit.prevent="editTarget"><div class="form-row"><label>Название подключения<input v-model="edit.name" required maxlength="120" data-testid="connector-edit-name" /></label><label>Адрес подключения<input v-model="edit.endpoint_host" required maxlength="253" /></label><label>Порт подключения<input v-model.number="edit.endpoint_port" type="number" min="1" max="65535" required /></label></div><button class="btn" :disabled="busy">Сохранить настройки</button><button class="btn" type="button" :disabled="busy" @click="open(active)">Загрузить текущие настройки</button></form></section>
       <section v-if="active" class="panel"><h2>Credentials: {{active.name}}</h2>

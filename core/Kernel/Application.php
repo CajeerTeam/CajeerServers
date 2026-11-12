@@ -302,7 +302,7 @@ final class Application
             !in_array($c->get(ConfigRepository::class)->get('app.env','production'),['local','test','development'],true)));
         $this->services->singleton(HttpsTransport::class, fn (ServiceContainer $c): HttpsTransport => new HttpsTransport($c->get(EndpointPolicy::class)));
         $this->services->singleton(ProxmoxConnector::class, fn (ServiceContainer $c): ProxmoxConnector => new ProxmoxConnector(
-            null,($ca=$c->get(ConfigRepository::class)->get('connectors.proxmox_ca_file',''))!==''?(string)$ca:null,$c->get(HttpsTransport::class)));
+            null,($ca=$c->get(ConfigRepository::class)->get('connectors.proxmox_ca_file',''))!==''?(string)$ca:null,$c->get(HttpsTransport::class),$c->get(ConfigRepository::class)->get('connectors.proxmox_require_profile',false)===true));
         $this->services->singleton(VmmanagerConnector::class, fn (ServiceContainer $c): VmmanagerConnector => new VmmanagerConnector(
             $c->get(HttpsTransport::class),($ca=$c->get(ConfigRepository::class)->get('connectors.vmmanager_ca_file',''))!==''?(string)$ca:null));
         $this->services->singleton(HostTransport::class, fn (ServiceContainer $c): HostTransport => new HostTransport(
