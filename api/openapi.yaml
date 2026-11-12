@@ -1,8 +1,8 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.4.5
-  description: 'CajeerServers 0.4.5: SSH and WinRM read-only host inventory with trusted transports.'
+  version: 0.4.6
+  description: 'CajeerServers 0.4.6: SNMP read-only network discovery, persisted connector health and circuit breaker.'
 servers:
 - url: /api/v1
 security: []
@@ -5673,6 +5673,15 @@ paths:
       responses:
         '200':
           description: Authorized safe metadata; no secret bytes
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: {$ref: '#/components/schemas/ConnectorTargetWithHealth'}
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -5743,6 +5752,14 @@ paths:
       responses:
         '201':
           description: Resource persisted in PostgreSQL
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ConnectorTargetWithHealth'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -5773,6 +5790,14 @@ paths:
       responses:
         '200':
           description: Authorized safe metadata; no secret bytes
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ConnectorTargetWithHealth'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -5843,6 +5868,14 @@ paths:
       responses:
         '200':
           description: Authorized safe metadata; no secret bytes
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ConnectorTargetWithHealth'
         '400':
           description: Invalid If-Match header
         '401':
@@ -6156,7 +6189,7 @@ paths:
     post:
       operationId: inspectProxmoxConnector
       summary: Выполнить discovery зарегистрированного драйвера и получить сводку Inventory
-      description: Использует одноразовый Vault grant после отдельного password+TOTP step-up; нужен связанный активный Inventory asset и две credential bindings. Секреты и сырой ответ не выдаются. TLS peer и CA проверяются. Proxmox VE, VMmanager 6, SSH и WinRM исполняются через общий Registry. SSH проверяет known_hosts; WinRM требует Basic поверх проверенного HTTPS.
+      description: Использует одноразовый Vault grant после отдельного password+TOTP step-up; нужен связанный активный Inventory asset и две credential bindings. Секреты и сырой ответ не выдаются. TLS peer и CA проверяются. Proxmox VE, VMmanager 6, SSH, WinRM и SNMP исполняются через общий Registry. SNMPv3 authPriv или явно разрешённый SNMPv2c выполняют только GET/GETNEXT. SSH проверяет known_hosts; WinRM требует Basic поверх проверенного HTTPS.
       security:
       - sessionAuth: []
       parameters:
@@ -6191,6 +6224,8 @@ paths:
           description: Неполная настройка, отсутствует Inventory binding или нет активного credential
         '412':
           description: Устаревшая версия конфигурации
+        '423':
+          description: Circuit breaker открыт; дождитесь cooldown или выполните ручной health probe с MFA.
         '428':
           description: Требуется If-Match
         '501':
@@ -6295,6 +6330,8 @@ paths:
           description: Нет asset / binding или удалённый Inventory пуст
         '412':
           description: Конфигурация изменилась; импорт не начался
+        '423':
+          description: Circuit breaker открыт; дождитесь cooldown или выполните ручной health probe с MFA.
         '428':
           description: Требуется If-Match
         '501':
@@ -6303,6 +6340,29 @@ paths:
           description: Ошибка удалённого API или TLS
 components:
   schemas:
+    ConnectorTargetWithHealth:
+      type: object
+      required: [id, workspace_id, provider, name, endpoint_host, endpoint_port, state, version, etag, health_status, health_checked_at, health_success_at, health_duration_ms, health_error_code, circuit_open_until, consecutive_failures]
+      properties:
+        id: {type: string, format: uuid}
+        workspace_id: {type: string, format: uuid}
+        provider: {type: string, enum: [proxmox, vmmanager, ssh, winrm, snmp, custom]}
+        name: {type: string}
+        endpoint_host: {type: string}
+        endpoint_port: {type: integer, minimum: 1, maximum: 65535}
+        asset_id: {type: [string, 'null'], format: uuid}
+        state: {type: string, enum: [active, disabled]}
+        version: {type: integer, minimum: 1}
+        etag: {type: string}
+        created_at: {type: string}
+        updated_at: {type: string}
+        health_status: {type: string, enum: [unknown, healthy, degraded, unreachable, auth_failed, disabled]}
+        health_checked_at: {type: [string, 'null']}
+        health_success_at: {type: [string, 'null']}
+        health_duration_ms: {type: [integer, 'null'], minimum: 0}
+        health_error_code: {type: [string, 'null']}
+        circuit_open_until: {type: [string, 'null']}
+        consecutive_failures: {type: integer, minimum: 0}
     ConnectorDiscoveredResource:
       type: object
       required: [external_id, resource_type, asset_id, presence, missed_complete, last_generation, allow_create]

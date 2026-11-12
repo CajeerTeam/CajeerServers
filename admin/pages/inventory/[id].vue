@@ -30,6 +30,16 @@ const hardware = computed<HostHardware|null>(() => {
   if (!h.disks.every(d=>d && typeof d.name==='string' && typeof d.size_bytes==='number') || !h.interfaces.every(i=>i && typeof i.name==='string' && Array.isArray(i.addresses) && i.addresses.every(a=>typeof a==='string'))) return null
   return h as HostHardware
 })
+type NetworkDevice={object_id:string;description:string;interfaces:{index:number;name:string;oper_status:number;addresses:string[]}[]}
+const networkDevice=computed<NetworkDevice|null>(()=>{
+  const value=asset.value?.attributes?.network_device
+  if(!value||typeof value!=='object'||Array.isArray(value))return null
+  const n=value as Partial<NetworkDevice>
+  if(typeof n.object_id!=='string'||typeof n.description!=='string'||!Array.isArray(n.interfaces))return null
+  if(!n.interfaces.every(i=>i&&typeof i.index==='number'&&typeof i.name==='string'&&typeof i.oper_status==='number'&&Array.isArray(i.addresses)&&i.addresses.every(a=>typeof a==='string')))return null
+  return n as NetworkDevice
+})
+const interfaceStatus=(n:number)=>({1:'up',2:'down',3:'testing',4:'unknown',5:'dormant',6:'notPresent',7:'lowerLayerDown'} as Record<number,string>)[n]||'unknown'
 const gib = (bytes:number) => (bytes / 1073741824).toLocaleString('ru-RU',{maximumFractionDigits:2}) + ' ГиБ'
 const busy = ref(false), saving = ref(false), error = ref(''), notice = ref('')
 const relatedErrors = ref<string[]>([])
@@ -154,6 +164,14 @@ onMounted(load)
         <h3>Сетевые интерфейсы</h3>
         <ul v-if="hardware.interfaces.length"><li v-for="nic in hardware.interfaces" :key="nic.name">{{ nic.name }} · {{ nic.addresses.join(', ') || 'без IP' }}</li></ul>
         <p v-else class="muted">Нет обнаруженных интерфейсов.</p>
+      </section>
+      <section v-if="networkDevice" class="panel">
+        <h2>Сетевое устройство (SNMP)</h2>
+        <p>Object ID: {{networkDevice.object_id}}</p><p>{{networkDevice.description}}</p>
+        <table v-if="networkDevice.interfaces.length"><thead><tr><th>ifIndex</th><th>Интерфейс</th><th>Состояние</th><th>IP</th></tr></thead>
+          <tbody><tr v-for="nic in networkDevice.interfaces" :key="nic.index"><td>{{nic.index}}</td><td>{{nic.name}}</td><td>{{interfaceStatus(nic.oper_status)}}</td><td>{{nic.addresses.join(', ')||'—'}}</td></tr></tbody></table>
+        <p v-else>Нет видимых интерфейсов.</p>
+        <p class="muted">Наблюдаемые адреса не резервируют и не освобождают записи IPAM.</p>
       </section>
       <section v-if="canEdit" class="panel">
         <h2>Редактирование объекта</h2>

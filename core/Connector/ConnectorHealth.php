@@ -2,7 +2,7 @@
 declare(strict_types=1);
 namespace Cajeer\Servers\Connector;
 
-/** Successful one-shot probe; persisted monitoring is introduced separately. */
+/** Safe response for a successful probe; persisted status is maintained by ConnectorHealthMonitor. */
 final readonly class ConnectorHealth
 {
     public function __construct(public string $connector_id,public int $duration_ms) {}

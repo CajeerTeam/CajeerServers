@@ -158,12 +158,12 @@ SQL);
                     foreach($event['fields'] as $field=>$value){
                         $modeStmt->execute(['id'=>$assetId,'field'=>$field]);$mode=$modeStmt->fetchColumn();
                         if($mode==='manual'){
-                            if(($field==='attributes'?($asset[$field]['host_hardware']??null)!=$value['host_hardware']:$asset[$field]!==$value)){
+                            if(($field==='attributes'?($asset[$field][array_key_first($value)]??null)!=reset($value):$asset[$field]!==$value)){
                                 $conflicted[]=$field;
                                 $this->recordConflict($pdo,$assetId,$ws,$field,$value,$event['observed_at']);
                             }else{$this->resolveConflict($pdo,$assetId,$field);}
                         }else{
-                            if(($field==='attributes'?($asset[$field]['host_hardware']??null)!=$value['host_hardware']:$asset[$field]!==$value)){$patch[$field]=$field==='attributes'?InfrastructureAsset::changes(['attributes'=>array_replace($asset[$field],$value)])['attributes']:$value;$applied[]=$field;}
+                            if(($field==='attributes'?($asset[$field][array_key_first($value)]??null)!=reset($value):$asset[$field]!==$value)){$patch[$field]=$field==='attributes'?InfrastructureAsset::changes(['attributes'=>array_replace($asset[$field],$value)])['attributes']:$value;$applied[]=$field;}
                             $this->setProvenance($pdo,$assetId,$field,'observed','import',$actor,$event['observed_at']);
                             $this->resolveConflict($pdo,$assetId,$field);
                         }

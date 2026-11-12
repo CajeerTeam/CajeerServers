@@ -65,13 +65,15 @@ final class ConnectorBindingService
     {
         foreach (['id','workspace_id','asset_id'] as $key) if (isset($row[$key])) $row[$key]=(string)$row[$key];
         $row['version']=(int)$row['version'];$row['endpoint_port']=(int)$row['endpoint_port'];
+        $row['health_duration_ms']=isset($row['health_duration_ms'])?(int)$row['health_duration_ms']:null;
+        $row['consecutive_failures']=(int)($row['consecutive_failures']??0);
         $row['etag']=CredentialInput::etag($row['id'],$row['version']);
         return $row;
     }
 
     private function target(PDO $pdo,string $actor,string $id,bool $lock=false):array
     {
-        $query=$pdo->prepare('SELECT t.id::text,t.workspace_id::text,t.provider,t.name,t.endpoint_host,t.endpoint_port,t.asset_id::text,t.state,t.version,t.created_at::text,t.updated_at::text FROM connector_targets t JOIN workspace_members wm ON wm.workspace_id=t.workspace_id AND wm.user_id=CAST(:actor AS uuid) JOIN users u ON u.id=wm.user_id AND u.is_active=true WHERE t.id=CAST(:id AS uuid)'.($lock?' FOR UPDATE OF t':''));
+        $query=$pdo->prepare('SELECT t.id::text,t.workspace_id::text,t.provider,t.name,t.endpoint_host,t.endpoint_port,t.asset_id::text,t.state,t.version,t.created_at::text,t.updated_at::text,h.health_status,h.health_checked_at::text,h.health_success_at::text,h.health_duration_ms,h.health_error_code,h.circuit_open_until::text,h.consecutive_failures FROM connector_targets t JOIN connector_health_current h ON h.target_id=t.id JOIN workspace_members wm ON wm.workspace_id=t.workspace_id AND wm.user_id=CAST(:actor AS uuid) JOIN users u ON u.id=wm.user_id AND u.is_active=true WHERE t.id=CAST(:id AS uuid)'.($lock?' FOR UPDATE OF t':''));
         $query->execute(['id'=>$id,'actor'=>$actor]);
         $row=$query->fetch(PDO::FETCH_ASSOC);
         if (!is_array($row)) throw new HttpException(404,'Connector configuration not found.','not_found');
@@ -114,7 +116,7 @@ final class ConnectorBindingService
         $workspace=self::uuid($workspace);
         if ($limit<1||$limit>100||$offset<0||$offset>10000) throw new HttpException(422,'Invalid pagination.','validation_failed');
         $pdo=$this->db->connection();$this->inventory->workspaceRole($pdo,$workspace,$actor);
-        $q=$pdo->prepare('SELECT t.id::text,t.workspace_id::text,t.provider,t.name,t.endpoint_host,t.endpoint_port,t.asset_id::text,t.state,t.version,t.created_at::text,t.updated_at::text FROM connector_targets t WHERE t.workspace_id=CAST(:ws AS uuid) ORDER BY t.created_at DESC,t.id DESC LIMIT :limit OFFSET :offset');
+        $q=$pdo->prepare('SELECT t.id::text,t.workspace_id::text,t.provider,t.name,t.endpoint_host,t.endpoint_port,t.asset_id::text,t.state,t.version,t.created_at::text,t.updated_at::text,h.health_status,h.health_checked_at::text,h.health_success_at::text,h.health_duration_ms,h.health_error_code,h.circuit_open_until::text,h.consecutive_failures FROM connector_targets t JOIN connector_health_current h ON h.target_id=t.id WHERE t.workspace_id=CAST(:ws AS uuid) ORDER BY t.created_at DESC,t.id DESC LIMIT :limit OFFSET :offset');
         $q->bindValue(':ws',$workspace);$q->bindValue(':limit',$limit,PDO::PARAM_INT);$q->bindValue(':offset',$offset,PDO::PARAM_INT);$q->execute();
         return array_map(self::present(...),$q->fetchAll(PDO::FETCH_ASSOC));
     }

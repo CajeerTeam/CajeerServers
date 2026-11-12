@@ -1,6 +1,10 @@
 # CajeerServers
 
-**CajeerServers** — русскоязычная self-hosted веб-оболочка для наблюдения и управления инфраструктурой. Это **не ОС**, не прошивка и не замена Proxmox/VMmanager. В 0.4.0 добавлена реальная серверная проверка ожидающей версии Credentials Vault через Proxmox с MFA и блокировкой активации без proof; в 0.3.9 добавлена работающая админ-панель Credentials Vault с browser E2E для изолированного staging; в 0.3.8 добавлены шифрованные CLI-backups и offline recovery; в 0.3.7 реализована read-only интеграция Proxmox VE через HTTPS; в 0.4.4 добавлена read-only интеграция VMmanager 6; в 0.4.5 добавлены рабочие SSH и WinRM драйверы; SNMP и custom остаются следующими этапами.
+**CajeerServers** — русскоязычная self-hosted веб-оболочка для наблюдения и управления инфраструктурой. Это **не ОС**, не прошивка и не замена Proxmox/VMmanager. В 0.4.0 добавлена реальная серверная проверка ожидающей версии Credentials Vault через Proxmox с MFA и блокировкой активации без proof; в 0.3.9 добавлена работающая админ-панель Credentials Vault с browser E2E для изолированного staging; в 0.3.8 добавлены шифрованные CLI-backups и offline recovery; в 0.3.7 реализована read-only интеграция Proxmox VE через HTTPS; в 0.4.4 добавлена read-only интеграция VMmanager 6; в 0.4.5 добавлены рабочие SSH и WinRM драйверы; в 0.4.6 добавлены SNMP и постоянный Connector Health; custom остаётся следующим этапом.
+
+## Версия 0.4.6 — SNMP & Connector Health
+
+Рабочий SNMPv3 authPriv (SHA-256/SHA-512 + AES128), SNMPv2c только по явному разрешению, обнаружение сетевых устройств, интерфейсов и IP через общий runtime. Сохранённые health-статусы, периодические проверки, circuit breaker и Prometheus. [Установка, эксплуатация и тесты](docs/SNMP-Connector-Health-0.4.6.md).
 
 ## Версия 0.4.5 — SSH & WinRM Connectors
 

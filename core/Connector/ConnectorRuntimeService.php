@@ -46,14 +46,16 @@ final class ConnectorRuntimeService
         $actor=$principal['user']['id']??null;
         if (!is_string($actor)) throw new HttpException(403,'Invalid session.','session_required');
         $target=$this->bindings->runtimeContext($actor,$targetId,$version,'validate_rotation');
-        $snapshot=$this->discoverWithGrant($target,'validate_rotation',
-            fn(callable $consumer)=>$this->access->consumePendingForAsset($principal,$target['asset_id'],$target['credential_id'],$target['purpose'],$revision,$consumer,$requestId));
-        $items=$snapshot->items;
-        $proof=$this->versions->markValidated($actor,$target['credential_id'],$revision,
-            $target['credential_version'],$targetId,$version,$requestId);
-        return ['validated'=>true,'connector_id'=>$targetId,'credential_id'=>$target['credential_id'],
-            'secret_version'=>$revision,'discovered'=>count($items),
-            'required_targets'=>$proof['required'],'validated_targets'=>$proof['validated']];
+        return $this->withExecutionLock($target,function()use($actor,$principal,$target,$targetId,$version,$revision,$requestId):array {
+            $snapshot=$this->discoverWithGrant($target,'validate_rotation',
+                fn(callable $consumer)=>$this->access->consumePendingForAsset($principal,$target['asset_id'],$target['credential_id'],$target['purpose'],$revision,$consumer,$requestId));
+            $items=$snapshot->items;
+            $proof=$this->versions->markValidated($actor,$target['credential_id'],$revision,
+                $target['credential_version'],$targetId,$version,$requestId);
+            return ['validated'=>true,'connector_id'=>$targetId,'credential_id'=>$target['credential_id'],
+                'secret_version'=>$revision,'discovered'=>count($items),
+                'required_targets'=>$proof['required'],'validated_targets'=>$proof['validated']];
+        });
     }
 
     /** @param array<string,mixed> $principal */
@@ -63,18 +65,11 @@ final class ConnectorRuntimeService
         if (!is_string($actor)) throw new HttpException(403,'Invalid session.','session_required');
         $operation=$sync?'sync':'inspect';
         $target=$this->bindings->runtimeContext($actor,$targetId,$version,$operation);
-        // The same target lock as background execution prevents manual sync racing a worker snapshot.
-        $pdo=$this->db->connection();
-        $lock=$pdo->prepare('SELECT pg_try_advisory_lock(hashtextextended(:id,4202))');
-        $lock->execute(['id'=>$target['id']]);
-        if (!in_array($lock->fetchColumn(),[true,'t','1',1],true)) throw new HttpException(409,'Connector already executing.','connector_busy');
-        try {
+        return $this->withExecutionLock($target,function()use($actor,$principal,$target,$targetId,$operation,$requestId):array {
+            if (ConnectorHealthMonitor::isOpen($this->db->connection(),$targetId)) throw new HttpException(423,'Connector circuit is open. Use a manual health probe or wait for cooldown.','connector_circuit_open');
             return $this->runAuthorized($actor,$target,$operation,
-                fn(callable $consumer)=>$this->access->consumeForAsset($principal,$target['asset_id'],$target['credential_id'],$target['purpose'],$consumer,$requestId),
-                $requestId);
-        } finally {
-            $unlock=$pdo->prepare('SELECT pg_advisory_unlock(hashtextextended(:id,4202))'); $unlock->execute(['id'=>$target['id']]);
-        }
+                fn(callable $consumer)=>$this->access->consumeForAsset($principal,$target['asset_id'],$target['credential_id'],$target['purpose'],$consumer,$requestId),$requestId);
+        });
     }
 
     /** Internal worker entry. Authorization and result fencing are supplied by the service grant broker. */
@@ -87,7 +82,23 @@ final class ConnectorRuntimeService
         $reconciliation=$this->reconciliation();
         $generation=$sync?$reconciliation->generation($this->db->connection()):0;
         $observedAt=$sync?(string)$this->db->connection()->query("SELECT to_char(clock_timestamp() AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"')")->fetchColumn():'';
-        $snapshot=$this->discoverWithGrant($target,$operation,$consume);
+        try {$snapshot=$this->discoverWithGrant($target,$operation,$consume);}
+        catch (HttpException $error) {
+            if (in_array($error->errorCode,ConnectorHealthMonitor::ERRORS,true)) {
+                try {
+                    $this->db->transaction(function(PDO $pdo)use($actor,$target,$operation,$guard,$started,$error):void {
+                        $this->inventory->lockWorkspace($pdo,$target['workspace_id']);
+                        if ($guard!==null) $guard($pdo);
+                        $pdo->prepare('SELECT id FROM credentials WHERE id=:id FOR SHARE')->execute(['id'=>$target['credential_id']]);
+                        $latest=$this->bindings->runtimeContext($actor,$target['id'],$target['version'],$operation);
+                        if ($latest['credential_id']!==$target['credential_id']||$latest['credential_version']!==$target['credential_version']) return;
+                        ConnectorHealthMonitor::record($pdo,$target,(int)round((microtime(true)-$started)*1000),$error->errorCode);
+                    });
+                } catch (\Throwable) { /* no stale/unauthorized health write; preserve original remote failure */ }
+            }
+            throw $error;
+        }
+        $elapsed=(int)round((microtime(true)-$started)*1000);
         $items=$snapshot->items;
         if ($sync && count($items)===0) {
             // An empty API result may be a temporary failure; never modify CMDB on empty discovery.
@@ -101,13 +112,15 @@ final class ConnectorRuntimeService
         }
         $summary=$snapshot->summary($this->registry->require($target['provider'],$operation)->manifest());
         if (!$sync) {
-            $result=$operation==='health' ? (new ConnectorHealth($targetId,(int)round((microtime(true)-$started)*1000)))->toArray()
+            $result=$operation==='health' ? (new ConnectorHealth($targetId,$elapsed))->toArray()
                 : ['connector_id'=>$targetId,'mode'=>'inspect','discovered'=>count($items),'types'=>$summary];
-            return $this->db->transaction(function(PDO $pdo) use($actor,$targetId,$operation,$items,$requestId,$guard,$complete,$result,$target,$snapshot,$reconciliation):array {
+            return $this->db->transaction(function(PDO $pdo) use($actor,$targetId,$operation,$items,$requestId,$guard,$complete,$result,$target,$snapshot,$reconciliation,$elapsed):array {
                 $this->inventory->lockWorkspace($pdo,$target['workspace_id']);
                 if ($guard!==null) $guard($pdo);
+                $pdo->prepare('SELECT id FROM credentials WHERE id=:id FOR SHARE')->execute(['id'=>$target['credential_id']]);
                 $latest=$this->bindings->runtimeContext($actor,$targetId,$target['version'],$operation);
                 if ($latest['credential_id']!==$target['credential_id'] || $latest['credential_version']!==$target['credential_version']) throw new HttpException(409,'Connector binding changed.','conflict');
+                ConnectorHealthMonitor::record($pdo,$target,$elapsed,null);
                 if ($operation==='inspect') $result['preview']=$reconciliation->preview($pdo,$actor,$target,$snapshot);
                 $this->audit->record($pdo,$actor,$operation==='health'?'connector.health.checked':'connector.inventory.inspected',
                     'success','connector_target',$targetId,['count'=>count($items)],$requestId);
@@ -116,7 +129,7 @@ final class ConnectorRuntimeService
             });
         }
         // The entire snapshot, identity state, observations and queue result share one commit.
-        $result=$this->db->transaction(function(PDO $pdo) use($actor,$targetId,$version,$target,$requestId,$guard,$complete,$items,$summary,$snapshot,$generation,$observedAt,$reconciliation):array {
+        $result=$this->db->transaction(function(PDO $pdo) use($actor,$targetId,$version,$target,$requestId,$guard,$complete,$items,$summary,$snapshot,$generation,$observedAt,$reconciliation,$elapsed):array {
             $this->inventory->lockWorkspace($pdo,$target['workspace_id']);
             $this->inventory->workspaceRole($pdo,$target['workspace_id'],$actor,true);
             $pdo->prepare('SELECT id FROM credentials WHERE id=:id FOR SHARE')->execute(['id'=>$target['credential_id']]);
@@ -124,6 +137,7 @@ final class ConnectorRuntimeService
             if ($latest['credential_id']!==$target['credential_id'] || $latest['credential_version']!==$target['credential_version'] || $latest['asset_id']!==$target['asset_id'])
                 throw new HttpException(409,'Connector was rebound or credential rotated.','conflict');
             if ($guard!==null) $guard($pdo);
+            ConnectorHealthMonitor::record($pdo,$target,$elapsed,null);
             $delta=$reconciliation->apply($pdo,$actor,$target,$snapshot,$generation,$observedAt,$requestId);
             $this->audit->record($pdo,$actor,'connector.inventory.synced','success','connector_target',$targetId,
                 ['count'=>count($items),'complete'=>$snapshot->complete,'blocked'=>$delta['snapshot']['blocked']],$requestId);
@@ -192,15 +206,21 @@ final class ConnectorRuntimeService
         $actor=$principal['user']['id']??null;
         if (!is_string($actor)) throw new HttpException(403,'Invalid session.','session_required');
         $target=$this->bindings->runtimeContext($actor,$targetId,$version,'health');
-        $started=microtime(true);
-        $this->discoverWithGrant($target,'health',
-            fn(callable $consumer)=>$this->access->consumeForAsset($principal,$target['asset_id'],$target['credential_id'],$target['purpose'],$consumer,$requestId));
-        $latest=$this->bindings->runtimeContext($actor,$targetId,$version,'health');
-        if ($latest['credential_id']!==$target['credential_id'] || $latest['credential_version']!==$target['credential_version'])
-            throw new HttpException(409,'Connector binding changed during health check.','conflict');
-        $elapsed=(int)round((microtime(true)-$started)*1000);
-        $this->db->transaction(fn(PDO $pdo)=>$this->audit->record($pdo,$actor,'connector.health.checked','success','connector_target',$targetId,['duration_ms'=>$elapsed],$requestId));
-        return (new ConnectorHealth($targetId,$elapsed))->toArray();
+        return $this->withExecutionLock($target,fn()=> $this->runAuthorized($actor,$target,'health',
+            fn(callable $consumer)=>$this->access->consumeForAsset($principal,$target['asset_id'],$target['credential_id'],$target['purpose'],$consumer,$requestId),$requestId));
+    }
+
+    private function withExecutionLock(array $target,callable $operation):array
+    {
+        $pdo=$this->db->connection();$id=$target['id'];
+        $lock=$pdo->prepare('SELECT pg_try_advisory_lock(hashtextextended(:id,4202))');$lock->execute(['id'=>$id]);
+        if (!in_array($lock->fetchColumn(),[true,'t','1',1],true)) throw new HttpException(409,'Connector already executing.','connector_busy');
+        $slots=[];
+        try {$slots=ConnectorConcurrency::acquire($pdo,$target);return $operation();}
+        finally {
+            try {ConnectorConcurrency::release($pdo,$slots);}
+            finally {$unlock=$pdo->prepare('SELECT pg_advisory_unlock(hashtextextended(:id,4202))');$unlock->execute(['id'=>$id]);}
+        }
     }
 
 }

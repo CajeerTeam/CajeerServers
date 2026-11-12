@@ -66,7 +66,7 @@ final class ReleaseVerifier
                   'tests/backup-postgres-integration.php', 'admin/pages/vault.vue',
                   'admin/composables/vaultProfiles.ts', 'admin/tests/e2e/vault-ui.spec.ts',
                   'admin/tests/vault-ui-contract.mjs', 'core/Integration/ConnectorRegistry.php',
-                  'core/Connector/ConnectorRuntimeService.php', 'core/Connector/HttpsTransport.php',
+                  'core/Connector/ConnectorRuntimeService.php','core/Connector/SnmpTransport.php','core/Connector/SnmpSession.php','core/Connector/RouterConnector.php','core/Connector/ConnectorHealthMonitor.php','core/Connector/ConnectorConcurrency.php','tests/snmp-health-smoke.php','tests/snmp-protocol-integration.sh','tests/snmp-protocol-integration.php','tests/connector-health-postgres-integration.php','docs/SNMP-Connector-Health-0.4.6.md','migrations/pgsql/0026_connector_health.sql', 'core/Connector/HttpsTransport.php',
                   'core/Connector/EndpointPolicy.php', 'tests/connector-runtime-smoke.php',
                   'core/Connector/ConnectorExecutionService.php', 'core/Cli/ConnectorCommands.php',
                   'migrations/pgsql/0023_connector_execution.sql', 'tests/connector-execution-smoke.php',

@@ -19,7 +19,7 @@ try{
     $db=new DatabaseManager(new ConfigRepository($root.'/config'),new ConnectionFactory(),['driver'=>'pgsql','host'=>getenv('CAJEER_PG_TEST_HOST')?:'127.0.0.1','port'=>getenv('CAJEER_PG_TEST_PORT')?:'5432','database'=>getenv('CAJEER_PG_TEST_DATABASE'),'username'=>getenv('CAJEER_PG_TEST_USERNAME')?:'cajeer','password'=>getenv('CAJEER_PG_TEST_PASSWORD')?:'','sslmode'=>getenv('CAJEER_PG_TEST_SSLMODE')?:'prefer']);
     $pdo=$db->connection();$ok((int)$pdo->query("SELECT current_setting('server_version_num')")->fetchColumn()>=170000,'PG17+');
     $pdo->exec('CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public');$pdo->exec('CREATE SCHEMA "'.$schema.'"');$created=true;$pdo->exec('SET search_path TO "'.$schema.'", public');
-    foreach(glob($root.'/migrations/pgsql/*.sql') as $file)if(!str_starts_with(basename($file),'0025_'))copy($file,$dir.'/'.basename($file));
+    foreach(glob($root.'/migrations/pgsql/*.sql') as $file)if(!str_starts_with(basename($file),'0025_')&&!str_starts_with(basename($file),'0026_'))copy($file,$dir.'/'.basename($file));
     $runner=new MigrationRunner($db,$dir);$runner->run();
     $actor=(string)$pdo->query("INSERT INTO users(email,name,password_hash) VALUES('host@example.invalid','Host','test-only') RETURNING id::text")->fetchColumn();
     $ws=(string)$pdo->query("SELECT id::text FROM workspaces WHERE slug='default'")->fetchColumn();
@@ -29,6 +29,7 @@ try{
     $protected=$inventory->create($actor,['workspace_id'=>$ws,'type'=>'server','name'=>'manual-hardware','attributes'=>['host_hardware'=>['cpu_count'=>99],'owner_note'=>'keep']]);
     copy($root.'/migrations/pgsql/0025_connector_host_hardware.sql',$dir.'/0025_connector_host_hardware.sql');
     $ok(count($runner->run()['applied'])===1&&$runner->run()['applied']===[],'0025 migration idempotent');
+    copy($root.'/migrations/pgsql/0026_connector_health.sql',$dir.'/0026_connector_health.sql');$runner->run();
     $driver=new LinuxConnector(new HostTransport(new EndpointPolicy()));$bindings=new ConnectorBindingService($db,$repo,$audit,new ConnectorRegistry($driver));
     $target=$bindings->create($actor,['workspace_id'=>$ws,'provider'=>'ssh','name'=>'host source','endpoint_host'=>'linux.test','endpoint_port'=>22]);
     $target+=['credential_id'=>'11111111-1111-4111-8111-111111111111','credential_version'=>1,'purpose'=>'ssh'];

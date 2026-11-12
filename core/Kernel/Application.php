@@ -63,6 +63,8 @@ use Cajeer\Servers\Connector\ProxmoxConnector;
 use Cajeer\Servers\Connector\VmmanagerConnector;
 use Cajeer\Servers\Connector\HostTransport;
 use Cajeer\Servers\Connector\LinuxConnector;
+use Cajeer\Servers\Connector\RouterConnector;
+use Cajeer\Servers\Connector\SnmpTransport;
 use Cajeer\Servers\Connector\WindowsConnector;
 use Cajeer\Servers\Connector\EndpointPolicy;
 use Cajeer\Servers\Connector\HttpsTransport;
@@ -249,7 +251,7 @@ final class Application
         $this->services->singleton(SystemReport::class, fn (ServiceContainer $c): SystemReport => new SystemReport(
             $this, $c->get(ConfigRepository::class), $c->get(RuntimeDiagnostics::class), $c->get(Diagnostics::class)));
         $this->services->singleton(PrometheusExporter::class, fn (ServiceContainer $c): PrometheusExporter => new PrometheusExporter(
-            $this->basePath('storage/cache/observability-metrics.json')));
+            $this->basePath('storage/cache/observability-metrics.json'),$c->get(DatabaseManager::class)));
         $this->services->singleton(OpenTelemetryTracer::class, function (ServiceContainer $c): OpenTelemetryTracer {
             $cfg = $c->get(ConfigRepository::class);
             return new OpenTelemetryTracer($cfg->get('observability.otel_enabled', false) === true,
@@ -309,7 +311,9 @@ final class Application
             ($ca=$c->get(ConfigRepository::class)->get('connectors.winrm_ca_file',''))!==''?(string)$ca:null));
         $this->services->singleton(LinuxConnector::class, fn (ServiceContainer $c): LinuxConnector => new LinuxConnector($c->get(HostTransport::class)));
         $this->services->singleton(WindowsConnector::class, fn (ServiceContainer $c): WindowsConnector => new WindowsConnector($c->get(HostTransport::class)));
-        $this->services->singleton(ConnectorRegistry::class, fn (ServiceContainer $c): ConnectorRegistry => new ConnectorRegistry($c->get(ProxmoxConnector::class),$c->get(VmmanagerConnector::class),$c->get(LinuxConnector::class),$c->get(WindowsConnector::class)));
+        $this->services->singleton(SnmpTransport::class, fn (ServiceContainer $c): SnmpTransport => new SnmpTransport($c->get(EndpointPolicy::class),$c->get(ConfigRepository::class)->get('connectors.snmp_allow_v2c',false)===true));
+        $this->services->singleton(RouterConnector::class, fn (ServiceContainer $c): RouterConnector => new RouterConnector($c->get(SnmpTransport::class)));
+        $this->services->singleton(ConnectorRegistry::class, fn (ServiceContainer $c): ConnectorRegistry => new ConnectorRegistry($c->get(ProxmoxConnector::class),$c->get(VmmanagerConnector::class),$c->get(LinuxConnector::class),$c->get(WindowsConnector::class),$c->get(RouterConnector::class)));
         $this->services->singleton(ConnectorRuntimeService::class, fn (ServiceContainer $c): ConnectorRuntimeService => new ConnectorRuntimeService(
             $c->get(DatabaseManager::class),$c->get(InventoryRepository::class),$c->get(ConnectorBindingService::class),
             $c->get(SecretAccessService::class),$c->get(HistoryService::class),$c->get(AuditLogger::class),

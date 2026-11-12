@@ -60,7 +60,7 @@ final class ReconciliationService
                 return array_replace($base,['action'=>'conflict','conflict'=>'identity_collision']);
             $manual=$this->query($pdo,"SELECT field FROM inventory_field_provenance WHERE asset_id=:id AND mode='manual'",['id'=>$assetId])->fetchAll(PDO::FETCH_COLUMN);
             $changed=false; $conflicts=[];
-            foreach ($item['fields'] as $field=>$value) if (($field==='attributes'?($asset[$field]['host_hardware']??null)!=$value['host_hardware']:$asset[$field]!==$value)) {
+            foreach ($item['fields'] as $field=>$value) if (($field==='attributes'?($asset[$field][array_key_first($value)]??null)!=reset($value):$asset[$field]!==$value)) {
                 $changed=true; if (in_array($field,$manual,true)) $conflicts[]=$field;
             }
             return array_replace($base,['action'=>$conflicts?'conflict':($changed?'update':'unchanged'),'conflict'=>$conflicts?'manual_fields':null,'conflicted_fields'=>$conflicts]);

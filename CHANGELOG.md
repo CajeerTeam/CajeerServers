@@ -1,3 +1,10 @@
+## [0.4.6] — 2026-11-12 — SNMP & Connector Health
+
+- Исполняемый SNMPv3 authPriv и опциональный SNMPv2c, read-only GET/GETNEXT, MIB-инвентаризация.
+- Network device metadata с provenance, stable endpoint identity и безопасной reconciliation.
+- Постоянное состояние доступности, cooldown/circuit breaker, Scheduler и Prometheus.
+- Health в API и Admin UI; миграция 0026.
+
 ## [0.4.5] — 2026-11-12 — SSH & WinRM Connectors
 
 - Реальные Linux SSH (password / private key, known_hosts до авторизации) и Windows WinRM (Basic только проверенный HTTPS) через Registry, Vault, rotation proof, Queue/Scheduler и Reconciliation.

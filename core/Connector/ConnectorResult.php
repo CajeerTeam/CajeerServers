@@ -20,7 +20,7 @@ final readonly class ConnectorResult
                 throw new RuntimeException('Invalid discovery observation.');
             $seen[$item['external_id']]=true;
             $normalized=ObservationInput::normalize(['workspace_id'=>'11111111-1111-4111-8111-111111111111',
-                'external_id'=>$item['external_id'],'event_key'=>'validation','type'=>$item['type'],'fields'=>$item['fields']],in_array($manifest->provider,['ssh','winrm'],true));
+                'external_id'=>$item['external_id'],'event_key'=>'validation','type'=>$item['type'],'fields'=>$item['fields']],in_array($manifest->provider,['ssh','winrm','snmp'],true));
             $clean=['type'=>$normalized['type'],'external_id'=>$normalized['external_id'],'fields'=>$normalized['fields']];
             if (array_key_exists('parent_external_id',$item)) {
                 $parent=$item['parent_external_id'];

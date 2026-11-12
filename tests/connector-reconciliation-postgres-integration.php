@@ -22,14 +22,16 @@ try{
     $db=new DatabaseManager(new ConfigRepository($root.'/config'),new ConnectionFactory(),['driver'=>'pgsql','host'=>getenv('CAJEER_PG_TEST_HOST')?:'127.0.0.1','port'=>getenv('CAJEER_PG_TEST_PORT')?:'5432','database'=>getenv('CAJEER_PG_TEST_DATABASE'),'username'=>getenv('CAJEER_PG_TEST_USERNAME')?:'cajeer','password'=>getenv('CAJEER_PG_TEST_PASSWORD')?:'','sslmode'=>getenv('CAJEER_PG_TEST_SSLMODE')?:'prefer']);
     $pdo=$db->connection();$ok((int)$pdo->query("SELECT current_setting('server_version_num')")->fetchColumn()>=170000,'PG17+');
     $pdo->exec('CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public');$pdo->exec('CREATE SCHEMA "'.$schema.'"');$created=true;$pdo->exec('SET search_path TO "'.$schema.'", public');
-    foreach(glob($root.'/migrations/pgsql/*.sql') as $file)if(!str_starts_with(basename($file),'0024_')&&!str_starts_with(basename($file),'0025_'))copy($file,$dir.'/'.basename($file));
+    foreach(glob($root.'/migrations/pgsql/*.sql') as $file)if(!str_starts_with(basename($file),'0024_')&&!str_starts_with(basename($file),'0025_')&&!str_starts_with(basename($file),'0026_'))copy($file,$dir.'/'.basename($file));
     $runner=new MigrationRunner($db,$dir);$runner->run();
     $actor=(string)$pdo->query("INSERT INTO users(email,name,password_hash) VALUES('reconcile@example.invalid','Reconcile','test-only') RETURNING id::text")->fetchColumn();
     $ws=(string)$pdo->query("SELECT id::text FROM workspaces WHERE slug='default'")->fetchColumn();
     $pdo->prepare("INSERT INTO workspace_members(workspace_id,user_id,role) VALUES(:ws,:id,'owner')")->execute(['ws'=>$ws,'id'=>$actor]);
     $audit=new AuditLogger($db);$repo=new InventoryRepository();$inventory=new InventoryService($db,$repo,$audit);$history=new HistoryService($db,$repo,$inventory,$audit);
     $registry=new ConnectorRegistry(new ProxmoxConnector());$bindings=new ConnectorBindingService($db,$repo,$audit,$registry);
-    $target=$bindings->create($actor,['workspace_id'=>$ws,'provider'=>'proxmox','name'=>'source','endpoint_host'=>'pve.test','endpoint_port'=>8006]);
+    // Simulate the old schema directly before current code requires the health view.
+    $q=$pdo->prepare("INSERT INTO connector_targets(workspace_id,provider,name,endpoint_host,endpoint_port,created_by) VALUES(:ws,'proxmox','source','pve.test',8006,:actor) RETURNING id::text");$q->execute(['ws'=>$ws,'actor'=>$actor]);$targetId=(string)$q->fetchColumn();
+    $target=['id'=>$targetId,'workspace_id'=>$ws,'provider'=>'proxmox','endpoint_host'=>'pve.test','endpoint_port'=>8006,'version'=>1];
     $target+=['credential_id'=>'11111111-1111-4111-8111-111111111111','credential_version'=>1,'purpose'=>'api'];
     $node=['type'=>'hypervisor_node','external_id'=>'node:a','fields'=>['name'=>'node-a','status'=>'online']];
     $vm=['type'=>'virtual_machine','external_id'=>'qemu:42','parent_external_id'=>'node:a','fields'=>['name'=>'legacy-vm','status'=>'online']];
@@ -38,6 +40,8 @@ try{
     $legacy=$history->observe($actor,$event,connector:true)['asset_id'];
     copy($root.'/migrations/pgsql/0024_connector_reconciliation.sql',$dir.'/0024_connector_reconciliation.sql');
     $ok(count($runner->run()['applied'])===1 && $runner->run()['applied']===[],'0024 migration and replay');
+    copy($root.'/migrations/pgsql/0025_connector_host_hardware.sql',$dir.'/0025_connector_host_hardware.sql');
+    copy($root.'/migrations/pgsql/0026_connector_health.sql',$dir.'/0026_connector_health.sql');$runner->run();
     $service=new ReconciliationService($repo,$history,$audit);
     $rows=fn()=>array_column($service->resources($pdo,$actor,$target,100,0),null,'external_id');
     $ok($rows()['qemu:42']['asset_id']===$legacy && $rows()['qemu:42']['presence']==='unknown','legacy UUID preserved');

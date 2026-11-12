@@ -30,7 +30,7 @@ final class ObservationInput
         $allowed=$connector?[...self::FIELDS,'attributes']:self::FIELDS;
         if(!is_array($input['fields'])||array_is_list($input['fields'])||$input['fields']===[]||count($input['fields'])>count($allowed))self::bad('fields');
         foreach($input['fields'] as $field=>$value)if(!in_array($field,$allowed,true))self::bad('fields');
-        if(isset($input['fields']['attributes']) && (!is_array($input['fields']['attributes']) || array_keys($input['fields']['attributes'])!==['host_hardware'] || !is_array($input['fields']['attributes']['host_hardware'])))self::bad('attributes');
+        if(isset($input['fields']['attributes']) && (!is_array($input['fields']['attributes']) || count($input['fields']['attributes'])!==1 || !in_array(array_key_first($input['fields']['attributes']),['host_hardware','network_device'],true) || !is_array(reset($input['fields']['attributes']))))self::bad('attributes');
         $fields=InfrastructureAsset::changes($input['fields']);
         ksort($fields,SORT_STRING);
         if(isset($input['observed_at'])){

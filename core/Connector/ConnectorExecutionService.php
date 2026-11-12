@@ -127,7 +127,7 @@ final class ConnectorExecutionService
                     return true;
                 }
                 $pending=$this->query($pdo,"SELECT 1 FROM connector_runs r JOIN queue_jobs j ON j.id=r.id WHERE r.grant_id=:g AND r.finished_at IS NULL AND r.cancelled_at IS NULL AND j.status IN ('queued','running') LIMIT 1",['g'=>$g['id']])->fetchColumn();
-                if (!$pending) $this->enqueueLocked($pdo,$g,'schedule:'.$g['next_due_at']);
+                if (!$pending && !ConnectorHealthMonitor::isOpen($pdo,$g['target_id'])) $this->enqueueLocked($pdo,$g,'schedule:'.$g['next_due_at']);
                 return true;
             });
             if (!$did) break; $count++;
@@ -198,10 +198,14 @@ final class ConnectorExecutionService
         // Session advisory lock prevents overlapping remote operations per target, including lease recovery.
         $locked=$this->query($pdo,'SELECT pg_try_advisory_lock(hashtextextended(:id,4202))',['id'=>$g['target_id']])->fetchColumn();
         if (!in_array($locked,[true,'t','1',1],true)) throw new \RuntimeException('Connector busy.');
+        $slots=[];
         try {
             $this->vault->check();
-            $material=$this->db->transaction(function(PDO $pdo)use($r,$g):array {
+            $material=$this->db->transaction(function(PDO $pdo)use($r,$g,&$slots):array {
                 $t=$this->fence($pdo,$r,$g);
+                if (ConnectorHealthMonitor::isOpen($pdo,$g['target_id'])) throw new HttpException(423,'Connector circuit is open. Try after cooldown.','connector_circuit_open');
+                // Session locks survive the transaction and bound remote execution across workers.
+                if ($slots===[]) $slots=ConnectorConcurrency::acquire($pdo,$t);
                 $cipher=$this->query($pdo,"SELECT encode(encrypted_payload,'hex') FROM credentials WHERE id=:id AND version=:v AND state='active' AND deleted_at IS NULL FOR SHARE",['id'=>$g['credential_id'],'v'=>$g['credential_version']])->fetchColumn();
                 if (!is_string($cipher)) $this->deny();
                 $this->audit->record($pdo,$g['actor_id'],'vault.credential.service_accessed','success','credential',$g['credential_id'],['reason'=>$g['operation']]);
@@ -218,7 +222,10 @@ final class ConnectorExecutionService
                     $this->query($pdo,'UPDATE connector_runs SET result=CAST(:result AS jsonb),finished_at=clock_timestamp() WHERE id=:id',['result'=>json_encode($result,JSON_THROW_ON_ERROR),'id'=>$r->job->id]);
                 });
             } finally {if (is_string($cipher)) sodium_memzero($cipher);}
-        } finally {$this->query($pdo,'SELECT pg_advisory_unlock(hashtextextended(:id,4202))',['id'=>$g['target_id']]);}
+        } finally {
+            try {ConnectorConcurrency::release($pdo,$slots);}
+            finally {$this->query($pdo,'SELECT pg_advisory_unlock(hashtextextended(:id,4202))',['id'=>$g['target_id']]);}
+        }
     }
     /** Dedicated PG worker with bounded lease and retry. Terminal authorization failures are not retried. */
     public function once():?array
@@ -233,8 +240,8 @@ final class ConnectorExecutionService
                 return ['id'=>$r->job->id,'status'=>$current['status']];
             }
             $remoteAuth=$e instanceof HttpException && in_array($e->errorCode,['connector_auth_failed','connector_trust_failed','connector_dependency_missing'],true);
-            $remoteCode=$remoteAuth?$e->errorCode:null;
-            $terminal=$remoteAuth || ($e instanceof HttpException && $e->status<500 && $e->status!==429 && $e->status!==409);
+            $remoteCode=$e instanceof HttpException && ($remoteAuth||in_array($e->errorCode,[...ConnectorHealthMonitor::ERRORS,'connector_circuit_open'],true))?$e->errorCode:null;
+            $terminal=$remoteAuth || ($remoteCode!==null && ConnectorHealthMonitor::isOpen($this->db->connection(),$current['target_id'])) || ($e instanceof HttpException && $e->status<500 && $e->status!==429 && $e->status!==409);
             if ($terminal || $r->attempt >= $r->job->maxAttempts) {
                 $this->db->transaction(function(PDO $pdo)use($r,$terminal,$remoteCode):void {
                     $q=$this->query($pdo,"SELECT 1 FROM queue_jobs WHERE id=:id AND lease_token=:receipt AND status='running' AND reserved_until>clock_timestamp() FOR UPDATE",['id'=>$r->job->id,'receipt'=>$r->receipt]);

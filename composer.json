@@ -52,6 +52,7 @@
   "prefer-stable": true,
   "suggest": {
     "ext-pdo_pgsql": "Required for PostgreSQL 17+ persistence and SQL migrations",
-    "ext-pdo_mysql": "Optional MySQL/MariaDB PDO connections (migration parity not yet available)"
+    "ext-pdo_mysql": "Optional MySQL/MariaDB PDO connections (migration parity not yet available)",
+    "ext-snmp": "Required for the SNMP network-device connector (Net-SNMP with SHA-2 and AES128)."
   }
 }

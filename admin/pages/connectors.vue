@@ -6,7 +6,7 @@ const api=useApi(), auth=useAuth(),route=useRoute()
 type Driver={provider:string;purpose:string;credentialTypes:string[];operations:string[];resourceTypes:string[];transport:string}
 const drivers=ref<Driver[]>([])
 type Workspace={id:string;name:string;role:string}
-type Target={id:string;workspace_id:string;provider:string;name:string;endpoint_host:string;endpoint_port:number;state:string;asset_id:string|null;version:number;etag:string}
+type Target={id:string;workspace_id:string;provider:string;name:string;endpoint_host:string;endpoint_port:number;state:string;asset_id:string|null;version:number;etag:string;health_status:string;health_checked_at:string|null;health_success_at:string|null;health_duration_ms:number|null;health_error_code:string|null;circuit_open_until:string|null;consecutive_failures:number}
 type Binding={id:string;connector_id:string;credential_id:string;purpose:string;type:string;state:string}
 type Credential={credential_id:string;name:string;type:string;state:string}
 type Asset={id:string;name:string;type:string}
@@ -38,10 +38,19 @@ const canValidate=computed(()=>canExecute.value&&!!activeDriver.value?.operation
 const pendingRotation=computed(()=>pendingVersions.value.find(v=>v.state==='pending')||null)
 const apiBinding=computed(()=>bindings.value.find(b=>b.purpose===activeDriver.value?.purpose&&b.state==='active'&&activeDriver.value?.credentialTypes.includes(b.type))||null)
 const active=computed(()=>targets.value.find(t=>t.id===selected.value)||null)
+const healthLabel=(status:string)=>({unknown:'Не проверен',healthy:'Доступен',degraded:'Сбой',unreachable:'Недоступен',auth_failed:'Ошибка авторизации',disabled:'Отключён'} as Record<string,string>)[status]||status
+const circuitOpen=computed(()=>!!active.value?.circuit_open_until&&Date.parse(active.value.circuit_open_until)>Date.now())
 const scopeCredentials=computed(()=>credentials.value.filter(c=>c.state==='active'))
 function fail(e:unknown){error.value=apiError(e).message}
 function reset(){error.value='';message.value=''}
 function versionHeaders(target:Target){return {'If-Match':target.etag}}
+async function refreshHealth(){
+  const ws=workspace.value;if(!ws||!canRead.value)return
+  try{const data=(await api.get<{data:Target[]}>(`/connectors/targets?workspace_id=${ws}`)).data
+    if(workspace.value===ws)targets.value=data
+  }catch(e){fail(e)}
+}
+
 async function init(){if(!canRead.value)return
   try{drivers.value=(await api.get<{data:Driver[]}>('/connectors/drivers')).data;workspaces.value=(await api.get<{data:Workspace[]}>('/workspaces')).data;workspace.value=selectWorkspace(workspaces.value,route.query.workspace_id);await load()}
   catch(e){fail(e)}
@@ -132,7 +141,7 @@ async function executeRemote(sync:boolean){
     lastRun.value=result.data
     if(sync)await loadResources(item,0)
     message.value=sync?'Инвентаризация завершена.':'Удалённая проверка завершена.'
-  }catch(e){fail(e)}finally{stepup.password='';stepup.totp='';busy.value=false}
+  }catch(e){fail(e)}finally{stepup.password='';stepup.totp='';await refreshHealth();busy.value=false}
 }
 async function checkHealth(){
   const item=active.value,credential=apiBinding.value
@@ -143,7 +152,7 @@ async function checkHealth(){
       asset_id:item.asset_id,purpose:credential.purpose,password:stepup.password,totp:stepup.totp})
     const result=await api.write<{data:{status:string;duration_ms:number}}>('POST',`/connectors/targets/${item.id}/health`,undefined,true,versionHeaders(item))
     message.value=`Проверка доступности: ${result.data.status}, ${result.data.duration_ms} мс.`
-  }catch(e){fail(e)}finally{stepup.password='';stepup.totp='';busy.value=false}
+  }catch(e){fail(e)}finally{stepup.password='';stepup.totp='';await refreshHealth();busy.value=false}
 }
 async function validatePendingRotation(){
   const item=active.value,credential=apiBinding.value,revision=pendingRotation.value?.secret_version
@@ -186,9 +195,10 @@ onMounted(init)
         </form>
       </section>
       <section class="panel"><h2>Конфигурации</h2>
+        <button class="btn" type="button" :disabled="busy" @click="refreshHealth">Обновить состояние</button>
         <p v-if="targets.length===0">Нет конфигураций в выбранном пространстве.</p>
-        <table v-else><thead><tr><th>Имя</th><th>Провайдер</th><th>Адрес</th><th>Статус</th><th>Действия</th></tr></thead>
-          <tbody><tr v-for="t in targets" :key="t.id"><td>{{t.name}}</td><td>{{t.provider}}</td><td>{{t.endpoint_host}}:{{t.endpoint_port}}</td><td>{{t.state}}</td>
+        <table v-else><thead><tr><th>Имя</th><th>Провайдер</th><th>Адрес</th><th>Статус</th><th>Доступность</th><th>Действия</th></tr></thead>
+          <tbody><tr v-for="t in targets" :key="t.id"><td>{{t.name}}</td><td>{{t.provider}}</td><td>{{t.endpoint_host}}:{{t.endpoint_port}}</td><td>{{t.state}}</td><td>{{healthLabel(t.health_status)}}<small v-if="t.health_checked_at"> · {{t.health_checked_at}}</small></td>
             <td><button class="btn" type="button" @click="open(t)">Привязки</button>
               <button v-if="canManage" class="btn" type="button" :disabled="busy" @click="toggle(t)">{{t.state==='active'?'Отключить':'Включить'}}</button>
               <button v-if="canManage" class="btn" type="button" :disabled="busy" @click="remove(t)">Удалить</button></td></tr></tbody></table>
@@ -219,11 +229,21 @@ onMounted(init)
       <p v-if="active&&!activeDriver" class="muted">Для этого провайдера пока нет исполняемого драйвера.</p>
       <section v-if="active&&activeDriver" class="panel">
         <h2>{{ active.provider }} — подключение и Inventory</h2>
+        <dl class="kv-grid"><div><dt>Доступность</dt><dd>{{healthLabel(active.health_status)}}</dd></div>
+          <div><dt>Последняя проверка</dt><dd>{{active.health_checked_at||'—'}}</dd></div>
+          <div><dt>Последний успех</dt><dd>{{active.health_success_at||'—'}}</dd></div>
+          <div><dt>Длительность</dt><dd>{{active.health_duration_ms===null?'—':active.health_duration_ms+' мс'}}</dd></div>
+          <div><dt>Ошибки подряд</dt><dd>{{active.consecutive_failures}}</dd></div>
+          <div><dt>Код ошибки</dt><dd>{{active.health_error_code||'—'}}</dd></div>
+          <div><dt>Circuit breaker</dt><dd>{{active.circuit_open_until?'Пауза до '+active.circuit_open_until:'Закрыт'}}</dd></div>
+        </dl>
+        <p v-if="circuitOpen" class="muted">Фоновые и обычные операции приостановлены. После исправления причины выполните ручную проверку доступности с MFA.</p>
+        <p v-if="active.provider==='snmp'">SNMP: UDP, read-only; профиль SNMPv3 с SHA-256/512 и AES128 обязателен по умолчанию. SNMPv2c доступен только при явном разрешении на сервере. Собираются sysName, sysObjectID, интерфейсы и IP. Для автоматической проверки выдайте ограниченный service grant health с расписанием через API или CLI.</p>
         <p>Для запуска требуется активная связка credential с этой конфигурацией и выбранным Inventory asset, а также такое же назначение credential на самом asset. Доступ выдаётся на одно действие после проверки пароля и TOTP. TLS проверяется; для собственного CA задайте PROXMOX_CA_FILE или VMMANAGER_CA_FILE на сервере. VMmanager 6 использует API v3, порт 443 и токен из Vault; доступны узлы, KVM ВМ и LXD контейнеры. SSH использует доверенный SSH_KNOWN_HOSTS_FILE и пароль или приватный ключ; WinRM — HTTPS, credential auth=basic и WINRM_CA_FILE для частного CA. Linux/Windows собирают CPU, RAM, диски и интерфейсы только на чтение.</p>
         <form v-if="(canRun||canHealth||canSync||canValidate)&&apiBinding&&active.asset_id" @submit.prevent="executeRemote(false)">
           <label>Подтверждение пароля <input v-model="stepup.password" type="password" autocomplete="off" required /></label>
           <label>TOTP (6 цифр) <input v-model="stepup.totp" type="text" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required /></label>
-          <button v-if="canRun" class="btn" type="submit" :disabled="busy">Предпросмотр Discovery</button>
+          <button v-if="canRun" class="btn" type="submit" :disabled="busy||circuitOpen">Предпросмотр Discovery</button>
           <button v-if="canHealth" class="btn" type="button" :disabled="busy || !stepup.password || !/^[0-9]{6}$/.test(stepup.totp)" @click="checkHealth">Проверить доступность</button>
           <button v-if="canSync" class="btn" type="button" :disabled="busy || !stepup.password || !/^[0-9]{6}$/.test(stepup.totp)" @click="executeRemote(true)">Синхронизировать Inventory</button>
           <button v-if="canValidate && pendingRotation" class="btn primary" type="button" :disabled="busy || !stepup.password || !/^[0-9]{6}$/.test(stepup.totp)" data-testid="connector-validate-pending" @click="validatePendingRotation">
