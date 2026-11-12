@@ -1,0 +1,10 @@
+[Unit]
+Description=Process CajeerServers inbox every five seconds
+
+[Timer]
+OnBootSec=30s
+OnUnitInactiveSec=5s
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

@@ -18,6 +18,13 @@ export interface Action { id: string; target_id: string; external_id: string; ac
 export interface Problem { title?: string; code?: string; request_id?: string; status?: number }
 
 export interface MetricSample {metric:string;value:string;resource_external_id:string;labels:Record<string,string>;kind:'gauge'|'counter';unit:string|null;observed_at:string|null}
-export interface MetricSeries {id:string;asset_id:string;target_version:number;metric:string;resource_external_id:string;labels:Record<string,string>;kind:'gauge'|'counter';unit:string|null;last_seen_at:string}
+export interface MetricSeries {id:string;ingestion_source_id?:string|null;asset_id:string;target_version:number;metric:string;resource_external_id:string;labels:Record<string,string>;kind:'gauge'|'counter';unit:string|null;last_seen_at:string}
 export type MetricAggregation='raw'|'avg'|'min'|'max'|'count'|'rate'
 export interface MetricQuery {series:{id:string;kind:string;metric:string;unit:string|null};aggregation:MetricAggregation;points:{timestamp:string;value:string}[]}
+
+export type IngestionKind='metrics'|'events'|'observations'
+export interface IngestionSource {id:string;workspace_id:string;target_id:string;grant_id:string;actor_id:string;name:string;kind:IngestionKind;key_version:number;created_at:string;revoked_at:string|null}
+export interface IngestionSourceSecret extends IngestionSource {secret:string}
+export interface IngestionAttempt {dispatch:number;attempt:number;started_at:string;finished_at:string;outcome:'succeeded'|'failed'|'retry_scheduled';error_code:string|null}
+export interface IngestionBatch {id:string;source_id:string;batch_id:string;kind:IngestionKind;status:'queued'|'succeeded'|'failed';attempts:number;dispatch_count:number;received_at:string;finished_at:string|null;error_code:string|null;result:Record<string,unknown>|null;payload?:unknown[];history?:IngestionAttempt[]}
+export interface IngestedEvent {id:string;source_id:string;event_id:string;type:string;severity:string;message:string;observed_at:string;received_at:string}

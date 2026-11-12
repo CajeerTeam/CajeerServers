@@ -18,7 +18,7 @@ final class MetricStore
         try{$t=new \DateTimeImmutable($v);$err=\DateTimeImmutable::getLastErrors();}catch(\Exception){throw new HttpException(422,'Invalid timestamp.','validation_failed');}
         if($err!==false)throw new HttpException(422,'Invalid timestamp.','validation_failed');return $t;
     }
-    public static function ingest(PDO $pdo,array $target,array $samples,string $observedAt):array
+    public static function ingest(PDO $pdo,array $target,array $samples,string $observedAt,?string $ingestionSource=null):array
     {
         if(!$pdo->inTransaction())throw new \LogicException('Metric ingestion requires the fenced transaction.');
         $samples=MetricBatch::normalize($samples,$observedAt);
@@ -26,8 +26,9 @@ final class MetricStore
         $ws=self::uuid($target['workspace_id']);$id=self::uuid($target['id']);$asset=self::uuid($target['asset_id']);$version=(int)$target['version'];
         // Workspace lock is held by ConnectorRuntimeService. Enforce it here too for other trusted callers.
         self::q($pdo,'SELECT id FROM workspaces WHERE id=CAST(:ws AS uuid) FOR UPDATE',['ws'=>$ws]);
+        $source=$ingestionSource===null?null:self::uuid($ingestionSource);
         $series=[];$batch=[];$months=[];
-        foreach($samples as $r){$key=hash('sha256',json_encode([$r['metric'],$r['resource_external_id'],$r['labels']],JSON_THROW_ON_ERROR));
+        foreach($samples as $r){$identity=[$r['metric'],$r['resource_external_id'],$r['labels']];if($source!==null)$identity=['push',$source,...$identity];$key=hash('sha256',json_encode($identity,JSON_THROW_ON_ERROR));
             $definition=['key'=>$key,'metric'=>$r['metric'],'resource'=>$r['resource_external_id'],'labels'=>(object)$r['labels'],'kind'=>$r['kind'],'unit'=>$r['unit']];
             if(isset($series[$key])&&$series[$key]!==$definition){ // compare objects by content, not identity
                 if($series[$key]!=$definition)throw new HttpException(422,'Inconsistent metric series metadata.','metric_invalid');
@@ -40,9 +41,9 @@ final class MetricStore
         $count=(int)self::q($pdo,'SELECT count(*) FROM metric_series WHERE workspace_id=CAST(:ws AS uuid)',['ws'=>$ws])->fetchColumn();
         if($count+$missing>self::SERIES_LIMIT)throw new HttpException(422,'Workspace metric series quota exceeded.','metric_quota');
         foreach(array_keys($months) as $month)self::q($pdo,'SELECT cajeer_metric_partition(CAST(:month AS date))',['month'=>$month.'-01']);
-        self::q($pdo,"INSERT INTO metric_series(workspace_id,target_id,asset_id,target_version,identity,metric,resource_external_id,labels,kind,unit)
-            SELECT CAST(:ws AS uuid),CAST(:target AS uuid),CAST(:asset AS uuid),:version,d.key,d.metric,d.resource,d.labels,d.kind,d.unit FROM jsonb_to_recordset(CAST(:defs AS jsonb)) AS d(key text,metric text,resource text,labels jsonb,kind text,unit text)
-            ON CONFLICT(workspace_id,target_id,asset_id,target_version,identity) DO NOTHING",[...$scope,'defs'=>$defs]);
+        self::q($pdo,"INSERT INTO metric_series(workspace_id,target_id,asset_id,target_version,identity,metric,resource_external_id,labels,kind,unit,ingestion_source_id)
+            SELECT CAST(:ws AS uuid),CAST(:target AS uuid),CAST(:asset AS uuid),:version,d.key,d.metric,d.resource,d.labels,d.kind,d.unit,CAST(:source AS uuid) FROM jsonb_to_recordset(CAST(:defs AS jsonb)) AS d(key text,metric text,resource text,labels jsonb,kind text,unit text)
+            ON CONFLICT(workspace_id,target_id,asset_id,target_version,identity) DO NOTHING",[...$scope,'defs'=>$defs,'source'=>$source]);
         $bad=(int)self::q($pdo,"SELECT count(*) FROM jsonb_to_recordset(CAST(:defs AS jsonb)) AS d(key text,metric text,resource text,labels jsonb,kind text,unit text) JOIN metric_series s ON s.identity=d.key AND s.workspace_id=CAST(:ws AS uuid) AND s.target_id=CAST(:target AS uuid) AND s.asset_id=CAST(:asset AS uuid) AND s.target_version=:version WHERE s.kind<>d.kind OR s.unit IS DISTINCT FROM d.unit OR s.metric<>d.metric OR s.resource_external_id<>d.resource OR s.labels<>d.labels",[...$scope,'defs'=>$defs])->fetchColumn();
         if($bad)throw new HttpException(409,'Metric series metadata changed.','metric_conflict');
         $join=' JOIN metric_series s ON s.identity=d.key AND s.workspace_id=CAST(:ws AS uuid) AND s.target_id=CAST(:target AS uuid) AND s.asset_id=CAST(:asset AS uuid) AND s.target_version=:version';
@@ -56,7 +57,7 @@ final class MetricStore
     {
         if($limit<1||$limit>100||$offset<0||$offset>10000||($metric!==null&&!preg_match('/^[A-Za-z_:][A-Za-z0-9_.:-]{0,127}$/D',$metric)))throw new HttpException(422,'Invalid series filter.','validation_failed');
         $args=['ws'=>$target['workspace_id'],'target'=>$target['id']];$filter='';if($metric!==null){$filter=' AND metric=:metric';$args['metric']=$metric;}
-        $q=$pdo->prepare('SELECT id::text,asset_id::text,target_version,metric,resource_external_id,labels::text,kind,unit,last_seen_at::text FROM metric_series WHERE workspace_id=CAST(:ws AS uuid) AND target_id=CAST(:target AS uuid)'.$filter.' ORDER BY metric,id LIMIT :lim OFFSET :off');
+        $q=$pdo->prepare('SELECT id::text,asset_id::text,target_version,ingestion_source_id::text,metric,resource_external_id,labels::text,kind,unit,last_seen_at::text FROM metric_series WHERE workspace_id=CAST(:ws AS uuid) AND target_id=CAST(:target AS uuid)'.$filter.' ORDER BY metric,id LIMIT :lim OFFSET :off');
         foreach($args as $k=>$v)$q->bindValue(':'.$k,$v);$q->bindValue(':lim',$limit,PDO::PARAM_INT);$q->bindValue(':off',$offset,PDO::PARAM_INT);$q->execute();$rows=$q->fetchAll(PDO::FETCH_ASSOC);foreach($rows as &$row){$row['labels']=json_decode($row['labels'],false,16,JSON_THROW_ON_ERROR);$row['target_version']=(int)$row['target_version'];$row['last_seen_at']=(new \DateTimeImmutable($row['last_seen_at']))->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d\TH:i:s.u\Z');}unset($row);return $rows;
     }
     public static function query(PDO $pdo,array $target,string $series,string $from,string $to,string $aggregation='raw',int $step=60):array

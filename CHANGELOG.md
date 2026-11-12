@@ -1,3 +1,9 @@
+## [0.5.7] — 2026-11-12 — Webhook & Event Data Ingestion
+
+- Signed external metrics, event and observation batches with Vault-encrypted source keys, scoped grants, durable inbox, deduplication, quotas and atomic processing.
+- PostgreSQL event history, metric provenance, retry/redrive, worker/retention timers, Admin UI, TypeScript SDK and external Python sender.
+- Local smoke and HTTPS integration tests, PostgreSQL integration scenario; existing connector refresh webhooks unchanged.
+
 ## [0.5.6] — 2026-11-12 — Metrics Scraping & Time-Series Storage
 
 - Реальные метрики через шесть именованных collectors, безопасный HTTPS /metrics.

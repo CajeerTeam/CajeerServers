@@ -335,6 +335,17 @@ return static function (Router $router, ServiceContainer $container): void {
             $connectors->get('/targets/{id}/events',static fn(HttpRequest $r):HttpResponse=>$events()->events($r));
             $connectors->post('/targets/{id}/events/{eventId}/redrive',static fn(HttpRequest $r):HttpResponse=>$events()->redrive($r),$grantBody);
             $connectors->post('/webhooks/{sourceId}/events',static fn(HttpRequest $r):HttpResponse=>$events()->ingest($r));
+            $ingestion=static fn()=> $container->get(\Cajeer\Servers\Ingestion\IngestionController::class);
+            $connectors->get('/targets/{id}/ingestion-sources',static fn(HttpRequest $r):HttpResponse=>$ingestion()->sources($r));
+            $connectors->post('/targets/{id}/ingestion-sources',static fn(HttpRequest $r):HttpResponse=>$ingestion()->create($r),[
+                'required'=>['grant_id','name','kind'],'properties'=>['grant_id'=>['type'=>'string','format'=>'uuid'],'name'=>['type'=>'string','minLength'=>1,'maxLength'=>120],'kind'=>['type'=>'string','enum'=>\Cajeer\Servers\Collector\WebhookCollector::KINDS]],'additionalProperties'=>false]);
+            $connectors->post('/targets/{id}/ingestion-sources/{sourceId}/rotate',static fn(HttpRequest $r):HttpResponse=>$ingestion()->rotate($r));
+            $connectors->delete('/targets/{id}/ingestion-sources/{sourceId}',static fn(HttpRequest $r):HttpResponse=>$ingestion()->revoke($r));
+            $connectors->post('/ingestion/{sourceId}/batches',static fn(HttpRequest $r):HttpResponse=>$ingestion()->ingest($r));
+            $connectors->get('/targets/{id}/ingestion-batches',static fn(HttpRequest $r):HttpResponse=>$ingestion()->batches($r));
+            $connectors->get('/targets/{id}/ingestion-batches/{batchId}',static fn(HttpRequest $r):HttpResponse=>$ingestion()->batch($r));
+            $connectors->post('/targets/{id}/ingestion-batches/{batchId}/redrive',static fn(HttpRequest $r):HttpResponse=>$ingestion()->redrive($r));
+            $connectors->get('/targets/{id}/data-events',static fn(HttpRequest $r):HttpResponse=>$ingestion()->events($r));
             $actions=static fn()=> $container->get(\Cajeer\Servers\Connector\ConnectorActionController::class);
             $connectors->get('/targets/{id}/actions',static fn(HttpRequest $r):HttpResponse=>$actions()->list($r));
             $connectors->post('/targets/{id}/actions',static fn(HttpRequest $r):HttpResponse=>$actions()->submit($r),[

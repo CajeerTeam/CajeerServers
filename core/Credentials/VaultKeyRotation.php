@@ -38,7 +38,7 @@ final class VaultKeyRotation
         return $this->db->transaction(function (PDO $pdo) use ($next,$nextCrypto,$previousId,$newId): array {
             $pdo->query('SELECT pg_advisory_xact_lock(1128352282, 1397904981)')->fetchColumn();
             // These locks serialize other writes and readers during the crypto transition.
-            $pdo->exec('LOCK TABLE credentials, vault_credential_versions, vault_use_grants, connector_webhook_sources IN ACCESS EXCLUSIVE MODE');
+            $pdo->exec('LOCK TABLE credentials, vault_credential_versions, vault_use_grants, connector_webhook_sources, data_ingestion_sources IN ACCESS EXCLUSIVE MODE');
             $row = $pdo->query('SELECT key_id,generation FROM vault_key_state WHERE id=1 FOR UPDATE')->fetch(PDO::FETCH_ASSOC);
             if (!is_array($row) || !hash_equals((string)$row['key_id'],$previousId)) {
                 throw new RuntimeException('Vault key changed during offline rotation.');
@@ -86,6 +86,17 @@ final class VaultKeyRotation
                 $this->verifyNewEnvelope($nextCrypto,$rewrapped,$item);
                 $replaceSource->execute(['blob'=>bin2hex($rewrapped),'id'=>$item['id']]);
                 if ($replaceSource->rowCount()!==1) throw new RuntimeException('Webhook source disappeared during rotation.');
+                sodium_memzero($blob);sodium_memzero($rewrapped);
+            }
+            $sources=$pdo->query("SELECT id::text,workspace_id::text,'data_ingestion' AS type,encode(secret_ciphertext,'hex') AS blob FROM data_ingestion_sources ORDER BY id");
+            $replaceSource=$pdo->prepare("UPDATE data_ingestion_sources SET secret_ciphertext=decode(:blob,'hex') WHERE id=:id");
+            while (($item=$sources->fetch(PDO::FETCH_ASSOC))!==false) {
+                $blob=hex2bin($item['blob']);
+                if ($blob===false) throw new RuntimeException('Invalid ingestion ciphertext.');
+                $rewrapped=$this->crypto->rewrap($blob,$item['id'],$item['workspace_id'],$item['type'],$next);
+                $this->verifyNewEnvelope($nextCrypto,$rewrapped,$item);
+                $replaceSource->execute(['blob'=>bin2hex($rewrapped),'id'=>$item['id']]);
+                if ($replaceSource->rowCount()!==1) throw new RuntimeException('Ingestion source disappeared during rotation.');
                 sodium_memzero($blob);sodium_memzero($rewrapped);
             }
             $challenge = $nextCrypto->seal('cajeerservers:vault:verifier:v1',

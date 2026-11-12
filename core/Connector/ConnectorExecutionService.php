@@ -106,6 +106,17 @@ final class ConnectorExecutionService
             return $this->enqueueLocked($pdo,$g,'manual:'.$key,$collector);
         });
     }
+    /** Push ingestion uses a live, unscheduled inspect grant; never obtains its plaintext secret. */
+    public function ingestionContext(PDO $pdo,string $actor,string $target,string $grant):array
+    {
+        if (!$pdo->inTransaction()) throw new \LogicException('Ingestion authorization requires transaction.');
+        $g=$this->grant($pdo,$grant,true);
+        if ($g['actor_id']!==$actor || $g['target_id']!==$target || $g['operation']!=='inspect' || $g['interval_seconds']!==null) $this->deny();
+        $this->rejectPlanGrant($pdo,$g['id']);
+        $this->rbac->requireUserPermission($actor,'ingestion.write',$pdo);
+        $this->rbac->requireUserPermission($actor,'connectors.targets.read',$pdo);
+        return $this->context($pdo,$g);
+    }
     /** Only server-side event dispatcher calls this within its durable inbox transaction. */
     public function eventGrant(PDO $pdo,string $actor,string $target,string $grant):array
     {

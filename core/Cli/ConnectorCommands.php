@@ -17,6 +17,12 @@ final class ConnectorCommands
             fwrite(STDOUT,json_encode($report,JSON_THROW_ON_ERROR|JSON_PRETTY_PRINT)."\n");
             return $report['ok']?0:1;
         }
+        if(in_array($command,['ingestion:work','ingestion:retain'],true)){
+            if(count($args)>1||isset($args[0])&&!preg_match('/^[1-9][0-9]{0,4}$/D',$args[0]))throw new \InvalidArgumentException('Usage: ingestion:work [limit] or ingestion:retain [limit]');
+            $service=$this->app->container()->get(\Cajeer\Servers\Ingestion\IngestionService::class);
+            $result=$command==='ingestion:work'?$service->work((int)($args[0]??20)):$service->retain((int)($args[0]??1000));
+            fwrite(STDOUT,json_encode($result,JSON_THROW_ON_ERROR)."\n");return 0;
+        }
         if($command==='metrics:retain'){
             if(count($args)>1||isset($args[0])&&!preg_match('/^[1-9][0-9]{0,5}$/D',$args[0]))throw new \InvalidArgumentException('Usage: metrics:retain [limit]');
             $db=$this->app->container()->get(\Cajeer\Servers\Database\DatabaseManager::class);

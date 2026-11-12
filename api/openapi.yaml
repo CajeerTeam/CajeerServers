@@ -1,8 +1,8 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.5.6
-  description: 'CajeerServers 0.5.6: metrics scraping, time series and scheduled collection.'
+  version: 0.5.7
+  description: 'CajeerServers 0.5.7: signed external data ingestion, durable inbox and time series.'
 servers:
 - url: /api/v1
 security: []
@@ -9202,12 +9202,889 @@ paths:
             schema:
               type: object
               additionalProperties: false
+  /connectors/targets/{id}/ingestion-sources:
+    get:
+      operationId: listIngestionSources
+      description: List source metadata without signing keys.
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: List source metadata without signing keys.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/IngestionSource'
+                required:
+                - data
+                additionalProperties: false
+        '401':
+          description: Session or signature invalid
+        '403':
+          description: Permission or source grant denied
+        '404':
+          description: Resource not found
+        '409':
+          description: Conflict
+        '422':
+          description: Invalid input
+        '429':
+          description: Quota exceeded
+    post:
+      operationId: createIngestionSource
+      description: Create source bound to a live unscheduled inspect grant; returns
+        one-time key.
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      responses:
+        '201':
+          description: Create source bound to a live unscheduled inspect grant; returns
+            one-time key.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/IngestionSourceSecret'
+                required:
+                - data
+                additionalProperties: false
+        '401':
+          description: Session or signature invalid
+        '403':
+          description: Permission or source grant denied
+        '404':
+          description: Resource not found
+        '409':
+          description: Conflict
+        '422':
+          description: Invalid input
+        '429':
+          description: Quota exceeded
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                grant_id:
+                  type: string
+                  format: uuid
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 120
+                kind:
+                  type: string
+                  enum:
+                  - metrics
+                  - events
+                  - observations
+              required:
+              - grant_id
+              - name
+              - kind
+              additionalProperties: false
+  /connectors/targets/{id}/ingestion-sources/{sourceId}/rotate:
+    post:
+      operationId: rotateIngestionSource
+      description: Rotate key, only grant owner; old key no longer accepted.
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: sourceId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Rotate key, only grant owner; old key no longer accepted.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/IngestionSourceSecret'
+                required:
+                - data
+                additionalProperties: false
+        '401':
+          description: Session or signature invalid
+        '403':
+          description: Permission or source grant denied
+        '404':
+          description: Resource not found
+        '409':
+          description: Conflict
+        '422':
+          description: Invalid input
+        '429':
+          description: Quota exceeded
+  /connectors/targets/{id}/ingestion-sources/{sourceId}:
+    delete:
+      operationId: revokeIngestionSource
+      description: Revoke source and fence pending ingestion.
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: sourceId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      responses:
+        '204':
+          description: Revoke source and fence pending ingestion.
+        '401':
+          description: Session or signature invalid
+        '403':
+          description: Permission or source grant denied
+        '404':
+          description: Resource not found
+        '409':
+          description: Conflict
+        '422':
+          description: Invalid input
+        '429':
+          description: Quota exceeded
+  /connectors/targets/{id}/ingestion-batches:
+    get:
+      operationId: listIngestionBatches
+      description: List retained batch statuses.
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 50
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          maximum: 10000
+          default: 0
+      responses:
+        '200':
+          description: List retained batch statuses.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/IngestionBatch'
+                required:
+                - data
+                additionalProperties: false
+        '401':
+          description: Session or signature invalid
+        '403':
+          description: Permission or source grant denied
+        '404':
+          description: Resource not found
+        '409':
+          description: Conflict
+        '422':
+          description: Invalid input
+        '429':
+          description: Quota exceeded
+  /connectors/targets/{id}/ingestion-batches/{batchId}:
+    get:
+      operationId: getIngestionBatch
+      description: Read normalized payload, result and attempt history.
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: batchId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Read normalized payload, result and attempt history.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/IngestionBatchDetail'
+                required:
+                - data
+                additionalProperties: false
+        '401':
+          description: Session or signature invalid
+        '403':
+          description: Permission or source grant denied
+        '404':
+          description: Resource not found
+        '409':
+          description: Conflict
+        '422':
+          description: Invalid input
+        '429':
+          description: Quota exceeded
+  /connectors/targets/{id}/ingestion-batches/{batchId}/redrive:
+    post:
+      operationId: redriveIngestionBatch
+      description: Retry a failed batch without changing its contents.
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: batchId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      responses:
+        '202':
+          description: Retry a failed batch without changing its contents.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      status:
+                        const: queued
+                      dispatch_count:
+                        type: integer
+                    required:
+                    - id
+                    - status
+                    - dispatch_count
+                    additionalProperties: false
+                required:
+                - data
+                additionalProperties: false
+        '401':
+          description: Session or signature invalid
+        '403':
+          description: Permission or source grant denied
+        '404':
+          description: Resource not found
+        '409':
+          description: Conflict
+        '422':
+          description: Invalid input
+        '429':
+          description: Quota exceeded
+  /connectors/targets/{id}/data-events:
+    get:
+      operationId: listIngestedEvents
+      description: Read stored events scoped to target.
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 50
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          maximum: 10000
+          default: 0
+      responses:
+        '200':
+          description: Read stored events scoped to target.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/IngestedEvent'
+                required:
+                - data
+                additionalProperties: false
+        '401':
+          description: Session or signature invalid
+        '403':
+          description: Permission or source grant denied
+        '404':
+          description: Resource not found
+        '409':
+          description: Conflict
+        '422':
+          description: Invalid input
+        '429':
+          description: Quota exceeded
+  /connectors/ingestion/{sourceId}/batches:
+    post:
+      operationId: acceptIngestionBatch
+      description: Durable acceptance only. HMAC-SHA256 over v1.timestamp.sourceUUID
+        newline raw body; 300s skew, 256 KiB, 1000 records.
+      security: []
+      parameters:
+      - name: sourceId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: X-Cajeer-Timestamp
+        in: header
+        required: true
+        schema:
+          type: string
+          pattern: ^[0-9]{10,13}$
+      - name: X-Cajeer-Signature
+        in: header
+        required: true
+        schema:
+          type: string
+          pattern: ^sha256=[0-9a-f]{64}$
+      responses:
+        '202':
+          description: Durable acceptance only. HMAC-SHA256 over v1.timestamp.sourceUUID
+            newline raw body; 300s skew, 256 KiB, 1000 records.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      status:
+                        type: string
+                        enum:
+                        - queued
+                        - succeeded
+                        - failed
+                      deduplicated:
+                        type: boolean
+                    required:
+                    - id
+                    - status
+                    - deduplicated
+                    additionalProperties: false
+                required:
+                - data
+                additionalProperties: false
+        '401':
+          description: Session or signature invalid
+        '403':
+          description: Permission or source grant denied
+        '404':
+          description: Resource not found
+        '409':
+          description: Conflict
+        '422':
+          description: Invalid input
+        '429':
+          description: Quota exceeded
+        '413':
+          description: Payload too large
+        '415':
+          description: JSON required
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IngestionPayload'
+
 components:
   schemas:
+    IngestionSource:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        workspace_id:
+          type: string
+          format: uuid
+        target_id:
+          type: string
+          format: uuid
+        grant_id:
+          type: string
+          format: uuid
+        actor_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        kind:
+          type: string
+          enum:
+          - metrics
+          - events
+          - observations
+        key_version:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        revoked_at:
+          type:
+          - string
+          - 'null'
+      required:
+      - id
+      - workspace_id
+      - target_id
+      - grant_id
+      - actor_id
+      - name
+      - kind
+      - key_version
+      - created_at
+      - revoked_at
+      additionalProperties: false
+    IngestionSourceSecret:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        workspace_id:
+          type: string
+          format: uuid
+        target_id:
+          type: string
+          format: uuid
+        grant_id:
+          type: string
+          format: uuid
+        actor_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        kind:
+          type: string
+          enum:
+          - metrics
+          - events
+          - observations
+        key_version:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        revoked_at:
+          type:
+          - string
+          - 'null'
+        secret:
+          type: string
+          pattern: ^[0-9a-f]{64}$
+      required:
+      - id
+      - workspace_id
+      - target_id
+      - grant_id
+      - actor_id
+      - name
+      - kind
+      - key_version
+      - created_at
+      - revoked_at
+      - secret
+      additionalProperties: false
+    IngestionBatch:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        source_id:
+          type: string
+          format: uuid
+        batch_id:
+          type: string
+        kind:
+          type: string
+          enum:
+          - metrics
+          - events
+          - observations
+        status:
+          type: string
+          enum:
+          - queued
+          - succeeded
+          - failed
+        received_at:
+          type: string
+          format: date-time
+        finished_at:
+          type:
+          - string
+          - 'null'
+        attempts:
+          type: integer
+        dispatch_count:
+          type: integer
+        error_code:
+          type:
+          - string
+          - 'null'
+        result:
+          type:
+          - object
+          - 'null'
+      required:
+      - id
+      - source_id
+      - batch_id
+      - kind
+      - status
+      - received_at
+      - finished_at
+      - attempts
+      - dispatch_count
+      - error_code
+      - result
+      additionalProperties: false
+    IngestionBatchDetail:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        source_id:
+          type: string
+          format: uuid
+        batch_id:
+          type: string
+        kind:
+          type: string
+          enum:
+          - metrics
+          - events
+          - observations
+        status:
+          type: string
+          enum:
+          - queued
+          - succeeded
+          - failed
+        received_at:
+          type: string
+          format: date-time
+        finished_at:
+          type:
+          - string
+          - 'null'
+        attempts:
+          type: integer
+        dispatch_count:
+          type: integer
+        error_code:
+          type:
+          - string
+          - 'null'
+        result:
+          type:
+          - object
+          - 'null'
+        payload:
+          type: array
+          items:
+            type: object
+        history:
+          type: array
+          items:
+            type: object
+        workspace_id:
+          type: string
+          format: uuid
+        target_id:
+          type: string
+          format: uuid
+        body_digest:
+          type: string
+        available_at:
+          type: string
+          format: date-time
+        payload_bytes:
+          type: integer
+    IngestedEvent:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        source_id:
+          type: string
+          format: uuid
+        event_id:
+          type: string
+        type:
+          type: string
+        severity:
+          type: string
+        message:
+          type: string
+        observed_at:
+          type: string
+          format: date-time
+        received_at:
+          type: string
+          format: date-time
+      required:
+      - id
+      - source_id
+      - event_id
+      - type
+      - severity
+      - message
+      - observed_at
+      - received_at
+      additionalProperties: false
+    IngestionPayload:
+      oneOf:
+      - type: object
+        properties:
+          schema_version:
+            const: 1
+          batch_id:
+            type: string
+            pattern: ^[A-Za-z0-9._:-]{1,128}$
+          kind:
+            const: metrics
+          records:
+            type: array
+            minItems: 1
+            maxItems: 1000
+            items:
+              type: object
+              properties:
+                metric:
+                  type: string
+                value:
+                  type:
+                  - number
+                  - string
+                kind:
+                  enum:
+                  - gauge
+                  - counter
+                unit:
+                  type:
+                  - string
+                  - 'null'
+                resource_external_id:
+                  type: string
+                labels:
+                  type: object
+                  additionalProperties:
+                    type: string
+                observed_at:
+                  type: string
+                  format: date-time
+              required:
+              - metric
+              - value
+              - observed_at
+              additionalProperties: false
+        required:
+        - schema_version
+        - batch_id
+        - kind
+        - records
+        additionalProperties: false
+      - type: object
+        properties:
+          schema_version:
+            const: 1
+          batch_id:
+            type: string
+            pattern: ^[A-Za-z0-9._:-]{1,128}$
+          kind:
+            const: events
+          records:
+            type: array
+            minItems: 1
+            maxItems: 1000
+            items:
+              type: object
+              properties:
+                event_id:
+                  type: string
+                type:
+                  type: string
+                message:
+                  type: string
+                severity:
+                  enum:
+                  - debug
+                  - info
+                  - warning
+                  - error
+                  - critical
+                observed_at:
+                  type: string
+                  format: date-time
+              required:
+              - event_id
+              - type
+              - message
+              - observed_at
+              additionalProperties: false
+        required:
+        - schema_version
+        - batch_id
+        - kind
+        - records
+        additionalProperties: false
+      - type: object
+        properties:
+          schema_version:
+            const: 1
+          batch_id:
+            type: string
+            pattern: ^[A-Za-z0-9._:-]{1,128}$
+          kind:
+            const: observations
+          records:
+            type: array
+            minItems: 1
+            maxItems: 1000
+            items:
+              type: object
+              properties:
+                external_id:
+                  type: string
+                type:
+                  type: string
+                fields:
+                  type: object
+                observed_at:
+                  type: string
+                  format: date-time
+              required:
+              - external_id
+              - type
+              - fields
+              - observed_at
+              additionalProperties: false
+        required:
+        - schema_version
+        - batch_id
+        - kind
+        - records
+        additionalProperties: false
     MetricSeries:
       type: object
       required: [id, asset_id, target_version, metric, resource_external_id, labels, kind, unit, last_seen_at]
       properties:
+        ingestion_source_id: {type: [string, 'null'], format: uuid}
         id: {type: string, format: uuid}
         asset_id: {type: string, format: uuid}
         target_version: {type: integer, minimum: 1}

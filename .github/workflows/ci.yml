@@ -39,6 +39,7 @@ jobs:
         run: |
           python3 tests/connector-stability-https-integration.py
           python3 tests/metrics-https-integration.py
+          python3 tests/ingestion-https-integration.py
           python3 tests/connector-https-integration.py
           python3 tests/connector-actions-https-integration.py
           python3 tests/vmmanager-https-integration.py
@@ -128,6 +129,7 @@ jobs:
           php tests/connector-health-postgres-integration.php
           php tests/collection-plans-postgres-integration.php
           php tests/metrics-postgres-integration.php
+          php tests/ingestion-postgres-integration.php
           php tests/connector-events-postgres-integration.php
           php tests/connector-actions-postgres-integration.php
           php tests/script-registry-postgres-integration.php

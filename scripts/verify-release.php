@@ -45,7 +45,7 @@ $steps++;
 fwrite(STDOUT, sprintf("PHP lint: %d files, %d failures\n", count($phpFiles), $lintErrors));
 if ($lintErrors > 0 || $phpFiles === []) $failures++;
 
-foreach (['runtime', 'http', 'database', 'installer', 'auth', 'security', 'infrastructure', 'observability', 'admin', 'release', 'inventory-readiness', 'workspaces', 'inventory', 'ipam', 'topology', 'catalog', 'history', 'transfer', 'cmdb-integrity', 'import-dispatch', 'vault-crypto', 'vault-crud', 'vault-profiles', 'vault-access', 'vault-rotation', 'vault-bindings', 'vault-stable', 'proxmox-runtime', 'connector-runtime', 'connector-execution', 'connector-reconciliation', 'vmmanager-runtime', 'host-runtime', 'snmp-health', 'connector-events', 'connector-actions', 'connector-stability', 'collector-runtime', 'script-registry', 'script-execution', 'script-output', 'collection-plans', 'metrics', 'backup'] as $suite) {
+foreach (['runtime', 'http', 'database', 'installer', 'auth', 'security', 'infrastructure', 'observability', 'admin', 'release', 'inventory-readiness', 'workspaces', 'inventory', 'ipam', 'topology', 'catalog', 'history', 'transfer', 'cmdb-integrity', 'import-dispatch', 'vault-crypto', 'vault-crud', 'vault-profiles', 'vault-access', 'vault-rotation', 'vault-bindings', 'vault-stable', 'proxmox-runtime', 'connector-runtime', 'connector-execution', 'connector-reconciliation', 'vmmanager-runtime', 'host-runtime', 'snmp-health', 'connector-events', 'connector-actions', 'connector-stability', 'collector-runtime', 'script-registry', 'script-execution', 'script-output', 'collection-plans', 'metrics', 'ingestion', 'backup'] as $suite) {
     $run($suite . ' smoke', [PHP_BINARY, 'tests/' . $suite . '-smoke.php'], $root);
 }
 $run('Admin frontend static', ['node', 'tests/static-check.mjs'], $root . '/admin');
@@ -56,6 +56,7 @@ $run('Connector lifecycle UI policy', ['node', '--experimental-strip-types', 'te
 if ($strict) {
     $run('Script sandbox integration', [PHP_BINARY,'tests/script-sandbox-integration.php'], $root);
     $run('Connector stability HTTPS integration', ['python3','tests/connector-stability-https-integration.py'], $root);
+    $run('Ingestion HTTPS integration', ['python3','tests/ingestion-https-integration.py'], $root);
     $run('Metrics HTTPS integration', ['python3','tests/metrics-https-integration.py'], $root);
     $run('Proxmox HTTPS integration', ['python3','tests/connector-https-integration.py'], $root);
     $run('Connector actions HTTPS integration', ['python3','tests/connector-actions-https-integration.py'], $root);
@@ -66,7 +67,7 @@ if ($strict) {
     if (getenv('CAJEER_PG_TEST') !== '1' || !preg_match('/^cajeer_test_[a-z0-9_]+$/D', getenv('CAJEER_PG_TEST_DATABASE') ?: '')) {
         fwrite(STDERR, "FAIL: strict verification requires CAJEER_PG_TEST=1 and an isolated cajeer_test_* database.\n"); $failures++;
     } else {
-        foreach (['database','auth','security','infrastructure','admin','inventory','workspaces','inventory-crud','ipam','topology','catalog','history','transfer','cmdb','vault','vault-crud','vault-access','vault-rotation','vault-bindings','connector-reconciliation','host-hardware','connector-health','connector-events','connector-actions','script-registry','script-execution','collection-plans','metrics','backup'] as $name) {
+        foreach (['database','auth','security','infrastructure','admin','inventory','workspaces','inventory-crud','ipam','topology','catalog','history','transfer','cmdb','vault','vault-crud','vault-access','vault-rotation','vault-bindings','connector-reconciliation','host-hardware','connector-health','connector-events','connector-actions','script-registry','script-execution','collection-plans','metrics','ingestion','backup'] as $name) {
             $run("PostgreSQL $name", [PHP_BINARY, 'tests/' . $name . '-postgres-integration.php'], $root);
         }
         $installerDb = getenv('CAJEER_INSTALL_PG_TEST_DATABASE') ?: '';

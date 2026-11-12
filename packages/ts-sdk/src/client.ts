@@ -1,4 +1,4 @@
-import type { InfrastructureAsset, Driver, Target, TargetInput, ServiceGrant, Run, EnqueuedRun, Operation, PowerAction, Action, Problem, CollectionJobPlan, CollectionPlanInput, MetricSeries, MetricQuery, MetricAggregation } from './types.js'
+import type { InfrastructureAsset, Driver, Target, TargetInput, ServiceGrant, Run, EnqueuedRun, Operation, PowerAction, Action, Problem, CollectionJobPlan, CollectionPlanInput, MetricSeries, MetricQuery, MetricAggregation, IngestionKind, IngestionSource, IngestionSourceSecret, IngestionBatch, IngestedEvent } from './types.js'
 export class ApiError extends Error {
   constructor(public readonly status: number, public readonly problem: Problem) { super(problem.title || `HTTP ${status}`); this.name = 'ApiError' }
 }
@@ -55,6 +55,14 @@ export class CajeerServersClient {
   grants(id:string):Promise<ServiceGrant[]> { return this.data(`${this.target(id)}/service-grants`) }
   revokeGrant(id:string,grantId:string):Promise<void> { return this.write('DELETE',`${this.target(id)}/service-grants/${this.id(grantId)}`) }
   enqueue(id:string,grantId:string,key:string,collector?:string):Promise<EnqueuedRun> { return this.write('POST',`${this.target(id)}/runs`,{grant_id:grantId,...(collector?{collector}:{})},{'Idempotency-Key':key}) }
+  ingestionSources(id:string):Promise<IngestionSource[]> { return this.data(`${this.target(id)}/ingestion-sources`) }
+  createIngestionSource(id:string,grantId:string,name:string,kind:IngestionKind):Promise<IngestionSourceSecret> { return this.write('POST',`${this.target(id)}/ingestion-sources`,{grant_id:grantId,name,kind}) }
+  rotateIngestionSource(id:string,sourceId:string):Promise<IngestionSourceSecret> { return this.write('POST',`${this.target(id)}/ingestion-sources/${this.id(sourceId)}/rotate`) }
+  revokeIngestionSource(id:string,sourceId:string):Promise<void> { return this.write('DELETE',`${this.target(id)}/ingestion-sources/${this.id(sourceId)}`) }
+  ingestionBatches(id:string,limit=50,offset=0):Promise<IngestionBatch[]> { return this.data(`${this.target(id)}/ingestion-batches?limit=${limit}&offset=${offset}`) }
+  ingestionBatch(id:string,batchId:string):Promise<IngestionBatch> { return this.data(`${this.target(id)}/ingestion-batches/${this.id(batchId)}`) }
+  redriveIngestionBatch(id:string,batchId:string):Promise<{id:string;status:'queued';dispatch_count:number}> { return this.write('POST',`${this.target(id)}/ingestion-batches/${this.id(batchId)}/redrive`) }
+  dataEvents(id:string,limit=50,offset=0):Promise<IngestedEvent[]> { return this.data(`${this.target(id)}/data-events?limit=${limit}&offset=${offset}`) }
   metricSeries(id:string,limit=100,offset=0,metric?:string):Promise<MetricSeries[]> { return this.data(`${this.target(id)}/metric-series?${new URLSearchParams({limit:String(limit),offset:String(offset),...(metric?{metric}:{})})}`) }
   metricQuery(id:string,seriesId:string,from:string,to:string,aggregation:MetricAggregation='raw',step=60):Promise<MetricQuery> { return this.data(`${this.target(id)}/metric-series/${this.id(seriesId)}/samples?${new URLSearchParams({from,to,aggregation,step:String(step)})}`) }
   collectionPlans(id:string,limit=50,offset=0):Promise<CollectionJobPlan[]> { return this.data(`${this.target(id)}/collection-plans?limit=${limit}&offset=${offset}`) }

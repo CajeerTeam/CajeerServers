@@ -191,6 +191,8 @@ final class ConnectorBindingService
             if ($stmt->fetchColumn())throw new HttpException(409,'Resolve outstanding connector actions before deletion.','action_unresolved');
             $stmt=$pdo->prepare('SELECT 1 FROM metric_series WHERE target_id=:id LIMIT 1');$stmt->execute(['id'=>$id]);
             if($stmt->fetchColumn())throw new HttpException(409,'Disable the connector; retained metric series still reference it.','conflict');
+            $stmt=$pdo->prepare('SELECT 1 FROM data_ingestion_sources WHERE target_id=:id LIMIT 1');$stmt->execute(['id'=>$id]);
+            if($stmt->fetchColumn())throw new HttpException(409,'Disable the connector; retained ingestion sources still reference it.','conflict');
             $stmt=$pdo->prepare('DELETE FROM connector_targets WHERE id=CAST(:id AS uuid) AND version=:version');
             $stmt->execute(['id'=>$id,'version'=>$version]);
             if ($stmt->rowCount()!==1)throw new HttpException(412,'Connector changed.','precondition_failed');
