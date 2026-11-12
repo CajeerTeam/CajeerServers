@@ -1,0 +1,13 @@
+[Unit]
+Description=CajeerServers bounded export retention
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=cajeer
+Group=cajeer
+WorkingDirectory=/opt/cajeer
+ExecStart=/usr/bin/php /opt/cajeer/bin/cajeer data-export:retain 100
+NoNewPrivileges=true
+PrivateTmp=true
+TimeoutStartSec=120

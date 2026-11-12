@@ -26,5 +26,13 @@ export type IngestionKind='metrics'|'events'|'observations'
 export interface IngestionSource {id:string;workspace_id:string;target_id:string;grant_id:string;actor_id:string;name:string;kind:IngestionKind;key_version:number;created_at:string;revoked_at:string|null}
 export interface IngestionSourceSecret extends IngestionSource {secret:string}
 export interface IngestionAttempt {dispatch:number;attempt:number;started_at:string;finished_at:string;outcome:'succeeded'|'failed'|'retry_scheduled';error_code:string|null}
-export interface IngestionBatch {id:string;source_id:string;batch_id:string;kind:IngestionKind;status:'queued'|'succeeded'|'failed';attempts:number;dispatch_count:number;received_at:string;finished_at:string|null;error_code:string|null;result:Record<string,unknown>|null;payload?:unknown[];history?:IngestionAttempt[]}
+export interface IngestionBatch {id:string;source_id:string;accepted_by?:string|null;batch_id:string;kind:IngestionKind;status:'queued'|'succeeded'|'failed';attempts:number;dispatch_count:number;received_at:string;finished_at:string|null;error_code:string|null;result:Record<string,unknown>|null;payload?:unknown[];history?:IngestionAttempt[]}
 export interface IngestedEvent {id:string;source_id:string;event_id:string;type:string;severity:string;message:string;observed_at:string;received_at:string}
+
+export type ExportKind = 'metrics'|'events'|'observations'|'runs'
+export interface DataExportInput { kind:ExportKind; format:string; from:string; to:string; series_id?:string }
+export interface DataExportJob { id:string; workspace_id:string; target_id:string; actor_id:string; kind:ExportKind; format:string; from_at:string; to_at:string; series_id:string|null; status:'queued'|'succeeded'|'failed'|'cancelled'; created_at:string; finished_at:string|null; attempts:number; error_code:string|null; record_count:number|null; artifact_sha256:string|null; artifact_bytes:number|null }
+export interface DataExportList { formats:{format:string;kinds:ExportKind[]}[]; jobs:DataExportJob[] }
+export interface ManualImportInput { format:'json'|'csv'; batch_id:string; content:string }
+export interface ManualImportPreview { confirmation:string; kind:IngestionKind; count:number; records:unknown[] }
+export interface ManualImportResult { id:string; status:'queued'|'succeeded'|'failed'; deduplicated:boolean }

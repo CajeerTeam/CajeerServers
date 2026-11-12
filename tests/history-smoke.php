@@ -43,7 +43,7 @@ $oldEnv=getenv('APP_ENV');$oldUrl=getenv('APP_URL');putenv('APP_ENV=local');pute
 $app=(new Application(dirname(__DIR__)))->boot();
 try {
     $router=$app->container()->get(Router::class);$routes=$router->routes();
-    $ok(count($routes)===196,'196 registered HTTP method routes');
+    $ok(count($routes)===203,'203 registered HTTP method routes');
     foreach(['/api/v1/inventory/assets/{id}/history','/api/v1/inventory/assets/{id}/provenance','/api/v1/inventory/assets/{id}/conflicts',
         '/api/v1/inventory/assets/{id}/observations','/api/v1/inventory/observations','/api/v1/inventory/assets/{id}/overrides',
         '/api/v1/inventory/assets/{id}/overrides/{field}','/api/v1/inventory/assets/{id}/restore-version'] as $path)

@@ -40,6 +40,7 @@ jobs:
           python3 tests/connector-stability-https-integration.py
           python3 tests/metrics-https-integration.py
           python3 tests/ingestion-https-integration.py
+          python3 tests/data-export-https-integration.py
           python3 tests/connector-https-integration.py
           python3 tests/connector-actions-https-integration.py
           python3 tests/vmmanager-https-integration.py

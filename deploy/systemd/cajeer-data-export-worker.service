@@ -1,0 +1,13 @@
+[Unit]
+Description=CajeerServers data export worker
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=cajeer
+Group=cajeer
+WorkingDirectory=/opt/cajeer
+ExecStart=/usr/bin/php /opt/cajeer/bin/cajeer data-export:work 10
+NoNewPrivileges=true
+PrivateTmp=true
+TimeoutStartSec=120

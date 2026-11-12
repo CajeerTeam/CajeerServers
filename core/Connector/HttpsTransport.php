@@ -21,6 +21,14 @@ final class HttpsTransport
         if (!preg_match('~^/api2/json/nodes/[A-Za-z0-9][A-Za-z0-9._-]{0,119}/qemu/[1-9][0-9]{0,8}/status/(start|shutdown)$~D',$path)) throw new RuntimeException('Unsupported power request.');
         return $this->request('POST',$host,$port,$path,$authorization,$caFile,'Authorization');
     }
+    /** Operator-configured delivery only. Signature and all extra headers are generated internally. */
+    public function postArtifact(string $host,int $port,string $path,string $deliveryId,string $body,string $mime,#[\SensitiveParameter] string $secret,?string $caFile=null):string
+    {
+        if(!preg_match('/^[a-f0-9]{64}$/D',$deliveryId)||strlen($body)>4194304||!in_array($mime,['application/json','text/csv','application/openmetrics-text; version=1.0.0','application/octet-stream'],true))throw new RuntimeException('Invalid export delivery.');
+        $timestamp=time();$signature=\Cajeer\Servers\Security\SignedPayload::signature($deliveryId."\n".$mime."\n".$body,$secret,$timestamp);
+        $headers="Content-Type: $mime\r\nX-Cajeer-Timestamp: $timestamp\r\nIdempotency-Key: $deliveryId\r\nX-Artifact-SHA256: ".hash('sha256',$body)."\r\n";
+        return $this->request('POST',$host,$port,$path,$signature,$caFile,'X-Cajeer-Signature','application/json',$body,$headers,true);
+    }
     private static function protocol():never { throw new ConnectorTransportException('connector_protocol_error'); }
     private static function transport():never { throw new ConnectorTransportException('connector_transport_failed'); }
     private static function remaining(int $deadline):float
@@ -51,17 +59,19 @@ final class HttpsTransport
             if ($part==='') self::protocol(); $out.=$part;
         } return $out;
     }
-    private function body($stream,int $deadline):string
+    private function body($stream,int $deadline,bool $accept2xx=false):string
     {
         $budget=self::MAX_HEADERS;
         $status=self::line($stream,$deadline,$budget);
         if (!preg_match('~^HTTP/1\.[01] ([0-9]{3})(?: [\x20-\x7e]*)?$~D',$status,$m)) self::protocol();
-        if ((int)$m[1]!==200) throw ConnectorTransportException::forStatus((int)$m[1]);
+        if ((int)$m[1]!==200 && !($accept2xx && (int)$m[1]>=200 && (int)$m[1]<300)) throw ConnectorTransportException::forStatus((int)$m[1]);
+        $statusCode=(int)$m[1];
         $headers=[];
         while (($line=self::line($stream,$deadline,$budget))!=='') {
             if (!preg_match('/^([!#$%&\'*+.^_`|~0-9A-Za-z-]+):[ \t]*([^\x00-\x08\x0a-\x1f\x7f]*)$/D',$line,$m)) self::protocol();
             $headers[strtolower($m[1])][] = trim($m[2]);
         }
+        if($accept2xx && $statusCode===204)return '';
         $length=$headers['content-length']??[]; $encoding=$headers['transfer-encoding']??[];
         if (count($length)>1 || count($encoding)>1 || ($length && $encoding)) self::protocol();
         if (isset($headers['content-encoding']) && $headers['content-encoding']!==['identity']) self::protocol();
@@ -90,10 +100,10 @@ final class HttpsTransport
         }
         return $body;
     }
-    private function request(string $method,string $host,int $port,string $path,#[\SensitiveParameter] string $authorization,?string $caFile,string $credentialHeader,string $accept='application/json'):string
+    private function request(string $method,string $host,int $port,string $path,#[\SensitiveParameter] string $authorization,?string $caFile,string $credentialHeader,string $accept='application/json',string $payload='',string $extraHeaders='',bool $accept2xx=false):string
     {
         $host=ConnectorBindingService::validateHost($host); $port=ConnectorBindingService::validatePort($port);
-        if (!in_array($credentialHeader,['Authorization','x-xsrf-token'],true) || $authorization==='' || strlen($authorization)>16384 || !preg_match('~^/[A-Za-z0-9/_?.=&%:-]+$~D',$path) || str_starts_with($path,'//') || preg_match('/[\x00-\x1f\x7f]/',$authorization))
+        if (!in_array($credentialHeader,['Authorization','x-xsrf-token','X-Cajeer-Signature'],true) || $authorization==='' || strlen($authorization)>16384 || !preg_match('~^/[A-Za-z0-9/_?.=&%:-]+$~D',$path) || str_starts_with($path,'//') || preg_match('/[\x00-\x1f\x7f]/',$authorization))
             throw new RuntimeException('Invalid HTTPS request.');
         if ($caFile!==null && (!is_file($caFile)||!is_readable($caFile))) throw new ConnectorTransportException('connector_trust_failed');
         $deadline=hrtime(true)+$this->timeout*1000000000;
@@ -111,11 +121,11 @@ final class HttpsTransport
                 if (stream_get_meta_data($stream)['timed_out'] || hrtime(true)>=$deadline) self::transport();
                 throw new ConnectorTransportException('connector_trust_failed');
             }
-            $request="$method $path HTTP/1.1\r\nHost: ".$bracket($host).":$port\r\nAccept: $accept\r\n$credentialHeader: $authorization\r\nConnection: close\r\n".($method==='POST'?"Content-Length: 0\r\n":'')."\r\n";
+            $request="$method $path HTTP/1.1\r\nHost: ".$bracket($host).":$port\r\nAccept: $accept\r\n$credentialHeader: $authorization\r\nConnection: close\r\n".($method==='POST'?"Content-Length: ".strlen($payload)."\r\n":'').$extraHeaders."\r\n".$payload;
             try {
                 $offset=0; while ($offset<strlen($request)) { self::timeout($stream,$deadline); $n=@fwrite($stream,substr($request,$offset)); if (!$n) self::transport(); $offset+=$n; }
             } finally { sodium_memzero($request); }
-            return $this->body($stream,$deadline);
+            return $this->body($stream,$deadline,$accept2xx);
         } finally { fclose($stream); }
     }
     public static function jsonObject(string $body):\stdClass

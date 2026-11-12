@@ -1,4 +1,4 @@
-import type { InfrastructureAsset, Driver, Target, TargetInput, ServiceGrant, Run, EnqueuedRun, Operation, PowerAction, Action, Problem, CollectionJobPlan, CollectionPlanInput, MetricSeries, MetricQuery, MetricAggregation, IngestionKind, IngestionSource, IngestionSourceSecret, IngestionBatch, IngestedEvent } from './types.js'
+import type { InfrastructureAsset, Driver, Target, TargetInput, ServiceGrant, Run, EnqueuedRun, Operation, PowerAction, Action, Problem, CollectionJobPlan, CollectionPlanInput, MetricSeries, MetricQuery, MetricAggregation, IngestionKind, IngestionSource, IngestionSourceSecret, IngestionBatch, IngestedEvent, DataExportInput, DataExportJob, DataExportList, ManualImportInput, ManualImportPreview, ManualImportResult } from './types.js'
 export class ApiError extends Error {
   constructor(public readonly status: number, public readonly problem: Problem) { super(problem.title || `HTTP ${status}`); this.name = 'ApiError' }
 }
@@ -84,4 +84,23 @@ export class CajeerServersClient {
     if (confirmation!=='I verified the remote result') throw new Error('Explicit external verification required')
     return this.write('POST',`${this.target(id)}/actions/${this.id(actionId)}/acknowledge`,{confirm:confirmation},{'If-Match':etag})
   }
+  previewImport(id:string,sourceId:string,input:ManualImportInput):Promise<ManualImportPreview> { return this.write('POST',`${this.target(id)}/ingestion-sources/${this.id(sourceId)}/imports/preview`,input) }
+  applyImport(id:string,sourceId:string,input:ManualImportInput,confirmation:string):Promise<ManualImportResult> { return this.write('POST',`${this.target(id)}/ingestion-sources/${this.id(sourceId)}/imports`,{...input,confirmation}) }
+  dataExports(id:string,limit=50,offset=0):Promise<DataExportList> { return this.data(`${this.target(id)}/data-exports?limit=${limit}&offset=${offset}`) }
+  createDataExport(id:string,input:DataExportInput,key:string):Promise<DataExportJob> { return this.write('POST',`${this.target(id)}/data-exports`,input,{'Idempotency-Key':key}) }
+  dataExport(id:string,exportId:string):Promise<DataExportJob> { return this.data(`${this.target(id)}/data-exports/${this.id(exportId)}`) }
+  cancelDataExport(id:string,exportId:string):Promise<DataExportJob> { return this.write('POST',`${this.target(id)}/data-exports/${this.id(exportId)}/cancel`) }
+  async downloadDataExport(id:string,exportId:string):Promise<{blob:Blob;sha256:string}> {
+    if(this.token)throw new Error('Data exports require a browser session')
+    const response=await this.fetcher(`${this.base}${this.target(id)}/data-exports/${this.id(exportId)}/download`,{credentials:'include',cache:'no-store',redirect:'error'})
+    if(!response.ok){let problem:Problem={title:`HTTP ${response.status}`};try{problem=await response.json() as Problem}catch{}throw new ApiError(response.status,problem)}
+    const sha256=response.headers.get('X-Artifact-SHA256')||''
+    if(!/^[a-f0-9]{64}$/.test(sha256))throw new Error('Missing artifact checksum')
+    const blob=await response.blob()
+    if(blob.size>4194304)throw new Error('Artifact exceeds SDK limit')
+    const digest=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',await blob.arrayBuffer())),b=>b.toString(16).padStart(2,'0')).join('')
+    if(digest!==sha256)throw new Error('Artifact checksum mismatch')
+    return {blob,sha256}
+  }
+
 }

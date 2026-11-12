@@ -1,6 +1,7 @@
 <?php
 return [
     'write_actions' => getenv('CONNECTOR_WRITE_ACTIONS') === 'true',
+    'exporter_extension_file' => getenv('DATA_EXPORTER_EXTENSION_FILE') ?: '',
     'extension_file' => getenv('CONNECTOR_EXTENSION_FILE') ?: '',
     // Operator-owned TLS CA and optional CIDR allowlist for outbound connector traffic.
     'prometheus_ca_file' => getenv('PROMETHEUS_CA_FILE') ?: '',

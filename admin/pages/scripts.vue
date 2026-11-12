@@ -42,6 +42,17 @@ async function parseSample(){
   const r=await api.write<{data:{sample:unknown}}>('POST',base.value+'/'+selected.value!.id+'/versions/'+version.value!.id+'/validate',body)
   parsedSample.value=r.data.sample
 }
+const canExportNormalized=computed(()=>{
+  const r=execution.value?.result as {normalized?:{schema?:string;count?:number}}|undefined
+  return execution.value?.channel==='sandbox'&&execution.value?.state==='succeeded'&&!!r?.normalized&&['metrics','events','observations'].includes(r.normalized.schema||'')&&(r.normalized.count??0)>0&&(r.normalized.count??0)<=1000
+})
+function downloadNormalized(){
+  if(!canExportNormalized.value)return
+  const r=execution.value?.result as {normalized:unknown}
+  const blob=new Blob([JSON.stringify(r.normalized)],{type:'application/json'})
+  if(blob.size>262144){error.value='Результат превышает лимит импорта 256 КиБ.';return}
+  const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='normalized-collection.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)
+}
 function downloadObservations(){
   const r=execution.value?.result as {normalized?:{schema?:string;observations?:Array<{external_id:string;type:string;fields:unknown}>};output?:{collector?:string}}|undefined
   if(execution.value?.channel!=='sandbox'||r?.normalized?.schema!=='observations'||!r.normalized.observations?.length||r.normalized.observations.length>200)return
@@ -82,7 +93,7 @@ onMounted(()=>run(async()=>{if(!auth.can('scripts.read'))return;spaces.value=(aw
         <p>Preview и запуск сохраняют результат без записи в Inventory. Для удалённого шаблона сначала разрешите использование credential в разделе коннекторов. Не вводите секреты в параметры.</p>
         <button class="btn" :disabled="busy||!password||totp.length!==6" @click="run(()=>enqueueExecution('preview'))">Preview (MFA)</button><button class="btn" :disabled="busy||!password||totp.length!==6" @click="run(()=>enqueueExecution('execute'))">Запустить (MFA)</button></div>
         <div v-if="execute"><h3>История моих запусков</h3><button class="btn" :disabled="busy" @click="run(()=>loadExecutions())">Обновить</button><p v-for="e in executions" :key="e.id"><button class="btn" :disabled="busy" @click="run(()=>openExecution(e.id))">{{e.created_at}} · {{e.mode}} · {{e.state}}</button> {{e.error_code||''}}</p><button class="btn" :disabled="busy||executionOffset===0" @click="run(()=>loadExecutions(-50))">Назад</button><button class="btn" :disabled="busy||executions.length!==50" @click="run(()=>loadExecutions(50))">Далее</button>
-        <div v-if="execution"><p>{{execution.id}} · {{execution.state}} · {{execution.error_code||''}}</p><button class="btn" :disabled="busy" @click="run(()=>openExecution(execution!.id))">Обновить результат</button><button v-if="['queued','running'].includes(execution.state)" class="btn" :disabled="busy" @click="run(()=>cancelExecution(execution!.id))">Отменить</button><button v-if="canExportObservations" class="btn" @click="downloadObservations">Скачать JSON для Inventory Import</button><pre v-if="execution.result" style="white-space:pre-wrap;overflow-wrap:anywhere">{{JSON.stringify(execution.result,null,2)}}</pre></div></div></div></div>
+        <div v-if="execution"><p>{{execution.id}} · {{execution.state}} · {{execution.error_code||''}}</p><button class="btn" :disabled="busy" @click="run(()=>openExecution(execution!.id))">Обновить результат</button><button v-if="['queued','running'].includes(execution.state)" class="btn" :disabled="busy" @click="run(()=>cancelExecution(execution!.id))">Отменить</button><button v-if="canExportObservations" class="btn" @click="downloadObservations">Скачать JSON для Inventory Import</button><button v-if="canExportNormalized" class="btn" @click="downloadNormalized">Скачать результат для Data Import</button><pre v-if="execution.result" style="white-space:pre-wrap;overflow-wrap:anywhere">{{JSON.stringify(execution.result,null,2)}}</pre></div></div></div></div>
       <div class="card"><h2>Доверенные ключи</h2><p v-for="k in keys" :key="k.id">{{k.name}} · {{k.revoked_at?'отозван':'действует'}} <code>{{k.public_key}}</code><button v-if="approve&&!k.revoked_at" class="btn" :disabled="busy||!password||totp.length!==6" @click="run(()=>changeKey(k.id))">Отозвать</button></p>
         <div><button class="btn" :disabled="busy||keyOffset===0" @click="run(()=>page('keys',-50))">Назад</button><button class="btn" :disabled="busy||keys.length!==50" @click="run(()=>page('keys',50))">Далее</button></div>
         <div v-if="approve||execute"><h3>Свежая MFA-проверка</h3><label>Пароль <input v-model="password" type="password" autocomplete="current-password"/></label><label>TOTP <input v-model="totp" inputmode="numeric" maxlength="6" autocomplete="one-time-code"/></label><template v-if="approve"><label>Имя ключа <input v-model="keyName"/></label><label>Публичный ключ Ed25519 hex <input v-model="publicKey" maxlength="64"/></label><button class="btn" :disabled="busy||!password||totp.length!==6||publicKey.length!==64" @click="run(()=>changeKey())">Добавить доверенный ключ</button></template></div></div>

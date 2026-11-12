@@ -346,6 +346,15 @@ return static function (Router $router, ServiceContainer $container): void {
             $connectors->get('/targets/{id}/ingestion-batches/{batchId}',static fn(HttpRequest $r):HttpResponse=>$ingestion()->batch($r));
             $connectors->post('/targets/{id}/ingestion-batches/{batchId}/redrive',static fn(HttpRequest $r):HttpResponse=>$ingestion()->redrive($r));
             $connectors->get('/targets/{id}/data-events',static fn(HttpRequest $r):HttpResponse=>$ingestion()->events($r));
+            $exchange=static fn()=> $container->get(\Cajeer\Servers\ImportExport\DataExchangeController::class);
+            $importFields=['format'=>['type'=>'string','enum'=>['json','csv']],'batch_id'=>['type'=>'string','maxLength'=>128],'content'=>['type'=>'string','maxLength'=>262144]];
+            $connectors->post('/targets/{id}/ingestion-sources/{sourceId}/imports/preview',static fn(HttpRequest $r):HttpResponse=>$exchange()->preview($r),['required'=>['format','batch_id','content'],'properties'=>$importFields,'additionalProperties'=>false]);
+            $connectors->post('/targets/{id}/ingestion-sources/{sourceId}/imports',static fn(HttpRequest $r):HttpResponse=>$exchange()->apply($r),['required'=>['format','batch_id','content','confirmation'],'properties'=>[...$importFields,'confirmation'=>['type'=>'string','maxLength'=>64]],'additionalProperties'=>false]);
+            $connectors->get('/targets/{id}/data-exports',static fn(HttpRequest $r):HttpResponse=>$exchange()->list($r));
+            $connectors->post('/targets/{id}/data-exports',static fn(HttpRequest $r):HttpResponse=>$exchange()->create($r),['required'=>['kind','format','from','to'],'properties'=>['kind'=>['type'=>'string','enum'=>['metrics','events','observations','runs']],'format'=>['type'=>'string','maxLength'=>32],'from'=>['type'=>'string','maxLength'=>40],'to'=>['type'=>'string','maxLength'=>40],'series_id'=>['type'=>'string','format'=>'uuid']],'additionalProperties'=>false]);
+            $connectors->get('/targets/{id}/data-exports/{exportId}',static fn(HttpRequest $r):HttpResponse=>$exchange()->show($r));
+            $connectors->get('/targets/{id}/data-exports/{exportId}/download',static fn(HttpRequest $r):HttpResponse=>$exchange()->download($r));
+            $connectors->post('/targets/{id}/data-exports/{exportId}/cancel',static fn(HttpRequest $r):HttpResponse=>$exchange()->cancel($r));
             $actions=static fn()=> $container->get(\Cajeer\Servers\Connector\ConnectorActionController::class);
             $connectors->get('/targets/{id}/actions',static fn(HttpRequest $r):HttpResponse=>$actions()->list($r));
             $connectors->post('/targets/{id}/actions',static fn(HttpRequest $r):HttpResponse=>$actions()->submit($r),[

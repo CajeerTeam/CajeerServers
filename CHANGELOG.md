@@ -1,3 +1,9 @@
+## [0.5.8] — 2026-11-12 — Exporters, Manual Import & Data SDK
+
+- Manual JSON/CSV preview and confirmed durable import with source-bound grants, provenance, deduplication and row errors.
+- Bounded durable JSON/CSV/OpenMetrics exports, custom exporter SDK, scoped range queries, retries, cancel, checksum downloads and retention.
+- Signed operator-configured HTTPS artifact delivery, TypeScript SDK, Admin UI, PostgreSQL migration 0035 and integration scenarios.
+
 ## [0.5.7] — 2026-11-12 — Webhook & Event Data Ingestion
 
 - Signed external metrics, event and observation batches with Vault-encrypted source keys, scoped grants, durable inbox, deduplication, quotas and atomic processing.

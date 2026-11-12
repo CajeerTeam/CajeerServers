@@ -105,6 +105,26 @@ try {
     $otherTarget=$bindings->create($actor,['workspace_id'=>$ws,'provider'=>'snmp','name'=>'Other target','endpoint_host'=>'127.0.0.1','endpoint_port'=>1162,'asset_id'=>$asset['id']]);
     $reject(404,fn()=>$service->batch($actor,$otherTarget['id'],$b['id']),'cross target batch isolation');
     $obs=['external_id'=>'external-host','type'=>'server','fields'=>['name'=>'candidate'],'observed_at'=>$at];$candidate=$push($observations,$body('observations','o1',[$obs]));$service->work(1);$ok($service->batch($actor,$id,$candidate['id'])['result']['applied']===false&&(int)$pdo->query('SELECT count(*) FROM inventory_assets')->fetchColumn()===1,'candidate does not mutate CMDB');
+    // 0.5.8 manual import and durable exports over the same real persisted data.
+    $csv="event_id,type,severity,message,observed_at\nmanual1,system.changed,info,=1+2,$at";
+    $preview=$service->manual($actor,$id,$events['id'],'csv','manual1',$csv);
+    $ok($preview['count']===1&&$preview['records'][0]['message']==='=1+2','manual import preview');
+    $reject(409,fn()=>$service->manual($actor,$id,$events['id'],'csv','manual1',str_replace('=1+2','different',$csv),$preview['confirmation']),'changed preview denied');
+    $manual=$service->manual($actor,$id,$events['id'],'csv','manual1',$csv,$preview['confirmation']);
+    $ok($manual['status']==='queued'&&$service->batch($actor,$id,$manual['id'])['accepted_by']===$actor,'durable manual provenance');
+    $ok($service->manual($actor,$id,$events['id'],'csv','manual1',$csv,$preview['confirmation'])['deduplicated'],'manual idempotency');$service->work(1);
+    $ok($service->batch($actor,$id,$manual['id'])['status']==='succeeded','manual events persisted by worker');
+    $exports=new \Cajeer\Servers\ImportExport\ExportManager($db,$bindings,$repo,$rbac,$audit,new \Cajeer\Servers\ImportExport\ExporterRegistry());
+    $selection=['kind'=>'metrics','format'=>'json','from'=>gmdate('Y-m-d\TH:i:s\Z',time()-3600),'to'=>gmdate('Y-m-d\TH:i:s\Z',time()+60)];
+    $job=$exports->create($actor,$id,$selection,'export-1');$ok($job['status']==='queued','export durable before worker');
+    $ok($exports->create($actor,$id,$selection,'export-1')['id']===$job['id'],'export idempotency');$reject(409,fn()=>$exports->create($actor,$id,array_replace($selection,['format'=>'csv']),'export-1'),'export key conflict');
+    $reject(409,fn()=>$exports->download($actor,$id,$job['id']),'not ready download');$exports->work(1);$artifact=$exports->download($actor,$id,$job['id']);
+    $ok(hash('sha256',$artifact['body'])===$artifact['sha256']&&count(json_decode($artifact['body'],true)['records'])===2&&str_contains($artifact['body'],'18446744073709551615'),'real metric export exact values and checksum');
+    $reject(404,fn()=>$exports->show($actor,$otherTarget['id'],$job['id']),'cross-target export isolation');
+    $eventJob=$exports->create($actor,$id,array_replace($selection,['kind'=>'events','format'=>'csv']),'events-export');$exports->work(1);$eventArtifact=$exports->download($actor,$id,$eventJob['id']);$ok(str_contains($eventArtifact['body'],"'=1+2"),'CSV protection on persisted events');
+    $om=$exports->create($actor,$id,array_replace($selection,['format'=>'openmetrics']),'om-export');$exports->work(1);$ok(str_ends_with($exports->download($actor,$id,$om['id'])['body'],"# EOF\n"),'OpenMetrics latest export');
+    $cancel=$exports->create($actor,$id,$selection,'cancel-export');$ok($exports->cancel($actor,$id,$cancel['id'])['status']==='cancelled','export cancellation');
+    $pdo->prepare("UPDATE data_export_jobs SET finished_at=clock_timestamp()-interval '8 days' WHERE id=:id")->execute(['id'=>$cancel['id']]);$ok($exports->retain()['deleted']===1,'artifact retention');
     $rotated=$service->change($actor,$id,$source['id'],true);$reject(401,fn()=>$push($source,$raw),'old HMAC revoked');$ok($push($rotated,$raw)['deduplicated'],'new key valid');
     $queued=$push($events,$body('events','e4',[array_replace($event,['event_id'=>'e4'])]));$service->change($actor,$id,$events['id'],false);$service->work(1);$ok($service->batch($actor,$id,$queued['id'])['error_code']==='ingestion_revoked','revoke before commit');
     $queued=$push($rotated,$body('metrics','m4',[array_replace($sample,['metric'=>'new.metric'])]));$execution->revoke($actor,$id,$grant['id']);$service->work(1);$ok($service->batch($actor,$id,$queued['id'])['status']==='failed','grant revocation fences write');

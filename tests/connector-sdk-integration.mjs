@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict'
 import {createServer} from 'node:https'
+import {createHash} from 'node:crypto'
 import {readFileSync} from 'node:fs'
 import {CajeerServersClient,ApiError} from './index.js'
 const dir=process.argv[2], id='11111111-1111-4111-8111-111111111111', etag=`"${id}:2"`
 let csrf=0, posts=0
+const exportBytes='metric,value\nnetwork.bytes,18446744073709551615\n', exportDigest=createHash('sha256').update(exportBytes).digest('hex')
 const server=createServer({key:readFileSync(`${dir}/key.pem`),cert:readFileSync(`${dir}/cert.pem`)},async(req,res)=>{
   const chunks=[];for await(const chunk of req)chunks.push(chunk);const body=chunks.length?JSON.parse(Buffer.concat(chunks)):null
   const reply=(status,data)=>{res.writeHead(status,{'Content-Type':'application/json'});res.end(JSON.stringify(data))}
@@ -47,6 +49,21 @@ const server=createServer({key:readFileSync(`${dir}/key.pem`),cert:readFileSync(
     assert.equal(req.headers['x-csrf-token'],`csrf-${csrf}`);return reply(202,{data:{id,status:'queued',dispatch_count:2}})
   }
   if(req.url===`${ingestion}/data-events?limit=50&offset=0`&&req.method==='GET')return reply(200,{data:[{id,type:'system.changed'}]})
+  if(req.url===`${ingestion}/ingestion-sources/${id}/imports/preview`&&req.method==='POST'){
+    assert.equal(req.headers['x-csrf-token'],`csrf-${csrf}`);assert.equal(body.batch_id,'manual-1');return reply(200,{data:{confirmation:'a'.repeat(64),count:1,kind:'metrics',records:[{value:'18446744073709551615'}]}})
+  }
+  if(req.url===`${ingestion}/ingestion-sources/${id}/imports`&&req.method==='POST'){
+    assert.equal(req.headers['x-csrf-token'],`csrf-${csrf}`);assert.equal(body.confirmation,'a'.repeat(64));return reply(202,{data:{id,status:'queued',deduplicated:false}})
+  }
+  if(req.url===`${ingestion}/data-exports`&&req.method==='POST'){
+    assert.equal(req.headers['x-csrf-token'],`csrf-${csrf}`);assert.equal(req.headers['idempotency-key'],'export-1');assert.equal(body.kind,'metrics');return reply(202,{data:{id,status:'queued'}})
+  }
+  if(req.url===`${ingestion}/data-exports?limit=50&offset=0`&&req.method==='GET')return reply(200,{data:{formats:[{format:'json',kinds:['metrics']}],jobs:[{id,status:'succeeded'}]}})
+  if(req.url===`${ingestion}/data-exports/${id}`&&req.method==='GET')return reply(200,{data:{id,status:'succeeded'}})
+  if(req.url===`${ingestion}/data-exports/${id}/cancel`&&req.method==='POST')return reply(200,{data:{id,status:'cancelled'}})
+  if(req.url===`${ingestion}/data-exports/${id}/download`&&req.method==='GET'){
+    res.writeHead(200,{'Content-Type':'text/csv','X-Artifact-SHA256':exportDigest});return res.end(exportBytes)
+  }
   if(req.url.startsWith(`/api/v1/connectors/targets/${id}/runs?`)&&req.method==='GET')return reply(403,{title:'Insufficient permission',code:'permission_denied'})
   reply(404,{title:'Not found'})
 })
@@ -71,7 +88,13 @@ try {
   assert.equal((await c.ingestionBatch(id,id)).history[0].outcome,'failed')
   assert.equal((await c.redriveIngestionBatch(id,id)).dispatch_count,2)
   assert.equal((await c.dataEvents(id))[0].type,'system.changed')
+  const input={format:'csv',batch_id:'manual-1',content:'metric,value\nnetwork.bytes,18446744073709551615'}
+  const preview=await c.previewImport(id,id,input);assert.equal(preview.records[0].value,'18446744073709551615');assert.equal((await c.applyImport(id,id,input,preview.confirmation)).status,'queued')
+  assert.equal((await c.createDataExport(id,{kind:'metrics',format:'csv',from:'2026-11-12T00:00:00Z',to:'2026-11-12T01:00:00Z'},'export-1')).status,'queued')
+  assert.equal((await c.dataExports(id)).jobs[0].status,'succeeded');assert.equal((await c.dataExport(id,id)).status,'succeeded')
+  const artifact=await c.downloadDataExport(id,id);assert.equal(artifact.sha256,exportDigest);assert.match(await artifact.blob.text(),/18446744073709551615/)
+  assert.equal((await c.cancelDataExport(id,id)).status,'cancelled')
   await c.revokeIngestionSource(id,id)
   await assert.rejects(c.runs(id),e=>e instanceof ApiError&&e.status===403&&e.problem.code==='permission_denied')
-  console.log('TypeScript SDK compile, real TLS fetch, CSRF, ETag, confirmation, collection plans, metric queries, ingestion lifecycle, typed errors PASS')
+  console.log('TypeScript SDK compile, real TLS fetch, CSRF, ETag, confirmation, collection plans, metric queries, ingestion lifecycle, manual import, data exports, typed errors PASS')
 }finally{await new Promise(resolve=>server.close(resolve))}

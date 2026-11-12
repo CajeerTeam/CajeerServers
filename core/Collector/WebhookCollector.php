@@ -34,7 +34,7 @@ final class WebhookCollector
         if($kind==='metrics'){
             $rows=[];foreach($records as $r){$r=get_object_vars($r);$labels=$r['labels']??new \stdClass();if(!$labels instanceof \stdClass||property_exists($labels,'cajeer_source')||count(get_object_vars($labels))>15)self::invalid();
                 // Source identity is server assigned, never a caller-supplied label.
-                $labels->cajeer_source=$source;$r['labels']=$labels;
+                $labels=clone $labels;$labels->cajeer_source=$source;$r['labels']=$labels;
                 // Large counters must be decimal strings; JSON floating values cannot preserve integer precision.
                 if(is_float($r['value']??null)&&abs($r['value'])>9007199254740991)self::invalid();$rows[]=$r;}
             try{$out=MetricBatch::normalize($rows);}catch(ConnectorTransportException|\JsonException){self::invalid();}

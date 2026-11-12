@@ -1,7 +1,7 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.5.7
+  version: 0.5.8
   description: 'CajeerServers 0.5.7: signed external data ingestion, durable inbox and time series.'
 servers:
 - url: /api/v1
@@ -9696,6 +9696,793 @@ paths:
             schema:
               $ref: '#/components/schemas/IngestionPayload'
 
+  /connectors/targets/{id}/ingestion-sources/{sourceId}/imports/preview:
+    post:
+      operationId: previewManualDataImport
+      description: Validate JSON array, normalized script result or CSV records against live source grant. Returns digest and normalized records; no data written.
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: sourceId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Normalized preview
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      confirmation:
+                        type: string
+                        pattern: ^[a-f0-9]{64}$
+                      kind:
+                        type: string
+                        enum:
+                        - metrics
+                        - events
+                        - observations
+                      count:
+                        type: integer
+                      records:
+                        type: array
+                        items:
+                          type: object
+                          additionalProperties: true
+                    additionalProperties: false
+                    required:
+                    - confirmation
+                    - kind
+                    - count
+                    - records
+                additionalProperties: false
+                required:
+                - data
+        '401':
+          description: Session authentication required
+        '403':
+          description: Permission denied
+        '404':
+          description: Target, source, or export not found
+        '409':
+          description: Conflict
+        '422':
+          description: Validation failed
+        '429':
+          description: Quota exceeded
+        '503':
+          description: Service unavailable
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                format:
+                  type: string
+                  enum:
+                  - json
+                  - csv
+                batch_id:
+                  type: string
+                  pattern: ^[A-Za-z0-9._:-]{1,128}$
+                content:
+                  type: string
+                  maxLength: 262144
+              additionalProperties: false
+              required:
+              - format
+              - batch_id
+              - content
+  /connectors/targets/{id}/ingestion-sources/{sourceId}/imports:
+    post:
+      operationId: applyManualDataImport
+      description: Confirm canonical preview and enqueue through existing durable inbox. Exact decimal strings preserved. Same source/batch ID deduplicated.
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: sourceId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      responses:
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      status:
+                        type: string
+                        enum:
+                        - queued
+                        - succeeded
+                        - failed
+                      deduplicated:
+                        type: boolean
+                    additionalProperties: false
+                    required:
+                    - id
+                    - status
+                    - deduplicated
+                additionalProperties: false
+                required:
+                - data
+        '401':
+          description: Session authentication required
+        '403':
+          description: Permission denied
+        '404':
+          description: Target, source, or export not found
+        '409':
+          description: Conflict
+        '422':
+          description: Validation failed
+        '429':
+          description: Quota exceeded
+        '503':
+          description: Service unavailable
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                format:
+                  type: string
+                  enum:
+                  - json
+                  - csv
+                batch_id:
+                  type: string
+                  pattern: ^[A-Za-z0-9._:-]{1,128}$
+                content:
+                  type: string
+                  maxLength: 262144
+                confirmation:
+                  type: string
+                  pattern: ^[a-f0-9]{64}$
+              additionalProperties: false
+              required:
+              - format
+              - batch_id
+              - content
+              - confirmation
+  /connectors/targets/{id}/data-exports:
+    get:
+      operationId: listDataExports
+      description: List own export jobs and registered formats.
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 50
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          maximum: 10000
+          default: 0
+      responses:
+        '200':
+          description: Export history
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      formats:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            format:
+                              type: string
+                            kinds:
+                              type: array
+                              items:
+                                type: string
+                                enum:
+                                - metrics
+                                - events
+                                - observations
+                                - runs
+                          additionalProperties: false
+                      jobs:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                              format: uuid
+                            workspace_id:
+                              type: string
+                              format: uuid
+                            target_id:
+                              type: string
+                              format: uuid
+                            actor_id:
+                              type: string
+                              format: uuid
+                            kind:
+                              type: string
+                              enum:
+                              - metrics
+                              - events
+                              - observations
+                              - runs
+                            format:
+                              type: string
+                            from_at:
+                              type: string
+                              format: date-time
+                            to_at:
+                              type: string
+                              format: date-time
+                            series_id:
+                              type:
+                              - string
+                              - 'null'
+                            status:
+                              type: string
+                              enum:
+                              - queued
+                              - succeeded
+                              - failed
+                              - cancelled
+                            created_at:
+                              type: string
+                            finished_at:
+                              type:
+                              - string
+                              - 'null'
+                            attempts:
+                              type: integer
+                            error_code:
+                              type:
+                              - string
+                              - 'null'
+                            record_count:
+                              type:
+                              - integer
+                              - 'null'
+                            artifact_sha256:
+                              type:
+                              - string
+                              - 'null'
+                            artifact_bytes:
+                              type:
+                              - integer
+                              - 'null'
+                          additionalProperties: false
+                          required:
+                          - id
+                          - status
+                          - kind
+                          - format
+                    additionalProperties: false
+                additionalProperties: false
+                required:
+                - data
+        '401':
+          description: Session authentication required
+        '403':
+          description: Permission denied
+        '404':
+          description: Target, source, or export not found
+        '409':
+          description: Conflict
+        '422':
+          description: Validation failed
+        '429':
+          description: Quota exceeded
+        '503':
+          description: Service unavailable
+    post:
+      operationId: createDataExport
+      description: Queue bounded export. UTC range maximum 30 days; OpenMetrics latest sample per series. Idempotent by actor, target and key.
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          maxLength: 128
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      responses:
+        '202':
+          description: Accepted export
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      workspace_id:
+                        type: string
+                        format: uuid
+                      target_id:
+                        type: string
+                        format: uuid
+                      actor_id:
+                        type: string
+                        format: uuid
+                      kind:
+                        type: string
+                        enum:
+                        - metrics
+                        - events
+                        - observations
+                        - runs
+                      format:
+                        type: string
+                      from_at:
+                        type: string
+                        format: date-time
+                      to_at:
+                        type: string
+                        format: date-time
+                      series_id:
+                        type:
+                        - string
+                        - 'null'
+                      status:
+                        type: string
+                        enum:
+                        - queued
+                        - succeeded
+                        - failed
+                        - cancelled
+                      created_at:
+                        type: string
+                      finished_at:
+                        type:
+                        - string
+                        - 'null'
+                      attempts:
+                        type: integer
+                      error_code:
+                        type:
+                        - string
+                        - 'null'
+                      record_count:
+                        type:
+                        - integer
+                        - 'null'
+                      artifact_sha256:
+                        type:
+                        - string
+                        - 'null'
+                      artifact_bytes:
+                        type:
+                        - integer
+                        - 'null'
+                    additionalProperties: false
+                    required:
+                    - id
+                    - status
+                    - kind
+                    - format
+                additionalProperties: false
+                required:
+                - data
+        '401':
+          description: Session authentication required
+        '403':
+          description: Permission denied
+        '404':
+          description: Target, source, or export not found
+        '409':
+          description: Conflict
+        '422':
+          description: Validation failed
+        '429':
+          description: Quota exceeded
+        '503':
+          description: Service unavailable
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                kind:
+                  type: string
+                  enum:
+                  - metrics
+                  - events
+                  - observations
+                  - runs
+                format:
+                  type: string
+                  pattern: ^[a-z][a-z0-9_]{0,31}$
+                from:
+                  type: string
+                  format: date-time
+                to:
+                  type: string
+                  format: date-time
+                series_id:
+                  type: string
+                  format: uuid
+              additionalProperties: false
+              required:
+              - kind
+              - format
+              - from
+              - to
+  /connectors/targets/{id}/data-exports/{exportId}:
+    get:
+      operationId: getDataExport
+      description: Own export metadata, live authorization.
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: exportId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Export metadata
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      workspace_id:
+                        type: string
+                        format: uuid
+                      target_id:
+                        type: string
+                        format: uuid
+                      actor_id:
+                        type: string
+                        format: uuid
+                      kind:
+                        type: string
+                        enum:
+                        - metrics
+                        - events
+                        - observations
+                        - runs
+                      format:
+                        type: string
+                      from_at:
+                        type: string
+                        format: date-time
+                      to_at:
+                        type: string
+                        format: date-time
+                      series_id:
+                        type:
+                        - string
+                        - 'null'
+                      status:
+                        type: string
+                        enum:
+                        - queued
+                        - succeeded
+                        - failed
+                        - cancelled
+                      created_at:
+                        type: string
+                      finished_at:
+                        type:
+                        - string
+                        - 'null'
+                      attempts:
+                        type: integer
+                      error_code:
+                        type:
+                        - string
+                        - 'null'
+                      record_count:
+                        type:
+                        - integer
+                        - 'null'
+                      artifact_sha256:
+                        type:
+                        - string
+                        - 'null'
+                      artifact_bytes:
+                        type:
+                        - integer
+                        - 'null'
+                    additionalProperties: false
+                    required:
+                    - id
+                    - status
+                    - kind
+                    - format
+                additionalProperties: false
+                required:
+                - data
+        '401':
+          description: Session authentication required
+        '403':
+          description: Permission denied
+        '404':
+          description: Target, source, or export not found
+        '409':
+          description: Conflict
+        '422':
+          description: Validation failed
+        '429':
+          description: Quota exceeded
+        '503':
+          description: Service unavailable
+  /connectors/targets/{id}/data-exports/{exportId}/cancel:
+    post:
+      operationId: cancelDataExport
+      description: Cancel queued export, not completed artifacts.
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: exportId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Cancelled
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      workspace_id:
+                        type: string
+                        format: uuid
+                      target_id:
+                        type: string
+                        format: uuid
+                      actor_id:
+                        type: string
+                        format: uuid
+                      kind:
+                        type: string
+                        enum:
+                        - metrics
+                        - events
+                        - observations
+                        - runs
+                      format:
+                        type: string
+                      from_at:
+                        type: string
+                        format: date-time
+                      to_at:
+                        type: string
+                        format: date-time
+                      series_id:
+                        type:
+                        - string
+                        - 'null'
+                      status:
+                        type: string
+                        enum:
+                        - queued
+                        - succeeded
+                        - failed
+                        - cancelled
+                      created_at:
+                        type: string
+                      finished_at:
+                        type:
+                        - string
+                        - 'null'
+                      attempts:
+                        type: integer
+                      error_code:
+                        type:
+                        - string
+                        - 'null'
+                      record_count:
+                        type:
+                        - integer
+                        - 'null'
+                      artifact_sha256:
+                        type:
+                        - string
+                        - 'null'
+                      artifact_bytes:
+                        type:
+                        - integer
+                        - 'null'
+                    additionalProperties: false
+                    required:
+                    - id
+                    - status
+                    - kind
+                    - format
+                additionalProperties: false
+                required:
+                - data
+        '401':
+          description: Session authentication required
+        '403':
+          description: Permission denied
+        '404':
+          description: Target, source, or export not found
+        '409':
+          description: Conflict
+        '422':
+          description: Validation failed
+        '429':
+          description: Quota exceeded
+        '503':
+          description: Service unavailable
+  /connectors/targets/{id}/data-exports/{exportId}/download:
+    get:
+      operationId: downloadDataExport
+      description: Authorized attachment with SHA-256. No public URLs.
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: exportId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Export artifact
+          headers:
+            X-Artifact-SHA256:
+              schema:
+                type: string
+                pattern: ^[a-f0-9]{64}$
+            Content-Disposition:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: string
+                format: binary
+            text/csv:
+              schema:
+                type: string
+                format: binary
+            application/openmetrics-text:
+              schema:
+                type: string
+                format: binary
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '401':
+          description: Session authentication required
+        '403':
+          description: Permission denied
+        '404':
+          description: Target, source, or export not found
+        '409':
+          description: Conflict
+        '422':
+          description: Validation failed
+        '429':
+          description: Quota exceeded
+        '503':
+          description: Service unavailable
 components:
   schemas:
     IngestionSource:

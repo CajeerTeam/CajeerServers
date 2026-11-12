@@ -8,6 +8,13 @@ type EventRow={id:string;source_id:string;event_id:string;type:string;severity:s
 const sources=ref<Source[]>([]),batches=ref<Batch[]>([]),events=ref<EventRow[]>([]),detail=ref<Batch|null>(null),error=ref(''),busy=ref(false),secret=ref(''),secretSource=ref(''),showSecret=ref(false),batchOffset=ref(0),eventOffset=ref(0)
 const form=reactive({name:'',kind:'metrics' as Kind,grant_id:''})
 const path=`/connectors/targets/${props.targetId}`
+const manual=reactive({source:'',format:'json',batch_id:'',content:''})
+const preview=ref<{confirmation:string;kind:Kind;count:number;records:unknown[]}|null>(null)
+const manualResult=ref('')
+watch(manual,()=>{preview.value=null;manualResult.value=''},{deep:true,flush:'sync'})
+async function importFile(event:Event){const file=(event.target as HTMLInputElement).files?.[0];if(!file)return;await perform(async()=>{if(file.size>262144)throw new Error('Файл превышает 256 КиБ');manual.content=await file.text();manual.format=file.name.toLowerCase().endsWith('.csv')?'csv':'json';if(!manual.batch_id)manual.batch_id=crypto.randomUUID()})}
+async function previewImport(){await perform(async()=>{preview.value=null;const snapshot=JSON.stringify(manual);const {data}=await api.write<{data:NonNullable<typeof preview.value>}>('POST',`${path}/ingestion-sources/${manual.source}/imports/preview`,{format:manual.format,batch_id:manual.batch_id,content:manual.content});if(!disposed&&snapshot===JSON.stringify(manual))preview.value=data})}
+async function applyImport(){if(!preview.value||!confirm('Поставить проверенный импорт в очередь?'))return;await perform(async()=>{const {data}=await api.write<{data:{id:string;status:string;deduplicated:boolean}}>('POST',`${path}/ingestion-sources/${manual.source}/imports`,{format:manual.format,batch_id:manual.batch_id,content:manual.content,confirmation:preview.value!.confirmation});if(disposed)return;manualResult.value=`${data.id} · ${data.status}${data.deduplicated?' · повтор':''}`;await refresh()})}
 let disposed=false
 function clearSecret(){secret.value='';secretSource.value='';showSecret.value=false}
 async function perform(fn:()=>Promise<void>){if(busy.value||disposed)return;busy.value=true;error.value='';try{await fn()}catch(e){if(!disposed)error.value=apiError(e).message}finally{if(!disposed)busy.value=false}}
@@ -33,6 +40,19 @@ onMounted(load);onBeforeUnmount(()=>{disposed=true;clearSecret();detail.value=nu
     <div v-if="secret" role="status"><p>Одноразовый ключ для {{secretSource}}. Сохраните вне приложения.</p><p><code>{{showSecret?secret:'••••••••••••••••'}}</code></p><button class="btn" @click="showSecret=!showSecret">{{showSecret?'Скрыть':'Показать'}}</button> <button class="btn" @click="clearSecret">Закрыть</button></div>
     <button class="btn" :disabled="busy" @click="load">Обновить</button>
     <h3>Источники</h3><div class="table-wrap"><table class="table"><thead><tr><th>Источник / тип</th><th>URL / состояние</th><th>Действия</th></tr></thead><tbody><tr v-for="s in sources" :key="s.id"><td>{{s.name}} · {{s.kind}}<br><code>{{s.id}}</code></td><td><code>/api/v1/connectors/ingestion/{{s.id}}/batches</code><br>{{s.revoked_at?'Отозван':'Ключ v'+s.key_version}}</td><td><template v-if="canManage&&!s.revoked_at"><button class="btn" :disabled="busy" @click="change(s,true)">Ротация</button> <button class="btn" :disabled="busy" @click="change(s,false)">Отозвать</button></template></td></tr></tbody></table></div>
+    <details v-if="canManage"><summary>Ручной импорт JSON / CSV</summary>
+      <p class="muted">Выберите свой активный источник. JSON — массив записей или нормализованный результат скрипта, CSV — заголовок и строки; timestamps обязательны. После проверки подтвердите импорт.</p>
+      <form class="form-row" @submit.prevent="previewImport">
+        <label>Источник<select v-model="manual.source" required><option value="" disabled>Выберите источник</option><option v-for="s in sources.filter(x=>!x.revoked_at)" :key="s.id" :value="s.id">{{s.name}} · {{s.kind}}</option></select></label>
+        <label>Формат<select v-model="manual.format"><option>json</option><option>csv</option></select></label>
+        <label>ID batch<input v-model="manual.batch_id" required maxlength="128" /></label>
+        <label>Файл<input type="file" accept=".json,.csv" :disabled="busy" @change="importFile" /></label>
+        <label>Содержимое<textarea v-model="manual.content" required maxlength="262144" rows="5" /></label>
+        <button class="btn" :disabled="busy||!manual.source">Проверить</button>
+      </form>
+      <div v-if="preview"><p>Записей: {{preview.count}} · {{preview.kind}}</p><pre style="max-height:300px;overflow:auto;white-space:pre-wrap">{{JSON.stringify(preview.records,null,2)}}</pre><button class="btn primary" :disabled="busy" @click="applyImport">Подтвердить импорт</button></div>
+      <p v-if="manualResult" role="status">{{manualResult}}</p>
+    </details>
     <h3>История batches</h3><div class="table-wrap"><table class="table"><thead><tr><th>ID / тип</th><th>Состояние</th><th>Попытки</th><th>Действия</th></tr></thead><tbody><tr v-for="b in batches" :key="b.id"><td>{{b.batch_id}} · {{b.kind}}<br>{{b.received_at}}</td><td>{{b.status}} {{b.error_code||''}}</td><td>{{b.dispatch_count}} / {{b.attempts}}</td><td><button class="btn" :disabled="busy" @click="inspect(b)">Результат</button> <button v-if="canManage&&b.status==='failed'&&b.dispatch_count<10" class="btn" :disabled="busy" @click="redrive(b)">Redrive</button></td></tr></tbody></table></div>
     <button class="btn" :disabled="busy||batchOffset===0" @click="page('batch',-50)">Назад</button> <button class="btn" :disabled="busy||batches.length<50" @click="page('batch',50)">Далее</button>
     <div v-if="detail"><h3>{{detail.batch_id}} · {{detail.status}}</h3><button class="btn" @click="detail=null">Закрыть</button><pre style="max-height: 400px; overflow: auto; white-space: pre-wrap">{{JSON.stringify(detail,null,2)}}</pre></div>

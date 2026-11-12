@@ -82,20 +82,47 @@ final class IngestionService
             $this->inventory->lockWorkspace($p,$s['workspace_id']);$s=$this->source($p,$id,true);if(!$s||$s['revoked_at']!==null)$this->denied();
             $this->verify($s,$r);
             $this->live($p,$s);
-            $collector=new WebhookCollector();$batch=$collector->envelope($r->body,$s['kind']);
+            return $this->accept($p,$s,$r->body);
+        });
+    }
+    private function accept(PDO $p,array $s,string $body,?string $actor=null):array
+    {
+            $id=$s['id'];$collector=new WebhookCollector();$batch=$collector->envelope($body,$s['kind']);
             $existing=$this->q($p,'SELECT id,body_digest,status FROM data_ingestion_inbox WHERE source_id=:s AND batch_id=:b',['s'=>$id,'b'=>$batch['batch_id']])->fetch(PDO::FETCH_ASSOC);
             if($existing){if(!hash_equals($existing['body_digest'],$batch['digest']))throw new HttpException(409,'Batch ID already used for another payload.','ingestion_conflict');return ['id'=>$existing['id'],'status'=>$existing['status'],'deduplicated'=>true];}
             $batch=$collector->normalize($batch,$id);
             $counts=$this->q($p,"SELECT count(*) AS total,COALESCE(sum(payload_bytes),0) AS bytes,count(*) FILTER(WHERE status='queued') AS pending,count(*) FILTER(WHERE status='queued' AND source_id=:s) AS source_pending FROM data_ingestion_inbox WHERE workspace_id=:w",['s'=>$id,'w'=>$s['workspace_id']])->fetch(PDO::FETCH_ASSOC);
             $payload=json_encode($batch['records'],JSON_THROW_ON_ERROR);
             if((int)$counts['bytes']+strlen($payload)>268435456||(int)$counts['total']>=10000||(int)$counts['pending']>=500||(int)$counts['source_pending']>=100)throw new HttpException(429,'Ingestion inbox capacity exceeded.','rate_limited',['Retry-After'=>'60']);
-            $bid=$this->q($p,'INSERT INTO data_ingestion_inbox(source_id,workspace_id,target_id,batch_id,body_digest,kind,payload,payload_bytes) VALUES(:s,:w,:t,:b,:d,:k,CAST(:p AS jsonb),:bytes) RETURNING id',['s'=>$id,'w'=>$s['workspace_id'],'t'=>$s['target_id'],'b'=>$batch['batch_id'],'d'=>$batch['digest'],'k'=>$s['kind'],'p'=>$payload,'bytes'=>strlen($payload)])->fetchColumn();
+            $bid=$this->q($p,'INSERT INTO data_ingestion_inbox(source_id,workspace_id,target_id,batch_id,body_digest,kind,payload,payload_bytes,accepted_by) VALUES(:s,:w,:t,:b,:d,:k,CAST(:p AS jsonb),:bytes,:actor) RETURNING id',['s'=>$id,'w'=>$s['workspace_id'],'t'=>$s['target_id'],'b'=>$batch['batch_id'],'d'=>$batch['digest'],'k'=>$s['kind'],'p'=>$payload,'bytes'=>strlen($payload),'actor'=>$actor])->fetchColumn();
             return ['id'=>$bid,'status'=>'queued','deduplicated'=>false];
+    }
+    /** Manual submission uses the same source, live grant, quotas and deduplication as HMAC. */
+    public function manual(string $actor,string $target,string $source,string $format,string $batchId,string $content,?string $confirmation=null):array
+    {
+        // Rate limit expensive previews and applies even when validation later fails.
+        if(!$this->db->transaction(fn(PDO $p)=>$this->limiter->hit($p,'data_import',$actor,30,60)))throw new HttpException(429,'Manual import rate limit exceeded.','rate_limited',['Retry-After'=>'60']);
+        return $this->db->transaction(function(PDO $p)use($actor,$target,$source,$format,$batchId,$content,$confirmation){
+            $this->access($p,$actor,$target,true);
+            $this->rbac->requireUserPermission($actor,'ingestion.write',$p);
+            $s=$this->source($p,$source,true);if(!$s||$s['target_id']!==$target)$this->missing();
+            if($s['actor_id']!==$actor)throw new HttpException(403,'Only the grant owner may import.','permission_denied');
+            $this->live($p,$s);
+            $body=\Cajeer\Servers\ImportExport\ImportManager::envelope($format,$s['kind'],$batchId,$content);
+            $digest=hash('sha256',$source."\n".$body);
+            if($confirmation===null){
+                $parsed=\Cajeer\Servers\ImportExport\ImportManager::preview($body,$s['kind'],$source);
+                return ['confirmation'=>$digest,'kind'=>$s['kind'],'count'=>count($parsed['records']),'records'=>$parsed['records']];
+            }
+            if(!hash_equals($digest,$confirmation))throw new HttpException(409,'Import changed after preview.','import_confirmation_mismatch');
+            $result=$this->accept($p,$s,$body,$actor);
+            if(!$result['deduplicated'])$this->audit->record($p,$actor,'ingestion.manual.accepted','success','data_ingestion_batch',$result['id']);
+            return $result;
         });
     }
     private function page(int $limit,int $offset):void{if($limit<1||$limit>100||$offset<0||$offset>10000)throw new HttpException(422,'Invalid pagination.','validation_failed');}
     public function batches(string $actor,string $target,int $limit=50,int $offset=0):array
-    { $this->page($limit,$offset);$p=$this->db->connection();$this->access($p,$actor,$target,false);$rows=$this->q($p,"SELECT id,source_id,batch_id,kind,status,received_at,finished_at,attempts,dispatch_count,error_code,result FROM data_ingestion_inbox WHERE target_id=:t ORDER BY received_at DESC,id LIMIT $limit OFFSET $offset",['t'=>$target])->fetchAll(PDO::FETCH_ASSOC);foreach($rows as &$row){$row['result']=$row['result']===null?null:json_decode($row['result'],true,32,JSON_THROW_ON_ERROR);}unset($row);return $rows; }
+    { $this->page($limit,$offset);$p=$this->db->connection();$this->access($p,$actor,$target,false);$rows=$this->q($p,"SELECT id,source_id,batch_id,kind,status,accepted_by,received_at,finished_at,attempts,dispatch_count,error_code,result FROM data_ingestion_inbox WHERE target_id=:t ORDER BY received_at DESC,id LIMIT $limit OFFSET $offset",['t'=>$target])->fetchAll(PDO::FETCH_ASSOC);foreach($rows as &$row){$row['result']=$row['result']===null?null:json_decode($row['result'],true,32,JSON_THROW_ON_ERROR);}unset($row);return $rows; }
     public function batch(string $actor,string $target,string $id):array
     {
         $p=$this->db->connection();$this->access($p,$actor,$target,false);$b=$this->q($p,'SELECT * FROM data_ingestion_inbox WHERE target_id=:t AND id=:id',['t'=>$target,'id'=>$id])->fetch(PDO::FETCH_ASSOC);if(!$b)$this->missing();

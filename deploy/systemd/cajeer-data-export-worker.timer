@@ -1,0 +1,10 @@
+[Unit]
+Description=Process CajeerServers export jobs every five seconds
+
+[Timer]
+OnBootSec=30s
+OnUnitInactiveSec=5s
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

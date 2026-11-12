@@ -253,6 +253,7 @@ onMounted(init)
       </section>
       <ConnectorLifecycle v-if="active" :key="active.id" :target="active" :binding="apiBinding" :operations="activeDriver?.operations||[]" :collectors="activeDriver?.collectors||[]" :actions="activeDriver?.actions||[]" :write-actions="activeDriver?.write_actions_enabled===true" :manage="canBind" v-model:busy="busy" @changed="refreshAfterLifecycle" />
       <ConnectorIngestion v-if="active && canRead && auth.can('inventory.assets.read') && auth.can('ingestion.read')" :key="active.id+'-ingestion'" :target-id="active.id" :can-manage="canBind && auth.can('ingestion.manage')" />
+      <ConnectorDataExport v-if="active && canRead && auth.can('inventory.assets.read') && auth.can('inventory.transfer.read')" :key="active.id+'-exports'" :target-id="active.id" :can-ingestion="auth.can('ingestion.read')" />
       <ConnectorMetrics v-if="active && canRead && auth.can('inventory.assets.read')" :key="active.id+'-metrics'" :target-id="active.id" />
       <p v-if="active&&!activeDriver" class="muted">Для этого провайдера пока нет исполняемого драйвера.</p>
       <section v-if="active&&activeDriver" class="panel">

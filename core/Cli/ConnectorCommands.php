@@ -17,6 +17,22 @@ final class ConnectorCommands
             fwrite(STDOUT,json_encode($report,JSON_THROW_ON_ERROR|JSON_PRETTY_PRINT)."\n");
             return $report['ok']?0:1;
         }
+        if($command==='data-export:deliver'){
+            if(count($args)!==3)throw new \InvalidArgumentException('Usage: data-export:deliver <actor> <target> <export>');
+            [$actor,$target,$id]=array_map(\Cajeer\Servers\Credentials\CredentialInput::uuid(...),$args);
+            $url=getenv('DATA_EXPORT_WEBHOOK_URL')?:'';$secret=getenv('DATA_EXPORT_WEBHOOK_SECRET')?:'';
+            $networks=array_values(array_filter(array_map('trim',explode(',',getenv('DATA_EXPORT_WEBHOOK_NETWORKS')?:''))));
+            $transport=new \Cajeer\Servers\Connector\HttpsTransport(new \Cajeer\Servers\Connector\EndpointPolicy($networks,null,true),15,65536);
+            $service=$this->app->container()->get(\Cajeer\Servers\ImportExport\ExportManager::class);
+            try{$result=(new \Cajeer\Servers\ImportExport\WebhookDelivery($transport))->deliver($url,$id,$service->download($actor,$target,$id),$secret,getenv('DATA_EXPORT_WEBHOOK_CA_FILE')?:null);}finally{if($secret!=='')sodium_memzero($secret);}
+            fwrite(STDOUT,json_encode($result,JSON_THROW_ON_ERROR)."\n");return 0;
+        }
+        if(in_array($command,['data-export:work','data-export:retain'],true)){
+            if(count($args)>1||isset($args[0])&&!preg_match('/^[1-9][0-9]{0,3}$/D',$args[0]))throw new \InvalidArgumentException('Usage: data-export:work [limit] or data-export:retain [limit]');
+            $service=$this->app->container()->get(\Cajeer\Servers\ImportExport\ExportManager::class);
+            $result=$command==='data-export:work'?$service->work((int)($args[0]??10)):$service->retain((int)($args[0]??100));
+            fwrite(STDOUT,json_encode($result,JSON_THROW_ON_ERROR)."\n");return 0;
+        }
         if(in_array($command,['ingestion:work','ingestion:retain'],true)){
             if(count($args)>1||isset($args[0])&&!preg_match('/^[1-9][0-9]{0,4}$/D',$args[0]))throw new \InvalidArgumentException('Usage: ingestion:work [limit] or ingestion:retain [limit]');
             $service=$this->app->container()->get(\Cajeer\Servers\Ingestion\IngestionService::class);
