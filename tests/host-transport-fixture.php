@@ -10,6 +10,11 @@ $transport=new HostTransport(new EndpointPolicy($input['networks']??['127.0.0.1/
 $registry=new ConnectorRegistry(new LinuxConnector($transport),new WindowsConnector($transport));
 try {
     $context=new ConnectorContext($input['provider'],$input['host'],$input['port'],$input['type']);
-    $result=$registry->execute($context,$input['operation']??'sync',$input['provider'],json_encode($input['credential'],JSON_THROW_ON_ERROR));
+    $secret=json_encode($input['credential'],JSON_THROW_ON_ERROR);
+    if (isset($input['collector'])) {
+        $runtime=new \Cajeer\Servers\Collector\CollectionRuntimeService(\Cajeer\Servers\Collector\CollectorRegistry::forConnectors($registry));
+        $result=$runtime->collect(new \Cajeer\Servers\Collector\CollectionPlan($input['collector'],$input['operation']??'sync'),
+            ['provider'=>$input['provider'],'endpoint_host'=>$input['host'],'endpoint_port'=>$input['port'],'credential_type'=>$input['type'],'purpose'=>$input['provider']],$input['type'],$secret);
+    } else $result=$registry->execute($context,$input['operation']??'sync',$input['provider'],$secret);
     echo json_encode(['items'=>$result->items,'complete'=>$result->complete],JSON_THROW_ON_ERROR);
 } catch (HttpException $e) { echo json_encode(['error'=>$e->errorCode,'message'=>$e->getMessage()],JSON_THROW_ON_ERROR); }

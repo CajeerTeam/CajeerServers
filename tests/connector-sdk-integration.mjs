@@ -12,6 +12,9 @@ const server=createServer({key:readFileSync(`${dir}/key.pem`),cert:readFileSync(
   if(req.url===`/api/v1/connectors/targets/${id}/actions`&&req.method==='POST'){
     assert.equal(req.headers['x-csrf-token'],`csrf-${csrf}`);assert.equal(req.headers['if-match'],etag);assert.equal(req.headers['idempotency-key'],'test-idempotency-0001');assert.deepEqual(body,{action:'vm.start',external_id:'qemu:101',confirm:'vm.start qemu:101'});posts++;return reply(202,{data:{id,status:'submitted'}})
   }
+  if(req.url===`/api/v1/connectors/targets/${id}/runs`&&req.method==='POST'){
+    assert.equal(req.headers['x-csrf-token'],`csrf-${csrf}`);assert.equal(req.headers['idempotency-key'],'collect-01');assert.deepEqual(body,{grant_id:id,collector:'proxmox.inventory'});return reply(202,{data:{id,deduplicated:false}})
+  }
   if(req.url.startsWith(`/api/v1/connectors/targets/${id}/runs?`)&&req.method==='GET')return reply(403,{title:'Insufficient permission',code:'permission_denied'})
   reply(404,{title:'Not found'})
 })
@@ -21,6 +24,7 @@ try {
   assert.equal((await c.getTarget(id)).etag,etag)
   assert.throws(()=>c.power(id,etag,'vm.start','qemu:101','yes','test-idempotency-0001'))
   const r=await c.power(id,etag,'vm.start','qemu:101','vm.start qemu:101','test-idempotency-0001');assert.equal(r.status,'submitted');assert.equal(posts,1)
+  assert.equal((await c.enqueue(id,id,'collect-01','proxmox.inventory')).id,id)
   await assert.rejects(c.runs(id),e=>e instanceof ApiError&&e.status===403&&e.problem.code==='permission_denied')
   console.log('TypeScript SDK compile, real TLS fetch, CSRF, ETag, confirmation, typed errors PASS')
 }finally{await new Promise(resolve=>server.close(resolve))}

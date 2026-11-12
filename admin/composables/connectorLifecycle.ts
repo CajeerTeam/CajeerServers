@@ -5,7 +5,8 @@ export interface ServiceGrant {
   id:string; actor_id:string; operation:'health'|'inspect'|'sync'; target_version:number|string; credential_id:string; credential_version:number|string;
   expires_at:string; revoked_at:string|null; interval_seconds:number|string|null; next_due_at:string|null
 }
-export interface ConnectorRun { id:string; grant_id:string; operation:string; status:string; attempts:number|string; created_at:string; finished_at:string|null; error_code:string|null; result:unknown }
+export interface CollectorDefinition { name:string; provider:string; operations:string[]; resource_types:string[] }
+export interface ConnectorRun { collector_name?:string|null; id:string; grant_id:string; operation:string; status:string; attempts:number|string; created_at:string; finished_at:string|null; error_code:string|null; result:unknown }
 export interface WebhookSource { id:string; grant_id:string; actor_id:string; key_version:number|string; revoked_at:string|null; created_at:string }
 export interface ConnectorEvent { id:string; event_id:string; event_type:string; resource_id:string|null; source_id:string; status:string; run_id:string; received_at:string; error_code:string|null; dispatch_count:number; dispatches:{run_id:string;dispatched_at:string}[] }
 export interface ConnectorAction { id:string; action:string; external_id:string; status:string; remote_task:string|null; node:string|null; error_code:string|null; created_at:string; updated_at:string }

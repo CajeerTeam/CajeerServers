@@ -1,8 +1,8 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.5.0
-  description: 'CajeerServers 0.5.0: connector lifecycle admin, filtered targets, service grants, runs, signed events and confirmed actions.'
+  version: 0.5.1
+  description: 'CajeerServers 0.5.1: executable named collectors, bounded snapshots and connector service grants.'
 servers:
 - url: /api/v1
 security: []
@@ -5013,7 +5013,7 @@ paths:
       - sessionAuth: []
       responses:
         '200':
-          description: Реальные драйверы, их purpose, credentialTypes, operations, resourceTypes, transport, actions и write_actions_enabled
+          description: Реальные драйверы, их purpose, credentialTypes, operations, resourceTypes, transport, actions, write_actions_enabled и collectors (name, provider, operations, resource_types)
         '403':
           $ref: '#/components/responses/Forbidden'
   /connectors/targets/{id}/service-grants:
@@ -5270,7 +5270,7 @@ paths:
   /connectors/targets/{id}/runs:
     get:
       operationId: listConnectorRuns
-      summary: List background runs
+      summary: List background runs (collection observations omitted; read individual run for full snapshot)
       security:
       - sessionAuth: []
       parameters:
@@ -5321,6 +5321,8 @@ paths:
                         workspace_id:
                           type: string
                           format: uuid
+                        collector_name:
+                          type: [string, 'null']
                         operation:
                           type: string
                           enum: [inspect, sync, health]
@@ -5367,7 +5369,7 @@ paths:
           description: Invalid input
     post:
       operationId: enqueueConnectorRun
-      summary: Queue a run using an existing service grant
+      summary: Queue a connector operation or named collection using an existing service grant
       security:
       - sessionAuth: []
       parameters:
@@ -5392,7 +5394,7 @@ paths:
           pattern: ^[A-Za-z0-9._:-]+$
       responses:
         '202':
-          description: Run and PostgreSQL job inserted atomically; same grant/key returns the same run.
+          description: Run and PostgreSQL job inserted atomically; same grant/key/collector returns the same run. A different collector with the same key conflicts.
           content:
             application/json:
               schema:
@@ -5434,6 +5436,12 @@ paths:
                 grant_id:
                   type: string
                   format: uuid
+                collector:
+                  type: string
+                  minLength: 1
+                  maxLength: 64
+                  pattern: ^[a-z][a-z0-9_.-]{0,63}$
+                  description: Registered collector name; inspect grant stores observations, sync grant also reconciles Inventory.
               required:
               - grant_id
               additionalProperties: false

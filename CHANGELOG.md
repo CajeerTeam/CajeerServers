@@ -1,3 +1,10 @@
+## [0.5.1] — 2026-11-12 — Collector Runtime & Registry
+
+- Executable collector registry for five built-in drivers and installed custom connectors.
+- Named collection jobs use existing Vault grants and connector workers; normalized snapshots and Inventory updates commit atomically.
+- Collector selection in Admin UI, CLI and TypeScript SDK; migration 0029 preserves prior runs.
+- Bounded snapshots, grant scope checks and regression tests.
+
 ## [0.5.0] — 2026-11-12 — Connector Framework Stable
 
 - Bounded TLS transport: absolute I/O deadline, strict HTTP framing and chunked responses, finite error classifications.

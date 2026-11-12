@@ -58,6 +58,11 @@ $ctx=new ConnectorContext('proxmox','connector.test',$port,'proxmox_api');
 $secret='{"token_id":"svc@pve!test","token_secret":"fixture-secret"}';
 if(count($registry->execute($ctx,'inspect','api',$secret)->items)!==2)throw new RuntimeException('Bad discovery');
 if(count($registry->execute($ctx,'health','api',$secret)->items)!==1)throw new RuntimeException('Bad health');
+$collector=new \Cajeer\Servers\Collector\CollectionRuntimeService(\Cajeer\Servers\Collector\CollectorRegistry::forConnectors($registry));
+$plan=new \Cajeer\Servers\Collector\CollectionPlan('proxmox.inventory','inspect');
+$target=['provider'=>'proxmox','endpoint_host'=>'connector.test','endpoint_port'=>$port,'credential_type'=>'proxmox_api','purpose'=>'api'];
+$observations=$collector->collect($plan,$target,'proxmox_api',$secret);
+if(count($observations->items)!==2 || !$observations->complete)throw new RuntimeException('Bad named HTTPS collection');
 $auth='PVEAPIToken=svc@pve!test=fixture-secret';
 foreach ([['connector.test','/api2/json/nodes',null],['wrong.test','/api2/json/nodes',$ca],['connector.test','/redirect',$ca],['connector.test','/oversized',$ca]] as [$host,$path,$trust]) {
     try{$transport->get($host,$port,$path,$auth,$trust);}catch(RuntimeException){continue;}
@@ -68,7 +73,7 @@ echo "HTTPS integration: verified CA, hostname, discovery, health, redirect reje
         subprocess.run(['php','-r',code,str(ROOT),str(server.server_port),str(cert)],check=True,timeout=30)
         assert all(host == f'connector.test:{server.server_port}' for _,host in Handler.calls)
         assert '/redirect-destination' not in [path for path,_ in Handler.calls]
-        assert len(Handler.calls)==5, Handler.calls
+        assert len(Handler.calls)==7, Handler.calls
     finally:
         server.shutdown()
         server.server_close()

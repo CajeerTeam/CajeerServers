@@ -76,7 +76,7 @@ final class ConnectorBindingController
     public function enqueueRun(HttpRequest $r):HttpResponse
     {
         $actor=$this->actor($r,'connectors.credentials.manage',true); $b=$r->attribute('json'); $id=self::id($r);
-        $run=$this->execution()->enqueue($actor,$id,$b['grant_id'],$r->header('Idempotency-Key',''));
+        $run=$this->execution()->enqueue($actor,$id,$b['grant_id'],$r->header('Idempotency-Key',''),$b['collector']??null);
         return HttpResponse::json(['data'=>$run],202,['Cache-Control'=>'private, no-store','Location'=>'/api/v1/connectors/targets/'.$id.'/runs/'.$run['id']]);
     }
     public function runStatus(HttpRequest $r):HttpResponse
@@ -94,7 +94,7 @@ final class ConnectorBindingController
     public function drivers(HttpRequest $r):HttpResponse
     {
         $this->actor($r,'connectors.targets.read');
-        return HttpResponse::json(['data'=>array_values(array_map(fn($m)=>[...get_object_vars($m),'actions'=>$this->registry->actions($m->provider),'write_actions_enabled'=>$this->writeActions],$this->registry->manifests()))],200,['Cache-Control'=>'private, no-store']);
+        return HttpResponse::json(['data'=>array_values(array_map(fn($m)=>[...get_object_vars($m),'actions'=>$this->registry->actions($m->provider),'write_actions_enabled'=>$this->writeActions,'collectors'=>array_values(array_filter($this->runtime->collectionRuntime()->catalog(),fn($row)=>$row['provider']===$m->provider))],$this->registry->manifests()))],200,['Cache-Control'=>'private, no-store']);
     }
     public function health(HttpRequest $r):HttpResponse
     {

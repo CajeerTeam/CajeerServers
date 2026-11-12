@@ -1,0 +1,18 @@
+<?php
+declare(strict_types=1);
+namespace Cajeer\Servers\Collector;
+
+use Cajeer\Servers\Connector\ConnectorResult;
+use Cajeer\Servers\Integration\ConnectorRegistry;
+
+/** Reuses the actual API, host or SNMP collector inside the registered connector. */
+final readonly class ConnectorCollector implements CollectorInterface
+{
+    public function __construct(private string $id, private string $driver, private ConnectorRegistry $connectors) {}
+    public function name(): string {return $this->id;}
+    public function provider(): string {return $this->driver;}
+    public function collect(CollectionContext $context, #[\SensitiveParameter] string $secret): ConnectorResult
+    {
+        return $this->connectors->execute($context->connector,$context->plan->operation,$context->purpose,$secret);
+    }
+}

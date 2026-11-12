@@ -88,6 +88,7 @@ def https_test(tmp):
         # The helper pins the first allowed IP and retains localhost as the TLS identity.
         out=execute('winrm',port,cred,ca=str(cert));assert out['complete'] and out['items'][0]['fields']['attributes']['host_hardware']['cpu_count']==4, out
         assert server.actions[-1]==TRANSFER+'Delete' and server.receives==2
+        out=execute('winrm',port,cred,ca=str(cert),collector='winrm.inventory');assert out['complete'] and out['items'][0]['fields']['attributes']['host_hardware']['cpu_count']==4, out
         out=execute('winrm',port,cred,ca=str(cert),operation='health');assert not out['complete'],out
         assert execute('winrm',port,cred)['error']=='connector_trust_failed'
         assert execute('winrm',port,cred,ca=str(cert),host='127.0.0.1')['error']=='connector_trust_failed'
@@ -101,7 +102,7 @@ def https_test(tmp):
         assert execute('winrm',port,cred,ca=str(cert),networks=['192.0.2.0/24'])['error']=='connector_trust_failed'
     finally:
         server.shutdown();server.server_close();thread.join()
-    print('WinRM HTTPS fixture: 12 scenarios PASS')
+    print('WinRM HTTPS fixture: 13 scenarios PASS')
 
 
 def ssh_test(tmp):
@@ -153,14 +154,15 @@ def ssh_test(tmp):
     cred={'username':'test','password':'fixture-secret'}
     try:
         out=execute('ssh',port,cred,known_hosts=str(known));assert out['complete'] and out['items'][0]['fields']['attributes']['host_hardware']['cpu_count']>0,out
+        out=execute('ssh',port,cred,known_hosts=str(known),collector='ssh.inventory');assert out['complete'],out
         out=execute('ssh',port,{'username':'test','private_key':pem},type='ssh_private_key',known_hosts=str(known));assert out['complete'],out
         encrypted=client_key.private_bytes(serialization.Encoding.PEM,serialization.PrivateFormat.OpenSSH,serialization.BestAvailableEncryption(b'key-passphrase')).decode()
         out=execute('ssh',port,{'username':'test','private_key':encrypted,'passphrase':'key-passphrase'},type='ssh_private_key',known_hosts=str(known));assert out['complete'],out
         n=len(auth_attempts);assert execute('ssh',port,cred,known_hosts=str(wrong))['error']=='connector_trust_failed';assert len(auth_attempts)==n
         assert execute('ssh',port,{**cred,'password':'wrong'},known_hosts=str(known))['error']=='connector_auth_failed'
-        assert len(commands)==3
+        assert len(commands)==4
     finally:stop.set();listener.close();thread.join(timeout=6)
-    print('SSH protocol fixture: 5 scenarios PASS')
+    print('SSH protocol fixture: 6 scenarios PASS')
 
 
 if __name__=='__main__':

@@ -83,6 +83,26 @@ try {
     $attrs=$router['attributes'];$attrs['network_device']['description']='manual description';$attrs['operator_note']='keep';
     $inventory->update($actor,$uuid,$inventory->read($actor,$uuid)['version'],['attributes'=>$attrs]);
     $authorize();$runtime->run($principal,$id,2,true);$ok($inventory->read($actor,$uuid)['attributes']==$attrs,'manual metadata preserved');
+    // Named collection jobs execute the real SNMP adapter over the deterministic session fixture.
+    $authorize();$readGrant=$execution->issue($principal,$id,2,'inspect',3600);
+    $reject(422,fn()=>$execution->enqueue($actor,$id,$readGrant['id'],'wrong-provider','ssh.inventory'),'collector scope');
+    $run=$execution->enqueue($actor,$id,$readGrant['id'],'collection-read','snmp.inventory');
+    $ok($execution->enqueue($actor,$id,$readGrant['id'],'collection-read','snmp.inventory')['id']===$run['id'],'collection idempotency');
+    $reject(409,fn()=>$execution->enqueue($actor,$id,$readGrant['id'],'collection-read'),'idempotency plan conflict');
+    $pdo->prepare('UPDATE auth_sessions SET revoked_at=now() WHERE id=:id')->execute(['id'=>$session['id']]);
+    $ok($execution->once()['status']==='succeeded','collector executes without session');
+    $row=$execution->status($actor,$id,$run['id']);$snapshot=$row['result']['collection'];
+    $ok($row['collector_name']==='snmp.inventory'&&$snapshot['sink']==='result'&&$snapshot['observations'][0]['external_id']==='device'&&$count()===$before+1,'read-only snapshot saved');
+    $ok(!isset($execution->runs($actor,$id)[0]['result']['collection']['observations']),'list omits large observations');
+    $pdo->prepare('UPDATE auth_sessions SET revoked_at=NULL WHERE id=:id')->execute(['id'=>$session['id']]);
+    $authorize();$writeGrant=$execution->issue($principal,$id,2,'sync',3600);
+    $write=$execution->enqueue($actor,$id,$writeGrant['id'],'collection-sync','snmp.inventory');
+    $ok($execution->once()['status']==='succeeded'&&$execution->status($actor,$id,$write['id'])['result']['collection']['sink']==='inventory','collection sync persisted');
+    $q->execute(['id'=>$id]);$ok($q->fetchColumn()===$uuid&&$inventory->read($actor,$uuid)['attributes']==$attrs,'collection preserves UUID/manual data');
+    $cancel=$execution->enqueue($actor,$id,$readGrant['id'],'collection-cancel','snmp.inventory');$execution->cancel($actor,$id,$cancel['id']);
+    $ok($execution->status($actor,$id,$cancel['id'])['status']==='cancelled','collection cancellation');
+    $revoked=$execution->enqueue($actor,$id,$readGrant['id'],'collection-revoke','snmp.inventory');$execution->revoke($actor,$id,$readGrant['id']);
+    $prior=$calls;$ok($execution->once()['status']==='failed'&&$calls===$prior,'revoked grant denied before collection');
     $authorize();$grant=$execution->issue($principal,$id,2,'health',3600,60);
     $pdo->prepare('UPDATE auth_sessions SET revoked_at=now() WHERE id=:id')->execute(['id'=>$session['id']]);
     $ok($execution->tick()===1&&$execution->once()['status']==='succeeded','scheduled health without session');

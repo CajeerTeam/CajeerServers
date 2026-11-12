@@ -11,6 +11,7 @@ use Cajeer\Servers\Queue\{PostgresQueueDriver, QueuedJob, QueueReservation};
 use Cajeer\Servers\Security\Rbac;
 use PDO;
 use Throwable;
+use Cajeer\Servers\Collector\CollectionPlan;
 
 /** Durable service grants, atomic queue submission and fenced connector execution. */
 final class ConnectorExecutionService
@@ -88,15 +89,19 @@ final class ConnectorExecutionService
             $this->audit->record($pdo,$actor,'connector.service_grant.revoked','success','connector_target',$target);
         });
     }
-    public function enqueue(string $actor,string $target,string $grant,string $key):array
+    public function enqueue(string $actor,string $target,string $grant,string $key,?string $collector=null):array
     {
         $target=CredentialInput::uuid($target); $actor=CredentialInput::uuid($actor);
         if (!preg_match('/^[A-Za-z0-9._:-]{1,128}$/D',$key)) throw new HttpException(422,'Invalid idempotency key.','validation_failed');
-        return $this->db->transaction(function(PDO $pdo)use($actor,$target,$grant,$key):array {
+        return $this->db->transaction(function(PDO $pdo)use($actor,$target,$grant,$key,$collector):array {
             $t=$this->bindings->show($actor,$target); $this->inventory->lockWorkspace($pdo,$t['workspace_id']); $this->inventory->workspaceRole($pdo,$t['workspace_id'],$actor,true);
             $g=$this->grant($pdo,$grant,true); if ($g['target_id']!==$target || $g['actor_id']!==$actor) $this->deny();
-            $this->permissions($actor,$g['operation'],$pdo); $this->context($pdo,$g);
-            return $this->enqueueLocked($pdo,$g,'manual:'.$key);
+            $this->permissions($actor,$g['operation'],$pdo); $context=$this->context($pdo,$g);
+            if ($collector!==null) {
+                $this->rbac->requireUserPermission($actor,'inventory.assets.read',$pdo);
+                $this->runtime->collectionRuntime()->validate(new CollectionPlan($collector,$g['operation']),$context);
+            }
+            return $this->enqueueLocked($pdo,$g,'manual:'.$key,$collector);
         });
     }
     /** Only server-side event dispatcher calls this within its durable inbox transaction. */
@@ -112,14 +117,17 @@ final class ConnectorExecutionService
         if (!$pdo->inTransaction() || $g['operation']!=='sync' || $attempt<1 || $attempt>10) throw new \LogicException('Invalid event dispatch.');
         return $this->enqueueLocked($pdo,$g,'event:'.CredentialInput::uuid($eventId).':'.$attempt);
     }
-    private function enqueueLocked(PDO $pdo,array $g,string $key):array
+    private function enqueueLocked(PDO $pdo,array $g,string $key,?string $collector=null):array
     {
-        $existing=$this->query($pdo,'SELECT id FROM connector_runs WHERE grant_id=:g AND idempotency_key=:k',['g'=>$g['id'],'k'=>$key])->fetchColumn();
-        if ($existing) return ['id'=>$existing,'deduplicated'=>true];
+        $existing=$this->query($pdo,'SELECT id,collector_name FROM connector_runs WHERE grant_id=:g AND idempotency_key=:k',['g'=>$g['id'],'k'=>$key])->fetch(PDO::FETCH_ASSOC);
+        if ($existing) {
+            if ($existing['collector_name']!==$collector) throw new HttpException(409,'Idempotency key belongs to a different collection plan.','conflict');
+            return ['id'=>$existing['id'],'deduplicated'=>true];
+        }
         $pending=$this->query($pdo,"SELECT count(*) FROM connector_runs r JOIN queue_jobs j ON j.id=r.id WHERE r.grant_id=:g AND r.finished_at IS NULL AND j.status IN ('queued','running')",['g'=>$g['id']])->fetchColumn();
         if ((int)$pending>=10) throw new HttpException(429,'Too many pending connector runs.','rate_limited');
         $job=QueuedJob::create(self::TYPE,[],self::QUEUE,5);
-        $this->query($pdo,'INSERT INTO connector_runs(id,grant_id,target_id,workspace_id,idempotency_key) VALUES(:id,:g,:t,:w,:k)',['id'=>$job->id,'g'=>$g['id'],'t'=>$g['target_id'],'w'=>$g['workspace_id'],'k'=>$key]);
+        $this->query($pdo,'INSERT INTO connector_runs(id,grant_id,target_id,workspace_id,idempotency_key,collector_name) VALUES(:id,:g,:t,:w,:k,:collector)',['id'=>$job->id,'g'=>$g['id'],'t'=>$g['target_id'],'w'=>$g['workspace_id'],'k'=>$key,'collector'=>$collector]);
         (new PostgresQueueDriver($this->db))->push($job);
         $this->audit->record($pdo,$g['actor_id'],'connector.run.enqueued','success','connector_target',$g['target_id'],['reason'=>$g['operation']]);
         return ['id'=>$job->id,'deduplicated'=>false];
@@ -151,9 +159,9 @@ final class ConnectorExecutionService
         }
         return $count;
     }
-    private function runRow(PDO $pdo,string $id):array
+    private function runRow(PDO $pdo,string $id,bool $detail=true):array
     {
-        $r=$this->query($pdo,"SELECT r.*,g.operation,CASE WHEN r.cancelled_at IS NOT NULL THEN 'cancelled' WHEN r.result IS NOT NULL THEN 'succeeded' WHEN r.error_code IS NOT NULL OR j.status IN ('failed','completed') OR j.id IS NULL THEN 'failed' WHEN j.status='running' THEN 'running' ELSE 'queued' END AS status,COALESCE(j.attempts,0) AS attempts FROM connector_runs r JOIN connector_service_grants g ON g.id=r.grant_id LEFT JOIN queue_jobs j ON j.id=r.id WHERE r.id=:id",['id'=>CredentialInput::uuid($id)])->fetch(PDO::FETCH_ASSOC);
+        $r=$this->query($pdo,"SELECT r.id,r.grant_id,r.target_id,r.workspace_id,r.collector_name,r.created_at,r.finished_at,r.cancelled_at,r.error_code,".($detail?"r.result":"r.result #- '{collection,observations}'")." AS result,g.operation,CASE WHEN r.cancelled_at IS NOT NULL THEN 'cancelled' WHEN r.result IS NOT NULL THEN 'succeeded' WHEN r.error_code IS NOT NULL OR j.status IN ('failed','completed') OR j.id IS NULL THEN 'failed' WHEN j.status='running' THEN 'running' ELSE 'queued' END AS status,COALESCE(j.attempts,0) AS attempts FROM connector_runs r JOIN connector_service_grants g ON g.id=r.grant_id LEFT JOIN queue_jobs j ON j.id=r.id WHERE r.id=:id",['id'=>CredentialInput::uuid($id)])->fetch(PDO::FETCH_ASSOC);
         if (!$r) throw new HttpException(404,'Connector run not found.','not_found');
         if ($r['status']==='failed' && $r['error_code']===null) $r['error_code']='lease_exhausted';
         unset($r['idempotency_key']);
@@ -169,7 +177,7 @@ final class ConnectorExecutionService
         $pdo=$this->db->connection();
         $q=$pdo->prepare('SELECT id FROM connector_runs WHERE target_id=:id ORDER BY created_at DESC,id DESC LIMIT :lim OFFSET :off');
         $q->bindValue('id',$target); $q->bindValue('lim',$limit,PDO::PARAM_INT); $q->bindValue('off',$offset,PDO::PARAM_INT); $q->execute();
-        return array_map(fn(string $id)=>$this->runRow($pdo,$id),$q->fetchAll(PDO::FETCH_COLUMN));
+        return array_map(fn(string $id)=>$this->runRow($pdo,$id,false),$q->fetchAll(PDO::FETCH_COLUMN));
     }
     public function status(string $actor,string $target,string $id):array
     {
@@ -189,6 +197,7 @@ final class ConnectorExecutionService
             $this->query($pdo,"SELECT id FROM queue_jobs WHERE id=:id AND queue='connectors' FOR UPDATE",['id'=>$id]);
             $row=$this->runRow($pdo,$id);
             if ($row['target_id']!==$target) throw new HttpException(404,'Connector run not found.','not_found');
+            if ($row['collector_name']!==null) $this->rbac->requireUserPermission($actor,'inventory.assets.read',$pdo);
             if (!in_array($row['status'],['queued','running'],true)) return $row;
             $changed=$this->query($pdo,'UPDATE connector_runs SET cancelled_at=clock_timestamp(),finished_at=clock_timestamp() WHERE id=:id AND finished_at IS NULL',['id'=>$id]);
             if ($changed->rowCount()===1) {
@@ -221,14 +230,19 @@ final class ConnectorExecutionService
         $pdo=$this->db->connection(); $row=$this->runRow($pdo,$r->job->id);
         if ($row['finished_at']!==null) return $row['result']??['status'=>$row['status']];
         $g=$this->grant($pdo,$row['grant_id']);
+        $plan=$row['collector_name']===null?null:new CollectionPlan($row['collector_name'],$g['operation']);
         // Session advisory lock prevents overlapping remote operations per target, including lease recovery.
         $locked=$this->query($pdo,'SELECT pg_try_advisory_lock(hashtextextended(:id,4202))',['id'=>$g['target_id']])->fetchColumn();
         if (!in_array($locked,[true,'t','1',1],true)) throw new \RuntimeException('Connector busy.');
         $slots=[];
         try {
             $this->vault->check();
-            $material=$this->db->transaction(function(PDO $pdo)use($r,$g,&$slots):array {
+            $material=$this->db->transaction(function(PDO $pdo)use($r,$g,&$slots,$plan):array {
                 $t=$this->fence($pdo,$r,$g);
+                if ($plan!==null) {
+                    $this->rbac->requireUserPermission($g['actor_id'],'inventory.assets.read',$pdo);
+                    $this->runtime->collectionRuntime()->validate($plan,$t);
+                }
                 if (ConnectorHealthMonitor::isOpen($pdo,$g['target_id'])) throw new HttpException(423,'Connector circuit is open. Try after cooldown.','connector_circuit_open');
                 // Session locks survive the transaction and bound remote execution across workers.
                 if ($slots===[]) $slots=ConnectorConcurrency::acquire($pdo,$t);
@@ -242,11 +256,14 @@ final class ConnectorExecutionService
                 return $this->runtime->runAuthorized($g['actor_id'],$t,$g['operation'],function(callable $consumer)use(&$cipher,$g,$t):void {
                     $plain=$this->crypto->open($cipher,$g['credential_id'],$g['workspace_id'],$t['credential_type']);
                     try {$consumer($plain,$t['credential_type']);} finally {sodium_memzero($plain);}
-                },null,fn(PDO $pdo)=>$this->fence($pdo,$r,$g),function(PDO $pdo,array $result)use($r,$g):void {
+                },null,function(PDO $pdo)use($r,$g,$plan):void {
+                    $this->fence($pdo,$r,$g);
+                    if ($plan!==null) $this->rbac->requireUserPermission($g['actor_id'],'inventory.assets.read',$pdo);
+                },function(PDO $pdo,array $result)use($r,$g):void {
                     // Same transaction as Inventory writes; replays after a lost queue ACK return stored outcome.
                     $this->fence($pdo,$r,$g);
                     $this->query($pdo,'UPDATE connector_runs SET result=CAST(:result AS jsonb),finished_at=clock_timestamp() WHERE id=:id',['result'=>json_encode($result,JSON_THROW_ON_ERROR),'id'=>$r->job->id]);
-                });
+                },$plan);
             } finally {if (is_string($cipher)) sodium_memzero($cipher);}
         } finally {
             try {ConnectorConcurrency::release($pdo,$slots);}
@@ -295,9 +312,9 @@ SQL);
             $current=$this->runRow($pdo,$r->job->id);
             if ($current['finished_at']!==null) return $this->acknowledge($r);
             $remoteAuth=$e instanceof HttpException && in_array($e->errorCode,['connector_auth_failed','connector_trust_failed','connector_dependency_missing'],true);
-            $remoteCode=$e instanceof HttpException && in_array($e->errorCode,[...ConnectorHealthMonitor::ERRORS,'connector_circuit_open','connector_busy','snapshot_stale','empty_inventory','conflict','precondition_failed','service_grant_denied','permission_denied','asset_unavailable','inventory_binding_required','not_found','provider_unavailable','capability_unavailable','lease_lost'],true)?$e->errorCode:null;
+            $remoteCode=$e instanceof HttpException && in_array($e->errorCode,[...ConnectorHealthMonitor::ERRORS,'connector_circuit_open','connector_busy','snapshot_stale','empty_inventory','conflict','precondition_failed','service_grant_denied','permission_denied','asset_unavailable','inventory_binding_required','not_found','provider_unavailable','capability_unavailable','collection_invalid','collection_result_too_large','lease_lost'],true)?$e->errorCode:null;
             // Stale config, revoked grants and empty/superseded snapshots are not transient transport failures.
-            $terminal=$remoteAuth || in_array($remoteCode,['snapshot_stale','empty_inventory','conflict','precondition_failed','service_grant_denied','permission_denied','asset_unavailable','inventory_binding_required','not_found','provider_unavailable','capability_unavailable','connector_circuit_open'],true)
+            $terminal=$remoteAuth || in_array($remoteCode,['snapshot_stale','empty_inventory','conflict','precondition_failed','service_grant_denied','permission_denied','asset_unavailable','inventory_binding_required','not_found','provider_unavailable','capability_unavailable','collection_invalid','collection_result_too_large','connector_circuit_open'],true)
                 || ($remoteCode!==null && ConnectorHealthMonitor::isOpen($pdo,$current['target_id']))
                 || ($e instanceof HttpException && $e->status<500 && $e->status!==429 && $e->status!==409);
             if ($terminal || $r->attempt >= $r->job->maxAttempts) {

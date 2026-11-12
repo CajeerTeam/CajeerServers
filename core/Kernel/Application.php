@@ -159,7 +159,7 @@ final class Application
                 $c->get(VaultCrypto::class),$c->get(AuditLogger::class),$c->get(ConnectorRegistry::class)));
         $this->services->singleton(\Cajeer\Servers\Credentials\CredentialVersionController::class,
             fn (ServiceContainer $c): \Cajeer\Servers\Credentials\CredentialVersionController => new \Cajeer\Servers\Credentials\CredentialVersionController(
-                $c->get(AuthenticationService::class),$c->get(Rbac::class),$c->get(\Cajeer\Servers\Credentials\CredentialVersionService::class)));
+                $c->get(AuthenticationService::class),$c->get(Rbac::class),$c->get(\Cajeer\Servers\Credentials\CredentialVersionService::class),$c->get(\Cajeer\Servers\Collector\CollectionRuntimeService::class)));
         $this->services->singleton(\Cajeer\Servers\Credentials\VaultKeyRotation::class,
             fn (ServiceContainer $c): \Cajeer\Servers\Credentials\VaultKeyRotation => new \Cajeer\Servers\Credentials\VaultKeyRotation(
                 $c->get(DatabaseManager::class),$c->get(VaultCrypto::class),$c->get(VaultMasterKey::class),
@@ -317,11 +317,13 @@ final class Application
         $this->services->singleton(\Cajeer\Servers\Connector\ConnectorActionService::class, fn (ServiceContainer $c) => new \Cajeer\Servers\Connector\ConnectorActionService(
             $c->get(DatabaseManager::class),$c->get(ConnectorBindingService::class),$c->get(InventoryRepository::class),$c->get(SecretAccessService::class),$c->get(ConnectorRegistry::class),$c->get(Rbac::class),$c->get(AuditLogger::class),$c->get(ConfigRepository::class)->get('connectors.write_actions',false)===true));
         $this->services->singleton(\Cajeer\Servers\Connector\ConnectorActionController::class, fn (ServiceContainer $c) => new \Cajeer\Servers\Connector\ConnectorActionController($c->get(AuthenticationService::class),$c->get(\Cajeer\Servers\Connector\ConnectorActionService::class)));
+        $this->services->singleton(\Cajeer\Servers\Collector\CollectorRegistry::class, fn (ServiceContainer $c) => \Cajeer\Servers\Collector\CollectorRegistry::forConnectors($c->get(ConnectorRegistry::class)));
+        $this->services->singleton(\Cajeer\Servers\Collector\CollectionRuntimeService::class, fn (ServiceContainer $c) => new \Cajeer\Servers\Collector\CollectionRuntimeService($c->get(\Cajeer\Servers\Collector\CollectorRegistry::class)));
         $this->services->singleton(ConnectorRuntimeService::class, fn (ServiceContainer $c): ConnectorRuntimeService => new ConnectorRuntimeService(
             $c->get(DatabaseManager::class),$c->get(InventoryRepository::class),$c->get(ConnectorBindingService::class),
             $c->get(SecretAccessService::class),$c->get(HistoryService::class),$c->get(AuditLogger::class),
             $c->get(ConnectorRegistry::class),
-            $c->get(\Cajeer\Servers\Credentials\CredentialVersionService::class)));
+            $c->get(\Cajeer\Servers\Credentials\CredentialVersionService::class),$c->get(\Cajeer\Servers\Collector\CollectionRuntimeService::class)));
         $this->services->singleton(ConnectorExecutionService::class, fn (ServiceContainer $c): ConnectorExecutionService => new ConnectorExecutionService(
             $c->get(DatabaseManager::class),$c->get(ConnectorBindingService::class),$c->get(InventoryRepository::class),$c->get(Rbac::class),
             $c->get(SecretAccessService::class),$c->get(CredentialsVault::class),$c->get(VaultCrypto::class),$c->get(AuditLogger::class),$c->get(ConnectorRuntimeService::class)));

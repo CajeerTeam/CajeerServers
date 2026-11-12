@@ -353,7 +353,7 @@ return static function (Router $router, ServiceContainer $container): void {
             $connectors->delete('/targets/{id}/service-grants/{grantId}',static fn(HttpRequest $r):HttpResponse=>$handler()->revokeGrant($r));
             $connectors->get('/targets/{id}/runs',static fn(HttpRequest $r):HttpResponse=>$handler()->runs($r));
             $connectors->post('/targets/{id}/runs',static fn(HttpRequest $r):HttpResponse=>$handler()->enqueueRun($r),[
-                'required'=>['grant_id'],'properties'=>['grant_id'=>['type'=>'string','format'=>'uuid']],'additionalProperties'=>false,
+                'required'=>['grant_id'],'properties'=>['grant_id'=>['type'=>'string','format'=>'uuid'],'collector'=>['type'=>'string','minLength'=>1,'maxLength'=>64]],'additionalProperties'=>false,
             ]);
             $connectors->get('/targets/{id}/runs/{runId}',static fn(HttpRequest $r):HttpResponse=>$handler()->runStatus($r));
             $connectors->post('/targets/{id}/runs/{runId}/cancel',static fn(HttpRequest $r):HttpResponse=>$handler()->cancelRun($r));

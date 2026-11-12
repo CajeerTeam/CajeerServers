@@ -13,6 +13,7 @@ use PDO;
 use Cajeer\Servers\Security\Rbac;
 use Cajeer\Servers\Integration\ConnectorRegistry;
 use Throwable;
+use Cajeer\Servers\Collector\{CollectionPlan, CollectionResult, CollectionRuntimeService, CollectorRegistry};
 
 /** Real, step-up authorized registered-driver discovery and CMDB reconciliation, without exposing Vault plaintext. */
 final class ConnectorRuntimeService
@@ -26,7 +27,11 @@ final class ConnectorRuntimeService
         private readonly AuditLogger $audit,
         private readonly ConnectorRegistry $registry,
         private readonly ?CredentialVersionService $versions = null,
+        private readonly ?CollectionRuntimeService $collections = null,
     ) {}
+
+    public function collectionRuntime(): CollectionRuntimeService
+    { return $this->collections ?? new CollectionRuntimeService(CollectorRegistry::forConnectors($this->registry)); }
 
     private function checkPermissions(PDO $pdo,string $actor,string $operation):void
     {
@@ -97,16 +102,22 @@ final class ConnectorRuntimeService
 
     /** Internal worker entry. Authorization and result fencing are supplied by the service grant broker. */
     public function runAuthorized(string $actor,array $target,string $operation,callable $consume,?string $requestId=null,
-                                  ?callable $guard=null,?callable $complete=null):array
+                                  ?callable $guard=null,?callable $complete=null,?CollectionPlan $plan=null):array
     {
         if (!in_array($operation,['inspect','sync','health'],true)) throw new HttpException(422,'Unsupported background operation.','validation_failed');
+        if ($plan!==null) {
+            if ($plan->operation!==$operation) throw new HttpException(422,'Collection operation does not match grant.','collection_invalid');
+            $this->collectionRuntime()->validate($plan,$target);
+            // Persisted observations are Inventory data even when the selected sink writes nothing.
+            (new Rbac($this->db,$this->audit))->requireUserPermission($actor,'inventory.assets.read');
+        }
         $targetId=$target['id']; $version=$target['version']; $sync=$operation==='sync';
         $this->checkPermissions($this->db->connection(),$actor,$operation);
         $started=microtime(true);
         $reconciliation=$this->reconciliation();
         $generation=$sync?$reconciliation->generation($this->db->connection()):0;
-        $observedAt=$sync?(string)$this->db->connection()->query("SELECT to_char(clock_timestamp() AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"')")->fetchColumn():'';
-        try {$snapshot=$this->discoverWithGrant($target,$operation,$consume);}
+        $observedAt=($sync||$plan!==null)?(string)$this->db->connection()->query("SELECT to_char(clock_timestamp() AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"')")->fetchColumn():'';
+        try {$snapshot=$this->discoverWithGrant($target,$operation,$consume,$plan); }
         catch (HttpException $error) {
             if (in_array($error->errorCode,ConnectorHealthMonitor::ERRORS,true)) {
                 try {
@@ -125,6 +136,7 @@ final class ConnectorRuntimeService
         }
         $elapsed=(int)round((microtime(true)-$started)*1000);
         $items=$snapshot->items;
+        $collection=$plan===null?null:(new CollectionResult($plan,$snapshot,$observedAt))->toArray();
         if ($sync && count($items)===0) {
             // An empty API result may be a temporary failure; never modify CMDB on empty discovery.
             throw new HttpException(409,'Remote inventory is empty. No changes were applied.','empty_inventory');
@@ -139,7 +151,7 @@ final class ConnectorRuntimeService
         if (!$sync) {
             $result=$operation==='health' ? (new ConnectorHealth($targetId,$elapsed))->toArray()
                 : ['connector_id'=>$targetId,'mode'=>'inspect','discovered'=>count($items),'types'=>$summary];
-            return $this->db->transaction(function(PDO $pdo) use($actor,$targetId,$operation,$items,$requestId,$guard,$complete,$result,$target,$snapshot,$reconciliation,$elapsed):array {
+            return $this->db->transaction(function(PDO $pdo) use($actor,$targetId,$operation,$items,$requestId,$guard,$complete,$result,$target,$snapshot,$reconciliation,$elapsed,$collection):array {
                 $this->inventory->lockWorkspace($pdo,$target['workspace_id']);
                 if ($guard!==null) $guard($pdo);
                 $this->checkPermissions($pdo,$actor,$operation);
@@ -148,6 +160,7 @@ final class ConnectorRuntimeService
                 if ($latest['credential_id']!==$target['credential_id'] || $latest['credential_version']!==$target['credential_version']) throw new HttpException(409,'Connector binding changed.','conflict');
                 ConnectorHealthMonitor::record($pdo,$target,$elapsed,null);
                 if ($operation==='inspect') $result['preview']=$reconciliation->preview($pdo,$actor,$target,$snapshot);
+                if ($collection!==null) $result['collection']=$collection;
                 $this->audit->record($pdo,$actor,$operation==='health'?'connector.health.checked':'connector.inventory.inspected',
                     'success','connector_target',$targetId,['count'=>count($items)],$requestId);
                 if ($complete!==null) $complete($pdo,$result);
@@ -155,7 +168,7 @@ final class ConnectorRuntimeService
             });
         }
         // The entire snapshot, identity state, observations and queue result share one commit.
-        $result=$this->db->transaction(function(PDO $pdo) use($actor,$targetId,$version,$target,$requestId,$guard,$complete,$items,$summary,$snapshot,$generation,$observedAt,$reconciliation,$elapsed):array {
+        $result=$this->db->transaction(function(PDO $pdo) use($actor,$targetId,$version,$target,$requestId,$guard,$complete,$items,$summary,$snapshot,$generation,$observedAt,$reconciliation,$elapsed,$collection):array {
             $this->inventory->lockWorkspace($pdo,$target['workspace_id']);
             $this->inventory->workspaceRole($pdo,$target['workspace_id'],$actor,true);
             $pdo->prepare('SELECT id FROM credentials WHERE id=:id FOR SHARE')->execute(['id'=>$target['credential_id']]);
@@ -169,6 +182,7 @@ final class ConnectorRuntimeService
             $this->audit->record($pdo,$actor,'connector.inventory.synced','success','connector_target',$targetId,
                 ['count'=>count($items),'complete'=>$snapshot->complete,'blocked'=>$delta['snapshot']['blocked']],$requestId);
             $result=['connector_id'=>$targetId,'mode'=>'sync','discovered'=>count($items),'types'=>$summary,...$delta];
+            if ($collection!==null) $result['collection']=$collection;
             if ($complete!==null) $complete($pdo,$result);
             return $result;
         });
@@ -192,12 +206,12 @@ final class ConnectorRuntimeService
     }
     /** The Vault consumer deliberately sanitizes callback failures. Preserve only the
      * already-sanitized registry outcome, not an exception trace or remote response. */
-    private function discoverWithGrant(array $target,string $operation,callable $consume):ConnectorResult
+    private function discoverWithGrant(array $target,string $operation,callable $consume,?CollectionPlan $plan=null):ConnectorResult
     {
         $result=null; $failure=null;
         try {
-            $consume(function(#[\SensitiveParameter] string $secret,string $type)use($target,$operation,&$result,&$failure):void {
-                try { $result=$this->execute($target,$operation,$type,$secret); }
+            $consume(function(#[\SensitiveParameter] string $secret,string $type)use($target,$operation,$plan,&$result,&$failure):void {
+                try { $result=$plan===null?$this->execute($target,$operation,$type,$secret):$this->collectionRuntime()->collect($plan,$target,$type,$secret); }
                 catch (HttpException $e) {
                     $failure=[$e->status,$e->getMessage(),$e->errorCode];
                     throw $e; // Vault still audits the failed trusted consumer.

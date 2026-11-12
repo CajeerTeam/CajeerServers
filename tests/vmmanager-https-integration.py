@@ -130,6 +130,10 @@ $ctx=new ConnectorContext('vmmanager','vmmanager.test',$port,'vmmanager_api');
 $secret=static fn(string $token):string=>json_encode(['token'=>$token],JSON_THROW_ON_ERROR);
 $execute=static fn(string $token,string $op='sync')=>$registry->execute($ctx,$op,'api',$secret($token));
 foreach(['inspect','sync','validate_rotation'] as $op){$result=$execute('fixture-vmm-active',$op);$ok(count($result->items)===4&&$result->complete,'full discovery '.$op);}
+$collector=new \Cajeer\Servers\Collector\CollectionRuntimeService(\Cajeer\Servers\Collector\CollectorRegistry::forConnectors($registry));
+$target=['provider'=>'vmmanager','endpoint_host'=>'vmmanager.test','endpoint_port'=>$port,'credential_type'=>'vmmanager_api','purpose'=>'api'];
+$collected=$collector->collect(new \Cajeer\Servers\Collector\CollectionPlan('vmmanager.inventory','inspect'),$target,'vmmanager_api',$secret('fixture-vmm-active'));
+$ok(count($collected->items)===4&&$collected->complete,'named VMmanager collector');
 $health=$execute('fixture-vmm-active','health');$ok(count($health->items)===1&&!$health->complete,'health one-node partial');
 $many=$execute('fixture-vmm-many');$ok(count($many->items)===104&&$many->items[103]['external_id']==='host:1101','keyset pagination across more than 100 hosts');
 $short=$execute('fixture-vmm-short');$ok(count($short->items)===4&&$short->complete,'short pages still exhausted');

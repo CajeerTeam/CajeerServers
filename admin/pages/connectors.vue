@@ -3,7 +3,7 @@ import { apiError } from '~/composables/useApi'
 import { inventoryContextUrl, selectWorkspace, queryUuid, inventoryAssetUrl } from '~/composables/inventoryNavigation'
 import type { VaultVersion } from '~/composables/vaultProfiles'
 const api=useApi(), auth=useAuth(),route=useRoute()
-type Driver={provider:string;purpose:string;credentialTypes:string[];operations:string[];resourceTypes:string[];transport:string;actions:string[];write_actions_enabled:boolean}
+type Driver={provider:string;purpose:string;credentialTypes:string[];operations:string[];resourceTypes:string[];transport:string;actions:string[];write_actions_enabled:boolean;collectors?:import('~/composables/connectorLifecycle').CollectorDefinition[]}
 const drivers=ref<Driver[]>([])
 type Workspace={id:string;name:string;role:string}
 type Target={id:string;workspace_id:string;provider:string;name:string;endpoint_host:string;endpoint_port:number;state:string;asset_id:string|null;version:number;etag:string;health_status:string;health_checked_at:string|null;health_success_at:string|null;health_duration_ms:number|null;health_error_code:string|null;circuit_open_until:string|null;consecutive_failures:number}
@@ -251,7 +251,7 @@ onMounted(init)
           <button class="btn" :disabled="busy||!binding.credential_id">Привязать credential</button>
         </form>
       </section>
-      <ConnectorLifecycle v-if="active" :key="active.id" :target="active" :binding="apiBinding" :operations="activeDriver?.operations||[]" :actions="activeDriver?.actions||[]" :write-actions="activeDriver?.write_actions_enabled===true" :manage="canBind" v-model:busy="busy" @changed="refreshAfterLifecycle" />
+      <ConnectorLifecycle v-if="active" :key="active.id" :target="active" :binding="apiBinding" :operations="activeDriver?.operations||[]" :collectors="activeDriver?.collectors||[]" :actions="activeDriver?.actions||[]" :write-actions="activeDriver?.write_actions_enabled===true" :manage="canBind" v-model:busy="busy" @changed="refreshAfterLifecycle" />
       <p v-if="active&&!activeDriver" class="muted">Для этого провайдера пока нет исполняемого драйвера.</p>
       <section v-if="active&&activeDriver" class="panel">
         <h2>{{ active.provider }} — подключение и Inventory</h2>

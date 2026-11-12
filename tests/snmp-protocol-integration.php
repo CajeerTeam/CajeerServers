@@ -14,6 +14,9 @@ $reject=static function(callable $f)use($ok):void{try{$f();}catch(HttpException)
 if (($argv[2]??'')==='--offline') {$reject(fn()=>$registry->execute($v2,'health','snmp',$c2));echo "SNMP offline PASS\n";exit;}
 foreach ([[$v2,$c2],[$v3,$c3]] as [$ctx,$secret]) {
     $result=$registry->execute($ctx,'sync','snmp',$secret);$item=$result->items[0];
+    $runtime=new \Cajeer\Servers\Collector\CollectionRuntimeService(\Cajeer\Servers\Collector\CollectorRegistry::forConnectors($registry));
+    $collected=$runtime->collect(new \Cajeer\Servers\Collector\CollectionPlan('snmp.inventory','inspect'),['provider'=>'snmp','endpoint_host'=>'127.0.0.1','endpoint_port'=>$port,'credential_type'=>$ctx->credentialType,'purpose'=>'snmp'],$ctx->credentialType,$secret);
+    $ok($collected->items[0]['external_id']==='device','named SNMP collector');
     $ok($item['fields']['name']==='cajeer-snmp-fixture','sysName');
     $ok(count($item['fields']['attributes']['network_device']['interfaces'])>0,'real IF-MIB walk');
     $ok(in_array('127.0.0.1',$item['fields']['ip_addresses']??[],true),'real IP-MIB walk');
