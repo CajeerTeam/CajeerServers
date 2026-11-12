@@ -17,7 +17,7 @@ use Throwable;
 /** PostgreSQL task scheduler and transactional outbox for Redis/Postgres queue dispatch. */
 final class Scheduler
 {
-    public function __construct(private readonly DatabaseManager $db, private readonly QueueDriverInterface $queue, private readonly JobProcessor $handlers) {}
+    public function __construct(private readonly DatabaseManager $db, private readonly QueueDriverInterface $queue, private readonly JobProcessor $handlers, private readonly ?\Cajeer\Servers\Connector\ConnectorExecutionService $connectors=null) {}
 
     public function add(string $name, string $cron, string $timezone, string $jobType, array $payload = [], string $queue = 'default', bool $runNow = false): array
     {
@@ -93,7 +93,8 @@ final class Scheduler
             if (!$pushed) break;
             $dispatched++;
         }
-        return ['scheduled'=>$scheduled,'dispatched'=>$dispatched,'dispatch_errors'=>$errors];
+        $connectorScheduled=$this->connectors?->tick($batch)??0;
+        return ['scheduled'=>$scheduled,'dispatched'=>$dispatched,'dispatch_errors'=>$errors,'connector_ticks'=>$connectorScheduled];
     }
 
     private function pdo(): PDO

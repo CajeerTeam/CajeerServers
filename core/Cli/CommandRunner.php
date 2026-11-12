@@ -56,7 +56,8 @@ final class CommandRunner
                 'inventory:preflight', 'inventory:constraints', 'inventory:integrity' => (new InventoryCommands($this->app))->run($command, $argv),
                 'vault:key:generate', 'vault:key:status', 'vault:key:rotate', 'vault:init', 'vault:check', 'vault:probe' => (new VaultCommands($this->app))->run($command, $argv),
                 'backup:key:generate', 'backup:create', 'backup:verify', 'backup:restore' => (new BackupCommands($this->app))->run($command, $argv),
-                'connector:sync', 'scripts:run', 'update:check' => $this->unavailable($command),
+                'connector:sync', 'connector:tick', 'connector:run', 'connector:status', 'connector:cancel', 'connector:work' => (new ConnectorCommands($this->app))->run($command,$argv),
+                'scripts:run', 'update:check' => $this->unavailable($command),
                 default => $this->unknown($command),
             };
         } catch (Throwable $error) {
@@ -68,10 +69,15 @@ final class CommandRunner
     private function help(): int
     {
         fwrite(STDOUT, <<<'TEXT'
-CajeerServers CLI 0.4.1
+CajeerServers CLI 0.4.2
 
 Рабочие команды:
   help                 Список доступных команд
+  connector:run <actor> <target> <grant> <key>  Поставить задачу
+  connector:status <actor> <target> <run>       Статус задачи
+  connector:cancel <actor> <target> <run>       Отменить задачу
+  connector:tick / connector:sync              Поставить due задачи
+  connector:work [max-jobs]                     Обработать очередь connectors (PostgreSQL)
   version              Версия приложения
   about                Информация об установленном runtime
   env:check            Проверка конфигурации окружения и runtime

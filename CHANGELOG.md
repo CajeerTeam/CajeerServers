@@ -1,3 +1,10 @@
+## [0.4.2] — 2026-11-12 — Connector Execution & Secure Service Grants
+
+- Реальные фоновые `inspect`, `sync`, `health` через PostgreSQL queue `connectors`; атомарная постановка, idempotency key, lease recovery, ограниченные retry, отмена, сохранённый результат.
+- MFA-делегирование Vault без расшифровки при выдаче: конкретный actor, Workspace, target/credential revisions, asset, purpose, операция и срок действия; worker проверяет актуальные права и привязки до использования секрета и до commit Inventory.
+- Фиксированные интервалы, Scheduler tick, CLI и REST управления grant/run. Общий runtime сохраняет прежние синхронные маршруты и external IDs. Redis остаётся доступным для остальных задач.
+- Новая PostgreSQL миграция 0023, расширенные smoke и PostgreSQL integration scenarios. Подтверждение live PostgreSQL, реального appliance и production frontend остаётся обязательным перед deployment.
+
 ## [0.4.1] — 2026-11-12 — Unified Connector Runtime & Registry
 
 - Proxmox inspect/sync/validate-rotation теперь исполняются через общий DI Registry, типизированный контекст, проверяемые capabilities и валидируемые наблюдения. Добавлены authenticated drivers и health routes.

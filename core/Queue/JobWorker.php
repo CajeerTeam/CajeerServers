@@ -21,6 +21,7 @@ final class JobWorker
 
     public function once(string $name = 'default', int $leaseSeconds = 60): ?array
     {
+        if ($name==='connectors') throw new RuntimeException('Use connector:work for the reserved connector queue.');
         $reserved = $this->queue->reserve($name,$leaseSeconds);
         if ($reserved === null) return null;
         $job=$reserved->job;

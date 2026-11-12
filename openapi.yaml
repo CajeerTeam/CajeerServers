@@ -1,8 +1,8 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.4.1
-  description: 'CajeerServers 0.4.1: registered connector runtime, executable capabilities, secure HTTPS and Vault integration.'
+  version: 0.4.2
+  description: 'CajeerServers 0.4.2: durable connector execution, scoped service grants and scheduled inventory synchronization.'
 servers:
 - url: /api/v1
 security: []
@@ -5016,6 +5016,599 @@ paths:
           description: Реальные драйверы, их purpose, credentialTypes, operations, resourceTypes и transport
         '403':
           $ref: '#/components/responses/Forbidden'
+  /connectors/targets/{id}/service-grants:
+    get:
+      operationId: listConnectorServiceGrants
+      summary: List scoped service grants
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        workspace_id:
+                          type: string
+                          format: uuid
+                        target_id:
+                          type: string
+                          format: uuid
+                        actor_id:
+                          type: string
+                          format: uuid
+                        asset_id:
+                          type: string
+                          format: uuid
+                        credential_id:
+                          type: string
+                          format: uuid
+                        purpose:
+                          type: string
+                        target_version:
+                          type: integer
+                        credential_version:
+                          type: integer
+                        operation:
+                          type: string
+                          enum:
+                          - inspect
+                          - sync
+                          - health
+                        created_at:
+                          type: string
+                          format: date-time
+                        expires_at:
+                          type: string
+                          format: date-time
+                        revoked_at:
+                          type:
+                          - string
+                          - 'null'
+                          format: date-time
+                        interval_seconds:
+                          type:
+                          - integer
+                          - 'null'
+                        next_due_at:
+                          type:
+                          - string
+                          - 'null'
+                          format: date-time
+        '401':
+          description: Session required
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Target or run not found
+        '409':
+          description: State conflict
+        '422':
+          description: Invalid input
+    post:
+      operationId: issueConnectorServiceGrant
+      summary: Issue bounded read-only service delegation after fresh Vault MFA authorization
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      - name: If-Match
+        in: header
+        required: true
+        schema:
+          type: string
+      responses:
+        '201':
+          description: Grant metadata only. Existing one-use MFA grant is consumed; ID is not a bearer credential.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      workspace_id:
+                        type: string
+                        format: uuid
+                      target_id:
+                        type: string
+                        format: uuid
+                      actor_id:
+                        type: string
+                        format: uuid
+                      asset_id:
+                        type: string
+                        format: uuid
+                      credential_id:
+                        type: string
+                        format: uuid
+                      purpose:
+                        type: string
+                      target_version:
+                        type: integer
+                      credential_version:
+                        type: integer
+                      operation:
+                        type: string
+                        enum:
+                        - inspect
+                        - sync
+                        - health
+                      created_at:
+                        type: string
+                        format: date-time
+                      expires_at:
+                        type: string
+                        format: date-time
+                      revoked_at:
+                        type:
+                        - string
+                        - 'null'
+                        format: date-time
+                      interval_seconds:
+                        type:
+                        - integer
+                        - 'null'
+                      next_due_at:
+                        type:
+                        - string
+                        - 'null'
+                        format: date-time
+        '401':
+          description: Session required
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Target or run not found
+        '409':
+          description: State conflict
+        '422':
+          description: Invalid input
+        '412':
+          description: Target revision mismatch
+        '428':
+          description: If-Match required
+        '429':
+          description: Too many grants
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                operation:
+                  type: string
+                  enum:
+                  - inspect
+                  - sync
+                  - health
+                ttl_seconds:
+                  type: integer
+                  minimum: 60
+                  maximum: 2592000
+                interval_seconds:
+                  type: integer
+                  minimum: 60
+                  maximum: 86400
+              required:
+              - operation
+              - ttl_seconds
+              additionalProperties: false
+  /connectors/targets/{id}/service-grants/{grantId}:
+    delete:
+      operationId: revokeConnectorServiceGrant
+      summary: Revoke service delegation
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: grantId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      responses:
+        '204':
+          description: Revoked; future work and in-flight writes are denied.
+        '401':
+          description: Session required
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Target or run not found
+        '409':
+          description: State conflict
+        '422':
+          description: Invalid input
+  /connectors/targets/{id}/runs:
+    get:
+      operationId: listConnectorRuns
+      summary: List background runs
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          maximum: 10000
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        grant_id:
+                          type: string
+                          format: uuid
+                        target_id:
+                          type: string
+                          format: uuid
+                        workspace_id:
+                          type: string
+                          format: uuid
+                        status:
+                          type: string
+                          enum:
+                          - queued
+                          - running
+                          - succeeded
+                          - failed
+                          - cancelled
+                        attempts:
+                          type: integer
+                        created_at:
+                          type: string
+                          format: date-time
+                        finished_at:
+                          type:
+                          - string
+                          - 'null'
+                          format: date-time
+                        cancelled_at:
+                          type:
+                          - string
+                          - 'null'
+                          format: date-time
+                        result:
+                          type:
+                          - object
+                          - 'null'
+                        error_code:
+                          type:
+                          - string
+                          - 'null'
+        '401':
+          description: Session required
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Target or run not found
+        '409':
+          description: State conflict
+        '422':
+          description: Invalid input
+    post:
+      operationId: enqueueConnectorRun
+      summary: Queue a run using an existing service grant
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: ^[A-Za-z0-9._:-]+$
+      responses:
+        '202':
+          description: Run and PostgreSQL job inserted atomically; same grant/key returns the same run.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      deduplicated:
+                        type: boolean
+          headers:
+            Location:
+              schema:
+                type: string
+        '401':
+          description: Session required
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Target or run not found
+        '409':
+          description: State conflict
+        '422':
+          description: Invalid input
+        '429':
+          description: Too many pending runs
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                grant_id:
+                  type: string
+                  format: uuid
+              required:
+              - grant_id
+              additionalProperties: false
+  /connectors/targets/{id}/runs/{runId}:
+    get:
+      operationId: getConnectorRun
+      summary: Get durable run status and sanitized result
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: runId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      grant_id:
+                        type: string
+                        format: uuid
+                      target_id:
+                        type: string
+                        format: uuid
+                      workspace_id:
+                        type: string
+                        format: uuid
+                      status:
+                        type: string
+                        enum:
+                        - queued
+                        - running
+                        - succeeded
+                        - failed
+                        - cancelled
+                      attempts:
+                        type: integer
+                      created_at:
+                        type: string
+                        format: date-time
+                      finished_at:
+                        type:
+                        - string
+                        - 'null'
+                        format: date-time
+                      cancelled_at:
+                        type:
+                        - string
+                        - 'null'
+                        format: date-time
+                      result:
+                        type:
+                        - object
+                        - 'null'
+                      error_code:
+                        type:
+                        - string
+                        - 'null'
+        '401':
+          description: Session required
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Target or run not found
+        '409':
+          description: State conflict
+        '422':
+          description: Invalid input
+  /connectors/targets/{id}/runs/{runId}/cancel:
+    post:
+      operationId: cancelConnectorRun
+      summary: Cancel queued or running operation
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: runId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Cooperative cancellation prevents CMDB commit; already finished runs are unchanged.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      grant_id:
+                        type: string
+                        format: uuid
+                      target_id:
+                        type: string
+                        format: uuid
+                      workspace_id:
+                        type: string
+                        format: uuid
+                      status:
+                        type: string
+                        enum:
+                        - queued
+                        - running
+                        - succeeded
+                        - failed
+                        - cancelled
+                      attempts:
+                        type: integer
+                      created_at:
+                        type: string
+                        format: date-time
+                      finished_at:
+                        type:
+                        - string
+                        - 'null'
+                        format: date-time
+                      cancelled_at:
+                        type:
+                        - string
+                        - 'null'
+                        format: date-time
+                      result:
+                        type:
+                        - object
+                        - 'null'
+                      error_code:
+                        type:
+                        - string
+                        - 'null'
+        '401':
+          description: Session required
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Target or run not found
+        '409':
+          description: State conflict
+        '422':
+          description: Invalid input
   /connectors/targets/{id}/health:
     post:
       operationId: checkConnectorHealth

@@ -19,6 +19,7 @@ final class ConnectorBindingController
         private readonly ConnectorBindingService $service,
         private readonly ConnectorRuntimeService $runtime,
         private readonly ConnectorRegistry $registry,
+        private readonly ?ConnectorExecutionService $execution=null,
     ) {}
 
     private function actor(HttpRequest $r,string $permission,bool $write=false):string
@@ -50,6 +51,44 @@ final class ConnectorBindingController
             throw new HttpException(422,'Invalid pagination.','validation_failed');
         if ($name==='limit' && (int)$v<1)throw new HttpException(422,'Invalid pagination.','validation_failed');
         return (int)$v;
+    }
+    private function execution():ConnectorExecutionService
+    {
+        return $this->execution ?? throw new HttpException(503,'Connector execution unavailable.','connector_unavailable');
+    }
+    public function issueGrant(HttpRequest $r):HttpResponse
+    {
+        $principal=$this->auth->authenticate($r,sessionOnly:true);
+        $this->auth->requireCsrf($r,$principal);
+        $b=$r->attribute('json'); $id=self::id($r);
+        return HttpResponse::json(['data'=>$this->execution()->issue($principal,$id,self::version($r,$id),$b['operation'],$b['ttl_seconds'],$b['interval_seconds']??null)],201,['Cache-Control'=>'private, no-store']);
+    }
+    public function grants(HttpRequest $r):HttpResponse
+    {
+        return HttpResponse::json(['data'=>$this->execution()->grants($this->actor($r,'connectors.credentials.read'),self::id($r))],200,['Cache-Control'=>'private, no-store']);
+    }
+    public function revokeGrant(HttpRequest $r):HttpResponse
+    {
+        $this->execution()->revoke($this->actor($r,'connectors.credentials.manage',true),self::id($r),self::id($r,'grantId'));
+        return new HttpResponse(204,'');
+    }
+    public function enqueueRun(HttpRequest $r):HttpResponse
+    {
+        $actor=$this->actor($r,'connectors.credentials.manage',true); $b=$r->attribute('json'); $id=self::id($r);
+        $run=$this->execution()->enqueue($actor,$id,$b['grant_id'],$r->header('Idempotency-Key',''));
+        return HttpResponse::json(['data'=>$run],202,['Cache-Control'=>'private, no-store','Location'=>'/api/v1/connectors/targets/'.$id.'/runs/'.$run['id']]);
+    }
+    public function runStatus(HttpRequest $r):HttpResponse
+    {
+        return HttpResponse::json(['data'=>$this->execution()->status($this->actor($r,'connectors.targets.read'),self::id($r),self::id($r,'runId'))],200,['Cache-Control'=>'private, no-store']);
+    }
+    public function cancelRun(HttpRequest $r):HttpResponse
+    {
+        return HttpResponse::json(['data'=>$this->execution()->cancel($this->actor($r,'connectors.credentials.manage',true),self::id($r),self::id($r,'runId'))],200,['Cache-Control'=>'private, no-store']);
+    }
+    public function runs(HttpRequest $r):HttpResponse
+    {
+        return HttpResponse::json(['data'=>$this->execution()->runs($this->actor($r,'connectors.targets.read'),self::id($r),self::integer($r,'limit',50,100),self::integer($r,'offset',0,10000))],200,['Cache-Control'=>'private, no-store']);
     }
     public function drivers(HttpRequest $r):HttpResponse
     {

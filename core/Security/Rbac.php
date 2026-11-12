@@ -27,6 +27,13 @@ final class Rbac
         if (($principal['mode'] ?? null) !== 'session' || !isset($principal['user']['id'])) {
             throw new HttpException(403, 'Session authentication required.', 'session_required');
         }
+        $this->requireUserPermission((string)$principal['user']['id'], $permission, $pdo);
+    }
+
+    /** Internal worker authorization; never authenticates an HTTP request. */
+    public function requireUserPermission(string $user, string $permission, ?PDO $pdo = null): void
+    {
+        Permission::assertKnown($permission);
         $pdo ??= $this->database->connection();
         $query = $pdo->prepare(<<<'SQL'
 SELECT EXISTS (
@@ -37,10 +44,10 @@ SELECT EXISTS (
  WHERE u.id = :user AND u.is_active = true AND p.scope = :permission
 )
 SQL);
-        $query->execute(['user' => $principal['user']['id'], 'permission' => $permission]);
+        $query->execute(['user' => $user, 'permission' => $permission]);
         $allowed = $query->fetchColumn();
         if (!in_array($allowed, [true, 't', '1', 1], true)) {
-            $this->audit->record($pdo, $principal['user']['id'], 'security.permission.denied', 'denied', 'user', $principal['user']['id'], ['permission' => $permission]);
+            $this->audit->record($pdo, $user, 'security.permission.denied', 'denied', 'user', $user, ['permission' => $permission]);
             throw new HttpException(403, 'Insufficient permission.', 'permission_denied');
         }
     }

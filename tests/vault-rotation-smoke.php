@@ -77,7 +77,7 @@ try {
     $ok($container->get(CredentialVersionController::class) instanceof CredentialVersionController,'version controller registered');
     $ok($container->get(VaultKeyRotation::class) instanceof VaultKeyRotation,'key rotation service registered');
     $routes=$container->get(Router::class)->routes();
-    $ok(count($routes)===140,'registered Vault rotation routes');
+    $ok(count($routes)===147,'registered Vault rotation routes');
     foreach([
         '/api/v1/vault/credentials/{id}/versions',
         '/api/v1/vault/credentials/{id}/rotation',

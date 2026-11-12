@@ -16,6 +16,7 @@ final class PostgresQueueDriver implements QueueDriverInterface
     public function push(QueuedJob $job, int $delaySeconds = 0): string
     {
         if ($delaySeconds < 0 || $delaySeconds > 2592000) throw new InvalidArgumentException('Invalid job delay.');
+        if ($job->queue==='connectors' && ($job->type!=='connector.execute' || $job->payload!==[])) throw new InvalidArgumentException('Reserved connector queue.');
         $stmt = $this->pdo()->prepare("INSERT INTO queue_jobs (id,queue,type,payload,max_attempts,available_at) VALUES (:id,:queue,:type,CAST(:payload AS jsonb),:max_attempts,now()+(:delay * interval '1 second')) ON CONFLICT (id) DO NOTHING");
         $stmt->execute(['id'=>$job->id,'queue'=>$job->queue,'type'=>$job->type,'payload'=>json_encode($job->payload, JSON_THROW_ON_ERROR), 'max_attempts'=>$job->maxAttempts,'delay'=>$delaySeconds]);
         // An existing ID must not silently be used for a different job.
@@ -96,7 +97,7 @@ SQL;
 
     public function retry(string $id): bool
     {
-        $stmt = $this->pdo()->prepare("UPDATE queue_jobs SET status='queued',attempts=0,available_at=now(),last_error=NULL,finished_at=NULL,lease_token=NULL,reserved_until=NULL,updated_at=now() WHERE id=:id AND status='failed'");
+        $stmt = $this->pdo()->prepare("UPDATE queue_jobs SET status='queued',attempts=0,available_at=now(),last_error=NULL,finished_at=NULL,lease_token=NULL,reserved_until=NULL,updated_at=now() WHERE id=:id AND status='failed' AND queue<>'connectors'");
         $stmt->execute(['id'=>$id]);
         return $stmt->rowCount() === 1;
     }
@@ -104,6 +105,7 @@ SQL;
     public function prune(int $days = 7, string $queue = 'default', int $limit = 500): int
     {
         self::validateQueue($queue);
+        if ($queue==='connectors') throw new InvalidArgumentException('Connector run history is retained; generic pruning is disabled.');
         if ($days < 1 || $days > 3650 || $limit < 1 || $limit > 2000) throw new InvalidArgumentException('Invalid prune range.');
         $stmt = $this->pdo()->prepare(<<<'SQL'
 WITH expired AS (

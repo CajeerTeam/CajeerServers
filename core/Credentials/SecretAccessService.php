@@ -199,19 +199,22 @@ SQL);
         $this->consumeInternal($principal, $asset, $credential, $purpose, $trustedConsumer, $revision, $requestId);
     }
 
-    /** @param array<string,mixed> $principal */
-    private function consumeInternal(array $principal, string $asset, string $credential,
-                                     string $purpose, callable $trustedConsumer,
-                                     ?int $pendingRevision, ?string $requestId): void
+    /** Claim a fresh MFA grant without decrypting anything. Caller must be a trusted service. */
+    public function consumeDelegation(array $principal,string $asset,string $credential,string $purpose,int $expectedVersion):void
     {
         [$actor,$session]=self::identity($principal);
         $asset=self::uuid($asset); $credential=self::uuid($credential);
-        if (preg_match('/^[a-z][a-z0-9_.-]{0,63}$/D',$purpose)!==1) {
-            throw new HttpException(422,'Invalid credential purpose.','validation_failed');
-        }
         $this->vault->check();
-        try {
-            $material=$this->db->transaction(function(PDO $pdo) use ($principal,$actor,$session,$asset,$credential,$purpose,$pendingRevision,$requestId):array {
+        $this->db->transaction(function(PDO $pdo)use($principal,$actor,$session,$asset,$credential,$purpose,$expectedVersion):void {
+            $binding=$this->claimGrant($pdo,$principal,$actor,$session,$asset,$credential,$purpose);
+            if ($binding['version']!==$expectedVersion) throw new HttpException(409,'Credential version changed.','conflict');
+            $this->audit->record($pdo,$actor,'vault.credential.delegated','success','credential',$credential,['reason'=>'service_grant']);
+        });
+    }
+
+    /** Single-use claim shared by manual consumption and service delegation. */
+    private function claimGrant(PDO $pdo,array $principal,string $actor,string $session,string $asset,string $credential,string $purpose):array
+    {
             $this->liveSession($pdo,$principal);
             $this->rbac->requirePermission($principal,'vault.credentials.use',$pdo);
             $binding=$this->binding($pdo,$actor,$asset,$credential,$purpose,true);
@@ -227,6 +230,23 @@ SQL);
             $claim->execute(['session'=>$session,'actor'=>$actor,'asset'=>$asset,'cred'=>$credential,
                 'ws'=>$binding['workspace'],'purpose'=>$purpose,'version'=>$binding['version']]);
             if (!$claim->fetchColumn()) throw new HttpException(403,'Fresh step-up authorization required.','step_up_required');
+        return $binding;
+    }
+
+    /** @param array<string,mixed> $principal */
+    private function consumeInternal(array $principal, string $asset, string $credential,
+                                     string $purpose, callable $trustedConsumer,
+                                     ?int $pendingRevision, ?string $requestId): void
+    {
+        [$actor,$session]=self::identity($principal);
+        $asset=self::uuid($asset); $credential=self::uuid($credential);
+        if (preg_match('/^[a-z][a-z0-9_.-]{0,63}$/D',$purpose)!==1) {
+            throw new HttpException(422,'Invalid credential purpose.','validation_failed');
+        }
+        $this->vault->check();
+        try {
+            $material=$this->db->transaction(function(PDO $pdo) use ($principal,$actor,$session,$asset,$credential,$purpose,$pendingRevision,$requestId):array {
+            $binding=$this->claimGrant($pdo,$principal,$actor,$session,$asset,$credential,$purpose);
             if ($pendingRevision === null) {
                 $stmt=$pdo->prepare('SELECT encode(encrypted_payload,\'hex\') FROM credentials WHERE id=CAST(:id AS uuid)');
                 $stmt->execute(['id'=>$credential]);

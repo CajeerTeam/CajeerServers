@@ -7,6 +7,8 @@ use Cajeer\Servers\Audit\AuditLogger;
 use Cajeer\Servers\Config\ConfigRepository;
 use Cajeer\Servers\Connector\ConnectorBindingService;
 use Cajeer\Servers\Connector\ConnectorRuntimeService;
+use Cajeer\Servers\Connector\ConnectorExecutionService;
+use Cajeer\Servers\Queue\PostgresQueueDriver;
 use Cajeer\Servers\Connector\ProxmoxConnector;
 use Cajeer\Servers\Integration\ConnectorRegistry;
 use Cajeer\Servers\Credentials\SecretAccessService;
@@ -84,11 +86,12 @@ try {
     $ssh=$store->create($admin,['workspace_id'=>$ws,'name'=>'SSH access','type'=>'ssh_password',
         'secret'=>['username'=>'testuser','password'=>'test-only-password']]);
     $bindingSvc=new CredentialBindingService($db,$repo,$audit);
-    $remoteCalls=0;
-    $transport=static function(string $url,string $authorization,?string $caFile)use(&$remoteCalls,$ok):string {
+    $remoteCalls=0;$remoteHook=null;
+    $transport=static function(string $url,string $authorization,?string $caFile)use(&$remoteCalls,$ok,&$remoteHook):string {
         $ok(str_contains($authorization,'rotated-test-secret-value-123456'),
             'remote adapter receives staged plaintext, not the old active secret');
         $remoteCalls++;
+        if ($remoteHook!==null) $remoteHook();
         if (str_ends_with($url,'/api2/json/nodes'))return json_encode(['data'=>[['node'=>'pve-one','status'=>'online']]]);
         return json_encode(['data'=>[['type'=>'qemu','node'=>'pve-one','vmid'=>500,'status'=>'running','name'=>'vm-500']]]);
     };
@@ -225,6 +228,86 @@ try {
     $health=$runtime->health($principal,$id,2);
     $ok($health['status']==='healthy' && $health['duration_ms']>=0 && (int)$pdo->query('SELECT count(*) FROM inventory_assets')->fetchColumn()===$assetCount,
         'health uses shared Vault path without inventory writes');
+
+    // Production execution service: fresh MFA -> durable delegation -> PostgreSQL queue -> worker -> Vault -> driver -> Inventory.
+    $execution=new ConnectorExecutionService($db,$connector,$repo,$rbac,$access,$vault,$crypto,$audit,$runtime);
+    $reject(403,fn()=>$execution->issue($principal,$id,2,'sync',3600,60),'service grant needs a fresh one-use MFA grant');
+    $reject(422,fn()=>$execution->issue($principal,$id,2,'vm.start',3600),'write operations cannot be delegated');
+    // Test-only reset of the OTP counter avoids sleeping for another TOTP window; production never resets it.
+    $freshGrant=static function(string $operation,?int $interval=null)use($pdo,$access,$principal,$asset,$token,$password,$totpKey,$execution,$id,$admin):array {
+        $pdo->prepare('UPDATE user_mfa SET last_counter=NULL WHERE user_id=:id')->execute(['id'=>$admin]);
+        $access->authorize($principal,$asset['id'],$token['id'],'api',$password,TwoFactorManager::totp($totpKey,time()));
+        return $execution->issue($principal,$id,2,$operation,3600,$interval);
+    };
+    $grant=$freshGrant('sync',60);
+    $healthGrant=$freshGrant('health');
+    $revokeGrant=$freshGrant('sync');
+    $expiredGrant=$freshGrant('inspect');
+    $raceGrant=$freshGrant('sync');
+    $reject(403,fn()=>$execution->issue($principal,$id,2,'sync',3600),'service issuance consumes MFA grant');
+    $ok($grant['credential_version']===3 || (int)$grant['credential_version']===3,'grant pins active credential version');
+    $queued=$execution->enqueue($admin,$id,$grant['id'],'manual-1');
+    $same=$execution->enqueue($admin,$id,$grant['id'],'manual-1');
+    $ok($queued['id']===$same['id'] && $same['deduplicated'],'idempotent atomic enqueue');
+    $queue=new PostgresQueueDriver($db);
+    $ok($queue->find($queued['id'])['payload']===[],'queue contains no secrets, only job ID');
+    $reject(403,fn()=>$execution->enqueue($viewer,$id,$grant['id'],'viewer'),'viewer cannot enqueue');
+    $cancelled=$execution->enqueue($admin,$id,$healthGrant['id'],'cancel');
+    $ok($execution->cancel($admin,$id,$cancelled['id'])['status']==='cancelled','queued cancellation persists');
+    $revoked=$execution->enqueue($admin,$id,$revokeGrant['id'],'revoke');
+    $execution->revoke($admin,$id,$revokeGrant['id']);
+    $reject(403,fn()=>$execution->enqueue($admin,$id,$revokeGrant['id'],'after-revoke'),'revoked grant cannot enqueue');
+    $expired=$execution->enqueue($admin,$id,$expiredGrant['id'],'expiry');
+    $pdo->prepare("UPDATE connector_service_grants SET expires_at=clock_timestamp()-interval '1 second' WHERE id=:id")->execute(['id'=>$expiredGrant['id']]);
+    $pdo->prepare('UPDATE auth_sessions SET revoked_at=now() WHERE id=:id')->execute(['id'=>$session['id']]);
+    $before=$remoteCalls;
+    // Simulate crash AFTER atomic CMDB commit but BEFORE queue acknowledgement.
+    $reservation=$queue->reserve('connectors',300);
+    $ok($reservation!==null && $reservation->job->id===$queued['id'],'worker reserves durable job');
+    $out=$execution->execute($reservation);
+    $ok($out['discovered']===2 && $remoteCalls===$before+2,'worker runs without active session');
+    $observations=(int)$pdo->query('SELECT count(*) FROM inventory_observations')->fetchColumn();
+    $pdo->prepare("UPDATE queue_jobs SET reserved_until=clock_timestamp()-interval '1 second' WHERE id=:id")->execute(['id'=>$queued['id']]);
+    $reclaimed=$queue->reserve('connectors',300);
+    $ok($reclaimed!==null && $reclaimed->job->id===$queued['id'] && $reclaimed->attempt===2,'expired lease reclaimed');
+    $ok($execution->execute($reclaimed)==$out && $remoteCalls===$before+2,'lost ACK replays result without network call');
+    $queue->succeed($reclaimed,$out);
+    $ok((int)$pdo->query('SELECT count(*) FROM inventory_observations')->fetchColumn()===$observations,'replay cannot duplicate observations');
+    $ok($execution->status($admin,$id,$queued['id'])['status']==='succeeded','run status succeeds');
+    $execution->once();$execution->once();$execution->once();
+    $ok($remoteCalls===$before+2,'cancelled, revoked and expired grants do not use remote secrets');
+    $ok($execution->status($admin,$id,$revoked['id'])['status']==='failed' && $execution->status($admin,$id,$expired['id'])['status']==='failed','terminal auth failures persisted');
+    $ok($execution->tick()===1 && $execution->tick()===0,'due grant schedules once and advances interval');
+    $execution->once();
+    $ok($remoteCalls===$before+4,'scheduled sync works without browser session');
+    $race=$execution->enqueue($admin,$id,$raceGrant['id'],'revoke-in-flight');
+    $observations=(int)$pdo->query('SELECT count(*) FROM inventory_observations')->fetchColumn();
+    $remoteHook=static function()use($execution,$admin,$id,$raceGrant,&$remoteHook):void {
+        $remoteHook=null; $execution->revoke($admin,$id,$raceGrant['id']);
+    };
+    $execution->once();
+    $ok($execution->status($admin,$id,$race['id'])['status']==='failed','in-flight revocation fences commit');
+    $ok((int)$pdo->query('SELECT count(*) FROM inventory_observations')->fetchColumn()===$observations,'revocation prevents CMDB changes');
+    $retry=$execution->enqueue($admin,$id,$healthGrant['id'],'transient');
+    $remoteHook=static function()use(&$remoteHook):void {$remoteHook=null; throw new RuntimeException('test transient remote failure');};
+    $ok($execution->once()['status']==='retry_scheduled','transient error releases with backoff');
+    $ok($execution->status($admin,$id,$retry['id'])['status']==='queued','retry remains queued');
+    $pdo->prepare("UPDATE queue_jobs SET available_at=clock_timestamp()-interval '1 second' WHERE id=:id")->execute(['id'=>$retry['id']]);
+    $ok($execution->once()['status']==='succeeded','retry executes real health');
+    $stale=$execution->enqueue($admin,$id,$grant['id'],'stale-lease');
+    $lease=$queue->reserve('connectors',300);
+    $observations=(int)$pdo->query('SELECT count(*) FROM inventory_observations')->fetchColumn();
+    $remoteHook=static function()use($pdo,$stale,&$remoteHook):void {
+        $remoteHook=null;
+        $pdo->prepare("UPDATE queue_jobs SET reserved_until=clock_timestamp()-interval '1 second' WHERE id=:id")->execute(['id'=>$stale['id']]);
+    };
+    $reject(409,fn()=>$execution->execute($lease),'stale lease cannot commit inventory');
+    $ok((int)$pdo->query('SELECT count(*) FROM inventory_observations')->fetchColumn()===$observations,'stale worker leaves no observations');
+    $lease=$queue->reserve('connectors',300);
+    $out=$execution->execute($lease); $queue->succeed($lease,$out);
+    $ok($execution->status($admin,$id,$stale['id'])['status']==='succeeded','new lease can finish safely');
+    $execution->revoke($admin,$id,$grant['id']);
+    $execution->revoke($admin,$id,$healthGrant['id']);
 
     $disabled=$store->update($admin,$token['id'],$token['version'],['status'=>'disabled']);
     $reject(404,fn()=>$connector->resolveActive($admin,$id,'api'),'revoked secret unusable');

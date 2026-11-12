@@ -556,4 +556,12 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 - [x] Общий HTTPS transport с проверкой TLS, CIDR, DNS pinning и лимитами; production fail-closed.
 - [x] Admin UI и API отражают реальные зарегистрированные драйверы; native regression и реальный локальный HTTPS fixture.
 - [ ] PostgreSQL integration, реальный appliance, Nuxt production build и browser E2E на staging.
-- [ ] 0.4.2 — Connector Execution & Secure Service Grants: фоновые jobs, worker и ограниченное делегирование Vault.
+
+### 0.4.2 — Connector Execution & Secure Service Grants (рабочий код)
+
+- [x] Scoped MFA delegation, срок действия, отзыв, версия target/credential, live RBAC и Workspace authorization.
+- [x] PostgreSQL atomic run/queue insert, idempotency, fenced worker, retries, cancellation, atomic CMDB result.
+- [x] Фиксированные интервалы через Scheduler, REST 202/status/cancel и CLI.
+- [x] Native smoke и расширенный PostgreSQL integration scenario с потерей ACK и отзывом во время remote I/O.
+- [ ] Live PostgreSQL integration, настоящий Proxmox, production build и browser E2E на staging.
+- [ ] 0.4.3 — Discovery, Sync & Reconciliation: полные/частичные snapshots, provenance и устойчивое сопоставление источников.

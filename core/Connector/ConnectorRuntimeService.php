@@ -67,15 +67,32 @@ final class ConnectorRuntimeService
         if (!is_string($actor)) throw new HttpException(403,'Invalid session.','session_required');
         $operation=$sync?'sync':'inspect';
         $target=$this->bindings->runtimeContext($actor,$targetId,$version,$operation);
-        // The Vault grants authorization only once, for this exact asset, credential and purpose.
-        $items=[];
+        // The same target lock as background execution prevents manual sync racing a worker snapshot.
+        $pdo=$this->db->connection();
+        $lock=$pdo->prepare('SELECT pg_try_advisory_lock(hashtextextended(:id,4202))');
+        $lock->execute(['id'=>$target['id']]);
+        if (!in_array($lock->fetchColumn(),[true,'t','1',1],true)) throw new HttpException(409,'Connector already executing.','connector_busy');
         try {
-            $this->access->consumeForAsset($principal,$target['asset_id'],$target['credential_id'],$target['purpose'],
-                function(string $secret,string $type) use ($target,&$items,$operation):void {
-                    $items=$this->execute($target,$operation,$type,$secret)->items;
-                },$requestId);
+            return $this->runAuthorized($actor,$target,$operation,
+                fn(callable $consumer)=>$this->access->consumeForAsset($principal,$target['asset_id'],$target['credential_id'],$target['purpose'],$consumer,$requestId),
+                $requestId);
+        } finally {
+            $unlock=$pdo->prepare('SELECT pg_advisory_unlock(hashtextextended(:id,4202))'); $unlock->execute(['id'=>$target['id']]);
+        }
+    }
+
+    /** Internal worker entry. Authorization and result fencing are supplied by the service grant broker. */
+    public function runAuthorized(string $actor,array $target,string $operation,callable $consume,?string $requestId=null,
+                                  ?callable $guard=null,?callable $complete=null):array
+    {
+        if (!in_array($operation,['inspect','sync','health'],true)) throw new HttpException(422,'Unsupported background operation.','validation_failed');
+        $targetId=$target['id']; $version=$target['version']; $sync=$operation==='sync';
+        $items=[]; $started=microtime(true);
+        try {
+            $consume(function(string $secret,string $type) use ($target,&$items,$operation):void {
+                $items=$this->execute($target,$operation,$type,$secret)->items;
+            });
         } catch (Throwable $e) {
-            // Do not return endpoint errors, remote response bodies, or plaintext from any adapter.
             if ($e instanceof HttpException) throw $e;
             throw new HttpException(502,'Connector discovery failed. Check the remote API and trusted TLS CA.','connector_failed');
         }
@@ -91,9 +108,15 @@ final class ConnectorRuntimeService
         }
         $summary=(new ConnectorResult($items))->summary($this->registry->require($target['provider'],$operation)->manifest());
         if (!$sync) {
-            $this->db->transaction(fn(PDO $pdo) => $this->audit->record($pdo,$actor,'connector.inventory.inspected',
-                'success','connector_target',$targetId,['count'=>count($items)],$requestId));
-            return ['connector_id'=>$targetId,'mode'=>'inspect','discovered'=>count($items),'types'=>$summary];
+            $result=$operation==='health' ? (new ConnectorHealth($targetId,(int)round((microtime(true)-$started)*1000)))->toArray()
+                : ['connector_id'=>$targetId,'mode'=>'inspect','discovered'=>count($items),'types'=>$summary];
+            return $this->db->transaction(function(PDO $pdo) use($actor,$targetId,$operation,$items,$requestId,$guard,$complete,$result):array {
+                if ($guard!==null) $guard($pdo);
+                $this->audit->record($pdo,$actor,$operation==='health'?'connector.health.checked':'connector.inventory.inspected',
+                    'success','connector_target',$targetId,['count'=>count($items)],$requestId);
+                if ($complete!==null) $complete($pdo,$result);
+                return $result;
+            });
         }
         // The observation import is a single PostgreSQL transaction, not per-item partial writes.
         $events=[];
@@ -103,21 +126,24 @@ final class ConnectorRuntimeService
                 'event_key'=>'connector.'.bin2hex(random_bytes(16)),
                 'type'=>$item['type'],'fields'=>$item['fields']];
         }
-        $result=$this->db->transaction(function(PDO $pdo) use($actor,$targetId,$version,$target,$events,$requestId):array {
+        $result=$this->db->transaction(function(PDO $pdo) use($actor,$targetId,$version,$target,$events,$requestId,$guard,$complete,$items,$summary):array {
             // Serialize against workspace membership and target edits before writing to the CMDB.
             $this->inventory->lockWorkspace($pdo,$target['workspace_id']);
             $this->inventory->workspaceRole($pdo,$target['workspace_id'],$actor,true);
             $latest=$this->bindings->runtimeContext($actor,$targetId,$version,'sync');
             if ($latest['credential_id']!==$target['credential_id'] || $latest['credential_version']!==$target['credential_version'])
                 throw new HttpException(409,'Connector was rebound or credential rotated.','conflict');
+            if ($guard!==null) $guard($pdo);
             $records=$this->history->observeMany($actor,$events,$requestId,true);
             $this->audit->record($pdo,$actor,'connector.inventory.synced','success','connector_target',$targetId,
                 ['count'=>count($records)],$requestId);
-            return $records;
+            $outcomes=['created'=>0,'applied'=>0,'unchanged'=>0,'conflicted'=>0,'stale'=>0];
+            foreach ($records as $record) if (isset($outcomes[$record['outcome']])) $outcomes[$record['outcome']]++;
+            $result=['connector_id'=>$targetId,'mode'=>'sync','discovered'=>count($items),'types'=>$summary,'outcomes'=>$outcomes];
+            if ($complete!==null) $complete($pdo,$result);
+            return $result;
         });
-        $outcomes=['created'=>0,'applied'=>0,'unchanged'=>0,'conflicted'=>0,'stale'=>0];
-        foreach ($result as $record) if (isset($outcomes[$record['outcome']])) $outcomes[$record['outcome']]++;
-        return ['connector_id'=>$targetId,'mode'=>'sync','discovered'=>count($items),'types'=>$summary,'outcomes'=>$outcomes];
+        return $result;
     }
     private function execute(array $target,string $operation,string $type,#[\SensitiveParameter] string $secret): ConnectorResult
     {
