@@ -69,10 +69,12 @@ final class CommandRunner
     private function help(): int
     {
         fwrite(STDOUT, <<<'TEXT'
-CajeerServers CLI 0.5.1
+CajeerServers CLI 0.5.2
 
 Рабочие команды:
   help                 Список доступных команд
+  php bin/script-sign.php generate <private-file>  Офлайн-ключ Ed25519
+  php bin/script-sign.php sign <private-file> <signing-bytes-file>  Подпись версии
   collection:list                              Реестр коллекторов
   collection:run <actor> <target> <grant> <key> <collector>  Поставить сбор
   collection:status <actor> <target> <run>       Результат сбора
@@ -339,7 +341,7 @@ TEXT
 
     private function unavailable(string $command): int
     {
-        fwrite(STDERR, sprintf("Command '%s' is not implemented in 0.2.1. No operation was performed.\n", $command));
+        fwrite(STDERR, sprintf("Command '%s' is unavailable in this release. No operation was performed.\n", $command));
         return 3;
     }
 

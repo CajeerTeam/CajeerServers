@@ -1,8 +1,8 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.5.1
-  description: 'CajeerServers 0.5.1: executable named collectors, bounded snapshots and connector service grants.'
+  version: 0.5.2
+  description: 'CajeerServers 0.5.2: immutable scripts, signed templates and MFA approvals.'
 servers:
 - url: /api/v1
 security: []
@@ -7251,6 +7251,1073 @@ paths:
               properties:
                 confirm:
                   const: I verified the remote result
+  /workspaces/{workspace}/scripts:
+    get:
+      operationId: scriptList
+      summary: List scripts
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: workspace
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: offset
+        in: query
+        schema:
+          type: integer
+          minimum: 0
+          maximum: 10000
+          default: 0
+      responses:
+        '200':
+          description: Successful registry operation
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: true
+        '401':
+          description: Authentication required
+        '403':
+          description: Permission or MFA denied
+        '404':
+          description: Resource not found
+        '409':
+          description: Registry state conflict
+        '412':
+          description: Revision conflict
+        '422':
+          description: Invalid input
+        '429':
+          description: Rate limited
+    post:
+      operationId: scriptCreate
+      summary: Create script
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: workspace
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      responses:
+        '201':
+          description: Successful registry operation
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: object
+                    additionalProperties: true
+        '401':
+          description: Authentication required
+        '403':
+          description: Permission or MFA denied
+        '404':
+          description: Resource not found
+        '409':
+          description: Registry state conflict
+        '412':
+          description: Revision conflict
+        '422':
+          description: Invalid input
+        '429':
+          description: Rate limited
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  maxLength: 255
+                description:
+                  type: string
+                  maxLength: 1024
+              required:
+              - name
+              additionalProperties: false
+  /workspaces/{workspace}/scripts/templates:
+    get:
+      operationId: scriptTemplates
+      summary: List materializable templates
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: workspace
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Successful registry operation
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: true
+        '401':
+          description: Authentication required
+        '403':
+          description: Permission or MFA denied
+        '404':
+          description: Resource not found
+        '409':
+          description: Registry state conflict
+        '412':
+          description: Revision conflict
+        '422':
+          description: Invalid input
+        '429':
+          description: Rate limited
+  /workspaces/{workspace}/scripts/keys:
+    get:
+      operationId: scriptKeys
+      summary: List trusted keys
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: workspace
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: offset
+        in: query
+        schema:
+          type: integer
+          minimum: 0
+          maximum: 10000
+          default: 0
+      responses:
+        '200':
+          description: Successful registry operation
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: true
+        '401':
+          description: Authentication required
+        '403':
+          description: Permission or MFA denied
+        '404':
+          description: Resource not found
+        '409':
+          description: Registry state conflict
+        '412':
+          description: Revision conflict
+        '422':
+          description: Invalid input
+        '429':
+          description: Rate limited
+    post:
+      operationId: scriptKeyCreate
+      summary: Register public Ed25519 key with fresh MFA
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: workspace
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      responses:
+        '201':
+          description: Successful registry operation
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: object
+                    additionalProperties: true
+        '401':
+          description: Authentication required
+        '403':
+          description: Permission or MFA denied
+        '404':
+          description: Resource not found
+        '409':
+          description: Registry state conflict
+        '412':
+          description: Revision conflict
+        '422':
+          description: Invalid input
+        '429':
+          description: Rate limited
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                public_key:
+                  type: string
+                  pattern: ^[0-9a-fA-F]{64}$
+                password:
+                  type: string
+                  writeOnly: true
+                  maxLength: 1024
+                totp:
+                  type: string
+                  writeOnly: true
+                  pattern: ^[0-9]{6}$
+              required:
+              - name
+              - public_key
+              - password
+              - totp
+              additionalProperties: false
+  /workspaces/{workspace}/scripts/keys/{id}/revoke:
+    post:
+      operationId: scriptKeyRevoke
+      summary: Revoke key and signed versions
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: workspace
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Successful registry operation
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: object
+                    additionalProperties: true
+        '401':
+          description: Authentication required
+        '403':
+          description: Permission or MFA denied
+        '404':
+          description: Resource not found
+        '409':
+          description: Registry state conflict
+        '412':
+          description: Revision conflict
+        '422':
+          description: Invalid input
+        '429':
+          description: Rate limited
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                password:
+                  type: string
+                  writeOnly: true
+                  maxLength: 1024
+                totp:
+                  type: string
+                  writeOnly: true
+                  pattern: ^[0-9]{6}$
+              required:
+              - password
+              - totp
+              additionalProperties: false
+  /workspaces/{workspace}/scripts/{id}:
+    get:
+      operationId: scriptDetail
+      summary: Get script
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: workspace
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Successful registry operation
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: object
+                    additionalProperties: true
+        '401':
+          description: Authentication required
+        '403':
+          description: Permission or MFA denied
+        '404':
+          description: Resource not found
+        '409':
+          description: Registry state conflict
+        '412':
+          description: Revision conflict
+        '422':
+          description: Invalid input
+        '429':
+          description: Rate limited
+    patch:
+      operationId: scriptUpdate
+      summary: Edit script metadata
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: workspace
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      - name: If-Match
+        in: header
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Successful registry operation
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: object
+                    additionalProperties: true
+        '401':
+          description: Authentication required
+        '403':
+          description: Permission or MFA denied
+        '404':
+          description: Resource not found
+        '409':
+          description: Registry state conflict
+        '412':
+          description: Revision conflict
+        '422':
+          description: Invalid input
+        '429':
+          description: Rate limited
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  maxLength: 255
+                description:
+                  type: string
+                  maxLength: 1024
+              required:
+              - name
+              additionalProperties: false
+    delete:
+      operationId: scriptArchive
+      summary: Archive script
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: workspace
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      - name: If-Match
+        in: header
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Successful registry operation
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: object
+                    additionalProperties: true
+        '401':
+          description: Authentication required
+        '403':
+          description: Permission or MFA denied
+        '404':
+          description: Resource not found
+        '409':
+          description: Registry state conflict
+        '412':
+          description: Revision conflict
+        '422':
+          description: Invalid input
+        '429':
+          description: Rate limited
+  /workspaces/{workspace}/scripts/{id}/versions:
+    get:
+      operationId: scriptVersions
+      summary: List immutable versions
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: workspace
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: offset
+        in: query
+        schema:
+          type: integer
+          minimum: 0
+          maximum: 10000
+          default: 0
+      responses:
+        '200':
+          description: Successful registry operation
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: true
+        '401':
+          description: Authentication required
+        '403':
+          description: Permission or MFA denied
+        '404':
+          description: Resource not found
+        '409':
+          description: Registry state conflict
+        '412':
+          description: Revision conflict
+        '422':
+          description: Invalid input
+        '429':
+          description: Rate limited
+    post:
+      operationId: scriptVersionCreate
+      summary: Create immutable draft from code or template
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: workspace
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      responses:
+        '201':
+          description: Successful registry operation
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: object
+                    additionalProperties: true
+        '401':
+          description: Authentication required
+        '403':
+          description: Permission or MFA denied
+        '404':
+          description: Resource not found
+        '409':
+          description: Registry state conflict
+        '412':
+          description: Revision conflict
+        '422':
+          description: Invalid input
+        '429':
+          description: Rate limited
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                template:
+                  type: string
+                  enum:
+                  - linux
+                  - windows
+                  - snmp
+                  - proxmox
+                  - vmmanager
+                language:
+                  type: string
+                  enum:
+                  - bash
+                  - python
+                  - powershell
+                  - connector
+                provider:
+                  type: string
+                  enum:
+                  - local
+                  - ssh
+                  - winrm
+                  - snmp
+                  - proxmox
+                  - vmmanager
+                source:
+                  type: string
+                  maxLength: 65536
+                target_ids:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+                parameters:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                      type:
+                        type: string
+                        enum:
+                        - string
+                        - integer
+                        - boolean
+                      required:
+                        type: boolean
+                      min:
+                        type: integer
+                      max:
+                        type: integer
+                      choices:
+                        type: array
+                        items:
+                          type: string
+                    required:
+                    - name
+                    - type
+                    additionalProperties: false
+                timeout_seconds:
+                  type: integer
+                  minimum: 1
+                  maximum: 90
+                output_limit_bytes:
+                  type: integer
+                  minimum: 1024
+                  maximum: 262144
+              required: []
+              additionalProperties: false
+              oneOf:
+              - required:
+                - template
+                not:
+                  anyOf:
+                  - required:
+                    - language
+                  - required:
+                    - provider
+                  - required:
+                    - source
+                  - required:
+                    - parameters
+                  - required:
+                    - timeout_seconds
+                  - required:
+                    - output_limit_bytes
+              - required:
+                - language
+                - provider
+                - source
+                not:
+                  required:
+                  - template
+  /workspaces/{workspace}/scripts/{id}/versions/{version}:
+    get:
+      operationId: scriptVersionDetail
+      summary: Get source and exact signing bytes
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: workspace
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: version
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Successful registry operation
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: object
+                    additionalProperties: true
+        '401':
+          description: Authentication required
+        '403':
+          description: Permission or MFA denied
+        '404':
+          description: Resource not found
+        '409':
+          description: Registry state conflict
+        '412':
+          description: Revision conflict
+        '422':
+          description: Invalid input
+        '429':
+          description: Rate limited
+  /workspaces/{workspace}/scripts/{id}/versions/{version}/sign:
+    post:
+      operationId: scriptVersionSign
+      summary: Verify detached signature and submit for approval
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: workspace
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: version
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Successful registry operation
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: object
+                    additionalProperties: true
+        '401':
+          description: Authentication required
+        '403':
+          description: Permission or MFA denied
+        '404':
+          description: Resource not found
+        '409':
+          description: Registry state conflict
+        '412':
+          description: Revision conflict
+        '422':
+          description: Invalid input
+        '429':
+          description: Rate limited
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                key_id:
+                  type: string
+                  format: uuid
+                signature:
+                  type: string
+                  pattern: ^[0-9a-fA-F]{128}$
+              required:
+              - key_id
+              - signature
+              additionalProperties: false
+  /workspaces/{workspace}/scripts/{id}/versions/{version}/approve:
+    post:
+      operationId: scriptVersionApprove
+      summary: Approve signed version with fresh MFA
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: workspace
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: version
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Successful registry operation
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: object
+                    additionalProperties: true
+        '401':
+          description: Authentication required
+        '403':
+          description: Permission or MFA denied
+        '404':
+          description: Resource not found
+        '409':
+          description: Registry state conflict
+        '412':
+          description: Revision conflict
+        '422':
+          description: Invalid input
+        '429':
+          description: Rate limited
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                password:
+                  type: string
+                  writeOnly: true
+                  maxLength: 1024
+                totp:
+                  type: string
+                  writeOnly: true
+                  pattern: ^[0-9]{6}$
+              required:
+              - password
+              - totp
+              additionalProperties: false
+  /workspaces/{workspace}/scripts/{id}/versions/{version}/revoke:
+    post:
+      operationId: scriptVersionRevoke
+      summary: Revoke version with fresh MFA
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: workspace
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: version
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Successful registry operation
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: object
+                    additionalProperties: true
+        '401':
+          description: Authentication required
+        '403':
+          description: Permission or MFA denied
+        '404':
+          description: Resource not found
+        '409':
+          description: Registry state conflict
+        '412':
+          description: Revision conflict
+        '422':
+          description: Invalid input
+        '429':
+          description: Rate limited
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                password:
+                  type: string
+                  writeOnly: true
+                  maxLength: 1024
+                totp:
+                  type: string
+                  writeOnly: true
+                  pattern: ^[0-9]{6}$
+              required:
+              - password
+              - totp
+              additionalProperties: false
+  /workspaces/{workspace}/scripts/{id}/versions/{version}/validate:
+    post:
+      operationId: scriptVersionValidate
+      summary: Validate signature, policy and parameters without execution
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: workspace
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: version
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Successful registry operation
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: object
+                    additionalProperties: true
+        '401':
+          description: Authentication required
+        '403':
+          description: Permission or MFA denied
+        '404':
+          description: Resource not found
+        '409':
+          description: Registry state conflict
+        '412':
+          description: Revision conflict
+        '422':
+          description: Invalid input
+        '429':
+          description: Rate limited
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                target_id:
+                  type: string
+                  format: uuid
+                parameters:
+                  type: object
+                  additionalProperties: true
+              required: []
+              additionalProperties: false
 components:
   schemas:
     ConnectorTargetWithHealth:

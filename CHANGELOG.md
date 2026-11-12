@@ -1,3 +1,8 @@
+## [0.5.2] — 2026-11-12 — Script Registry & Signed Templates
+
+- Реестр скриптов, неизменяемые версии, Ed25519, MFA-утверждение и отзыв, шаблоны и проверка параметров.
+- Исполнение произвольного кода не включено до защищённого runner.
+
 ## [0.5.1] — 2026-11-12 — Collector Runtime & Registry
 
 - Executable collector registry for five built-in drivers and installed custom connectors.

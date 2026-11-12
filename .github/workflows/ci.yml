@@ -127,6 +127,7 @@ jobs:
           php tests/connector-health-postgres-integration.php
           php tests/connector-events-postgres-integration.php
           php tests/connector-actions-postgres-integration.php
+          php tests/script-registry-postgres-integration.php
           python3 tests/connector-actions-https-integration.py
           python3 tests/vmmanager-https-integration.py --postgres
       - name: Redis integration

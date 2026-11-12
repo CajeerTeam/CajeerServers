@@ -14,6 +14,7 @@ const links = computed(() => [
   { to: '/topology', label: 'Связи и топология', permission: 'inventory.relationships.read' },
   { to: '/connectors', label: 'Конфигурации подключений', permission: 'connectors.targets.read' },
   { to: '/vault', label: 'Хранилище учётных данных', permission: 'vault.credentials.read' },
+  { to: '/scripts', label: 'Реестр скриптов', permission: 'scripts.read' },
   { to: '/tasks', label: 'Очередь и задачи', permission: 'admin.jobs.read' },
   { to: '/scheduler', label: 'Планировщик', permission: 'admin.scheduler.read' },
   { to: '/users', label: 'Пользователи', permission: 'security.users.read' },

@@ -26,7 +26,7 @@ foreach(['','sshx','any','api:password',';drop table','ssh\n'] as $purpose)
     $ok(!SecretAccessService::allowsPurpose('ssh_password',$purpose),'unknown purpose refused');
 $ok(!SecretAccessService::allowsPurpose('unknown','api'),'unknown type refused');
 $ok(in_array('vault.credentials.use',Rbac::PERMISSIONS,true),'separate use permission registered');
-$ok(count(Rbac::PERMISSIONS)===45,'permission registry includes connector permissions');
+$ok(count(Rbac::PERMISSIONS)===49,'permission registry includes connector permissions');
 $path=dirname(__DIR__).'/migrations/pgsql/0019_vault_secret_access.sql';
 $sql=file_get_contents($path);
 $ok(is_string($sql) && str_contains($sql,'CREATE TABLE vault_use_grants'),'persistent one-use grants schema present');
@@ -42,7 +42,7 @@ try {
     $ok(count($matches)===1,'single exact use authorization endpoint');
     $ok(in_array('POST',$matches[0]['methods'],true),'POST-only authorization');
     $ok(!in_array('GET',$matches[0]['methods'],true),'no GET use');
-    $ok(count($routes)===161,'protected Vault endpoints with connector bindings');
+    $ok(count($routes)===177,'protected Vault endpoints with connector bindings');
     foreach($routes as $route) {
         $url=(string)($route['path']??'');
         $ok(!str_contains($url,'/decrypt') && !str_contains($url,'/reveal') && !str_contains($url,'/consume'),'no public plaintext endpoint');

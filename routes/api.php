@@ -34,6 +34,26 @@ return static function (Router $router, ServiceContainer $container): void {
         $routes->get('/ready', static fn (HttpRequest $r): HttpResponse => $container->get(\Cajeer\Servers\Api\Controller\OperationalHealthController::class)->ready($r));
         $routes->get('/metrics', static fn (HttpRequest $r): HttpResponse => ($container->get(\Cajeer\Servers\Observability\MetricsController::class))($r));
         $routes->get('/system', static fn (HttpRequest $request): HttpResponse => $container->get(SystemController::class)->index($request));
+        $scriptHandler=static fn(string $method)=>static fn(HttpRequest $r):HttpResponse=>$container->get(\Cajeer\Servers\Api\Controller\ScriptController::class)->dispatch($r,$method);
+        $scriptBase='/workspaces/{workspace}/scripts';
+        $str=['type'=>'string'];$meta=['required'=>['name'],'properties'=>['name'=>$str,'description'=>$str],'additionalProperties'=>false];
+        $mfa=['password'=>$str,'totp'=>$str];$step=['required'=>['password','totp'],'properties'=>$mfa,'additionalProperties'=>false];
+        $routes->get($scriptBase,$scriptHandler('list'));
+        $routes->post($scriptBase,$scriptHandler('create'),$meta);
+        $routes->get($scriptBase.'/templates',$scriptHandler('templates'));
+        $routes->get($scriptBase.'/keys',$scriptHandler('keys'));
+        $routes->post($scriptBase.'/keys',$scriptHandler('addKey'),['required'=>['name','public_key','password','totp'],'properties'=>['name'=>$str,'public_key'=>$str]+$mfa,'additionalProperties'=>false]);
+        $routes->post($scriptBase.'/keys/{id}/revoke',$scriptHandler('revokeKey'),$step);
+        $routes->get($scriptBase.'/{id}',$scriptHandler('detail'));
+        $routes->patch($scriptBase.'/{id}',$scriptHandler('update'),$meta);
+        $routes->delete($scriptBase.'/{id}',$scriptHandler('archive'));
+        $routes->get($scriptBase.'/{id}/versions',$scriptHandler('versions'));
+        $routes->post($scriptBase.'/{id}/versions',$scriptHandler('addVersion'),['properties'=>['template'=>$str,'source'=>$str,'language'=>$str,'provider'=>$str,'target_ids'=>['type'=>'array'],'parameters'=>['type'=>'array'],'timeout_seconds'=>['type'=>'integer'],'output_limit_bytes'=>['type'=>'integer']],'additionalProperties'=>false]);
+        $routes->get($scriptBase.'/{id}/versions/{version}',$scriptHandler('version'));
+        $routes->post($scriptBase.'/{id}/versions/{version}/sign',$scriptHandler('sign'),['required'=>['key_id','signature'],'properties'=>['key_id'=>$str,'signature'=>$str],'additionalProperties'=>false]);
+        $routes->post($scriptBase.'/{id}/versions/{version}/approve',$scriptHandler('approve'),$step);
+        $routes->post($scriptBase.'/{id}/versions/{version}/revoke',$scriptHandler('revoke'),$step);
+        $routes->post($scriptBase.'/{id}/versions/{version}/validate',$scriptHandler('validate'),['properties'=>['target_id'=>$str,'parameters'=>['type'=>'object']],'additionalProperties'=>false]);
         $routes->group('/auth', static function (Router $auth) use ($container): void {
             $handler = static fn (): AuthController => $container->get(AuthController::class);
             $auth->post('/login', static fn (HttpRequest $r): HttpResponse => $handler()->login($r), [
