@@ -1,8 +1,8 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.5.4
-  description: 'CajeerServers 0.5.4: signed output parsers and typed normalization.'
+  version: 0.5.5
+  description: 'CajeerServers 0.5.5: durable collection plans, scheduled jobs and attempt history.'
 servers:
 - url: /api/v1
 security: []
@@ -5094,6 +5094,11 @@ paths:
                           - string
                           - 'null'
                           format: date-time
+                        collection_plan_id:
+                          type:
+                          - string
+                          - 'null'
+                          format: uuid
         '401':
           description: Session required
         '403':
@@ -5128,7 +5133,8 @@ paths:
           type: string
       responses:
         '201':
-          description: Grant metadata only. Existing one-use MFA grant is consumed; ID is not a bearer credential.
+          description: Grant metadata only. Existing one-use MFA grant is consumed;
+            ID is not a bearer credential.
           content:
             application/json:
               schema:
@@ -5267,10 +5273,9 @@ paths:
           description: State conflict
         '422':
           description: Invalid input
-  /connectors/targets/{id}/runs:
+  /connectors/targets/{id}/collection-plans:
     get:
-      operationId: listConnectorRuns
-      summary: List background runs (collection observations omitted; read individual run for full snapshot)
+      operationId: listCollectionPlans
       security:
       - sessionAuth: []
       parameters:
@@ -5321,11 +5326,415 @@ paths:
                         workspace_id:
                           type: string
                           format: uuid
+                        actor_id:
+                          type: string
+                          format: uuid
+                        name:
+                          type: string
                         collector_name:
-                          type: [string, 'null']
+                          type: string
                         operation:
                           type: string
-                          enum: [inspect, sync, health]
+                          enum:
+                          - inspect
+                          - sync
+                        enabled:
+                          type: boolean
+                        interval_seconds:
+                          type:
+                          - integer
+                          - 'null'
+                        cron_expression:
+                          type:
+                          - string
+                          - 'null'
+                        timezone:
+                          type: string
+                        next_due_at:
+                          type: string
+                          format: date-time
+                        expires_at:
+                          type: string
+                          format: date-time
+                        revoked_at:
+                          type:
+                          - string
+                          - 'null'
+                        jitter_seconds:
+                          type: integer
+                          minimum: 0
+                          maximum: 30
+        default:
+          description: Problem response
+    post:
+      operationId: createCollectionPlan
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      - name: If-Match
+        in: header
+        required: true
+        schema:
+          type: string
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      grant_id:
+                        type: string
+                        format: uuid
+                      target_id:
+                        type: string
+                        format: uuid
+                      workspace_id:
+                        type: string
+                        format: uuid
+                      actor_id:
+                        type: string
+                        format: uuid
+                      name:
+                        type: string
+                      collector_name:
+                        type: string
+                      operation:
+                        type: string
+                        enum:
+                        - inspect
+                        - sync
+                      enabled:
+                        type: boolean
+                      interval_seconds:
+                        type:
+                        - integer
+                        - 'null'
+                      cron_expression:
+                        type:
+                        - string
+                        - 'null'
+                      timezone:
+                        type: string
+                      next_due_at:
+                        type: string
+                        format: date-time
+                      expires_at:
+                        type: string
+                        format: date-time
+                      revoked_at:
+                        type:
+                        - string
+                        - 'null'
+                      jitter_seconds:
+                        type: integer
+                        minimum: 0
+                        maximum: 30
+        default:
+          description: Problem response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - name
+              - collector
+              - operation
+              - ttl_seconds
+              additionalProperties: false
+              properties:
+                name:
+                  type: string
+                  maxLength: 120
+                collector:
+                  type: string
+                  maxLength: 64
+                operation:
+                  type: string
+                  enum:
+                  - inspect
+                  - sync
+                ttl_seconds:
+                  type: integer
+                  minimum: 60
+                  maximum: 2592000
+                interval_seconds:
+                  type: integer
+                  minimum: 60
+                  maximum: 86400
+                cron:
+                  type: string
+                  maxLength: 120
+                timezone:
+                  type: string
+                  maxLength: 64
+                jitter_seconds:
+                  type: integer
+                  minimum: 0
+                  maximum: 30
+              oneOf:
+              - required:
+                - interval_seconds
+                not:
+                  required:
+                  - cron
+              - required:
+                - cron
+                not:
+                  required:
+                  - interval_seconds
+  /connectors/targets/{id}/collection-plans/{planId}/state:
+    post:
+      operationId: setCollectionPlanState
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: planId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      grant_id:
+                        type: string
+                        format: uuid
+                      target_id:
+                        type: string
+                        format: uuid
+                      workspace_id:
+                        type: string
+                        format: uuid
+                      actor_id:
+                        type: string
+                        format: uuid
+                      name:
+                        type: string
+                      collector_name:
+                        type: string
+                      operation:
+                        type: string
+                        enum:
+                        - inspect
+                        - sync
+                      enabled:
+                        type: boolean
+                      interval_seconds:
+                        type:
+                        - integer
+                        - 'null'
+                      cron_expression:
+                        type:
+                        - string
+                        - 'null'
+                      timezone:
+                        type: string
+                      next_due_at:
+                        type: string
+                        format: date-time
+                      expires_at:
+                        type: string
+                        format: date-time
+                      revoked_at:
+                        type:
+                        - string
+                        - 'null'
+                      jitter_seconds:
+                        type: integer
+                        minimum: 0
+                        maximum: 30
+        default:
+          description: Problem response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - enabled
+              properties:
+                enabled:
+                  type: boolean
+              additionalProperties: false
+  /connectors/targets/{id}/collection-plans/{planId}/runs:
+    post:
+      operationId: runCollectionPlan
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: planId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema:
+          type: string
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+      responses:
+        '202':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      deduplicated:
+                        type: boolean
+        default:
+          description: Problem response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                redrive_of:
+                  type: string
+                  format: uuid
+              additionalProperties: false
+  /connectors/targets/{id}/runs:
+    get:
+      operationId: listConnectorRuns
+      summary: List background runs (collection observations omitted; read individual
+        run for full snapshot)
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          maximum: 10000
+      - name: plan_id
+        in: query
+        required: false
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        grant_id:
+                          type: string
+                          format: uuid
+                        target_id:
+                          type: string
+                          format: uuid
+                        workspace_id:
+                          type: string
+                          format: uuid
+                        collector_name:
+                          type:
+                          - string
+                          - 'null'
+                        operation:
+                          type: string
+                          enum:
+                          - inspect
+                          - sync
+                          - health
                         status:
                           type: string
                           enum:
@@ -5357,6 +5766,16 @@ paths:
                           type:
                           - string
                           - 'null'
+                        collection_plan_id:
+                          type:
+                          - string
+                          - 'null'
+                          format: uuid
+                        redrive_of:
+                          type:
+                          - string
+                          - 'null'
+                          format: uuid
         '401':
           description: Session required
         '403':
@@ -5369,7 +5788,8 @@ paths:
           description: Invalid input
     post:
       operationId: enqueueConnectorRun
-      summary: Queue a connector operation or named collection using an existing service grant
+      summary: Queue a connector operation or named collection using an existing service
+        grant
       security:
       - sessionAuth: []
       parameters:
@@ -5394,7 +5814,8 @@ paths:
           pattern: ^[A-Za-z0-9._:-]+$
       responses:
         '202':
-          description: Run and PostgreSQL job inserted atomically; same grant/key/collector returns the same run. A different collector with the same key conflicts.
+          description: Run and PostgreSQL job inserted atomically; same grant/key/collector
+            returns the same run. A different collector with the same key conflicts.
           content:
             application/json:
               schema:
@@ -5441,7 +5862,8 @@ paths:
                   minLength: 1
                   maxLength: 64
                   pattern: ^[a-z][a-z0-9_.-]{0,63}$
-                  description: Registered collector name; inspect grant stores observations, sync grant also reconciles Inventory.
+                  description: Registered collector name; inspect grant stores observations,
+                    sync grant also reconciles Inventory.
               required:
               - grant_id
               additionalProperties: false
@@ -5491,7 +5913,10 @@ paths:
                         format: uuid
                       operation:
                         type: string
-                        enum: [inspect, sync, health]
+                        enum:
+                        - inspect
+                        - sync
+                        - health
                       status:
                         type: string
                         enum:
@@ -5523,6 +5948,48 @@ paths:
                         type:
                         - string
                         - 'null'
+                      collection_plan_id:
+                        type:
+                        - string
+                        - 'null'
+                        format: uuid
+                      redrive_of:
+                        type:
+                        - string
+                        - 'null'
+                        format: uuid
+                      collector_name:
+                        type:
+                        - string
+                        - 'null'
+                      attempt_history:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            attempt:
+                              type: integer
+                            started_at:
+                              type: string
+                              format: date-time
+                            finished_at:
+                              type:
+                              - string
+                              - 'null'
+                              format: date-time
+                            outcome:
+                              type: string
+                              enum:
+                              - running
+                              - retry_scheduled
+                              - lease_expired
+                              - succeeded
+                              - failed
+                              - cancelled
+                            error_code:
+                              type:
+                              - string
+                              - 'null'
         '401':
           description: Session required
         '403':
@@ -5559,7 +6026,8 @@ paths:
           type: string
       responses:
         '200':
-          description: Cooperative cancellation prevents CMDB commit; already finished runs are unchanged.
+          description: Cooperative cancellation prevents CMDB commit; already finished
+            runs are unchanged.
           content:
             application/json:
               schema:
@@ -5584,7 +6052,10 @@ paths:
                         format: uuid
                       operation:
                         type: string
-                        enum: [inspect, sync, health]
+                        enum:
+                        - inspect
+                        - sync
+                        - health
                       status:
                         type: string
                         enum:
@@ -5616,6 +6087,48 @@ paths:
                         type:
                         - string
                         - 'null'
+                      collection_plan_id:
+                        type:
+                        - string
+                        - 'null'
+                        format: uuid
+                      redrive_of:
+                        type:
+                        - string
+                        - 'null'
+                        format: uuid
+                      collector_name:
+                        type:
+                        - string
+                        - 'null'
+                      attempt_history:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            attempt:
+                              type: integer
+                            started_at:
+                              type: string
+                              format: date-time
+                            finished_at:
+                              type:
+                              - string
+                              - 'null'
+                              format: date-time
+                            outcome:
+                              type: string
+                              enum:
+                              - running
+                              - retry_scheduled
+                              - lease_expired
+                              - succeeded
+                              - failed
+                              - cancelled
+                            error_code:
+                              type:
+                              - string
+                              - 'null'
         '401':
           description: Session required
         '403':

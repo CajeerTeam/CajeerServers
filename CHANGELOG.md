@@ -1,3 +1,9 @@
+## [0.5.5] — 2026-11-12 — Collection Jobs, History & Scheduling
+
+- Persistent collection plans and dedicated MFA-scoped grants; interval/cron/timezone schedules and optional dispatch jitter.
+- Atomic scheduled and manual queue submission, attempt history, bounded retries, pause/resume, cancellation and linked redrive.
+- Admin UI, CLI, TypeScript SDK, OpenAPI and isolated PostgreSQL integration tests.
+
 ## [0.5.4] — 2026-11-12 — Output Parsers & Data Normalization
 
 - Actual bounded JSON, CSV, key-value and Prometheus text parsers in the script worker; signed parser/output schema and legacy signature compatibility.

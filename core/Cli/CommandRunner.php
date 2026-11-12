@@ -56,7 +56,7 @@ final class CommandRunner
                 'inventory:preflight', 'inventory:constraints', 'inventory:integrity' => (new InventoryCommands($this->app))->run($command, $argv),
                 'vault:key:generate', 'vault:key:status', 'vault:key:rotate', 'vault:init', 'vault:check', 'vault:probe' => (new VaultCommands($this->app))->run($command, $argv),
                 'backup:key:generate', 'backup:create', 'backup:verify', 'backup:restore' => (new BackupCommands($this->app))->run($command, $argv),
-                'collection:list', 'collection:run', 'collection:status', 'connector:doctor', 'connector:sync', 'connector:tick', 'connector:run', 'connector:status', 'connector:cancel', 'connector:work' => (new ConnectorCommands($this->app))->run($command,$argv),
+                'collection:plans', 'collection:plan-run', 'collection:plan-redrive', 'collection:plan-pause', 'collection:plan-resume', 'collection:list', 'collection:run', 'collection:status', 'connector:doctor', 'connector:sync', 'connector:tick', 'connector:run', 'connector:status', 'connector:cancel', 'connector:work' => (new ConnectorCommands($this->app))->run($command,$argv),
                 'scripts:run', 'scripts:work' => $this->scriptWork($argv[2]??'20'),
                 'update:check' => $this->unavailable($command),
                 default => $this->unknown($command),
@@ -77,13 +77,17 @@ final class CommandRunner
     private function help(): int
     {
         fwrite(STDOUT, <<<'TEXT'
-CajeerServers CLI 0.5.4
+CajeerServers CLI 0.5.5
 
 Рабочие команды:
   help                 Список доступных команд
   php bin/script-sign.php generate <private-file>  Офлайн-ключ Ed25519
   php bin/script-sign.php sign <private-file> <signing-bytes-file>  Подпись версии
   scripts:work [max-jobs]                     Обработать очередь утверждённых скриптов (non-root)
+  collection:plans <actor> <target>              Планы сбора
+  collection:plan-run <actor> <target> <plan> <key>  Запустить план
+  collection:plan-redrive <actor> <target> <plan> <key> <run>  Повторить сбор
+  collection:plan-pause / collection:plan-resume <actor> <target> <plan>
   collection:list                              Реестр коллекторов
   collection:run <actor> <target> <grant> <key> <collector>  Поставить сбор
   collection:status <actor> <target> <run>       Результат сбора

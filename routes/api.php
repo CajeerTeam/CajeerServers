@@ -376,6 +376,21 @@ return static function (Router $router, ServiceContainer $container): void {
                 ],'additionalProperties'=>false,
             ]);
             $connectors->delete('/targets/{id}/service-grants/{grantId}',static fn(HttpRequest $r):HttpResponse=>$handler()->revokeGrant($r));
+            $connectors->get('/targets/{id}/collection-plans',static fn(HttpRequest $r):HttpResponse=>$handler()->collectionPlans($r));
+            $connectors->post('/targets/{id}/collection-plans',static fn(HttpRequest $r):HttpResponse=>$handler()->createCollectionPlan($r),[
+                'required'=>['name','collector','operation','ttl_seconds'],'properties'=>[
+                    'name'=>['type'=>'string','minLength'=>1,'maxLength'=>120],'collector'=>['type'=>'string','minLength'=>1,'maxLength'=>64],
+                    'operation'=>['type'=>'string','enum'=>['inspect','sync']],'ttl_seconds'=>['type'=>'integer','minimum'=>60,'maximum'=>2592000],
+                    'interval_seconds'=>['type'=>'integer','minimum'=>60,'maximum'=>86400],'cron'=>['type'=>'string','minLength'=>1,'maxLength'=>120],
+                    'timezone'=>['type'=>'string','maxLength'=>64],'jitter_seconds'=>['type'=>'integer','minimum'=>0,'maximum'=>30],
+                ],'additionalProperties'=>false,
+            ]);
+            $connectors->post('/targets/{id}/collection-plans/{planId}/state',static fn(HttpRequest $r):HttpResponse=>$handler()->changeCollectionPlan($r),[
+                'required'=>['enabled'],'properties'=>['enabled'=>['type'=>'boolean']],'additionalProperties'=>false,
+            ]);
+            $connectors->post('/targets/{id}/collection-plans/{planId}/runs',static fn(HttpRequest $r):HttpResponse=>$handler()->runCollectionPlan($r),[
+                'properties'=>['redrive_of'=>['type'=>'string','format'=>'uuid']],'additionalProperties'=>false,
+            ]);
             $connectors->get('/targets/{id}/runs',static fn(HttpRequest $r):HttpResponse=>$handler()->runs($r));
             $connectors->post('/targets/{id}/runs',static fn(HttpRequest $r):HttpResponse=>$handler()->enqueueRun($r),[
                 'required'=>['grant_id'],'properties'=>['grant_id'=>['type'=>'string','format'=>'uuid'],'collector'=>['type'=>'string','minLength'=>1,'maxLength'=>64]],'additionalProperties'=>false,

@@ -125,6 +125,7 @@ jobs:
           php tests/connector-reconciliation-postgres-integration.php
           php tests/host-hardware-postgres-integration.php
           php tests/connector-health-postgres-integration.php
+          php tests/collection-plans-postgres-integration.php
           php tests/connector-events-postgres-integration.php
           php tests/connector-actions-postgres-integration.php
           php tests/script-registry-postgres-integration.php

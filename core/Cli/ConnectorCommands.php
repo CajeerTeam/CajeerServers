@@ -20,6 +20,11 @@ final class ConnectorCommands
         $service=$this->app->container()->get(ConnectorExecutionService::class);
         $required=static function(int $n)use($args):void {if (count($args)!==$n) throw new \InvalidArgumentException('Invalid connector command arguments. See help.');};
         switch ($command) {
+            case 'collection:plans': $required(2); $result=$service->plans(...$args); break;
+            case 'collection:plan-run': $required(4); $result=$service->runPlan(...$args); break;
+            case 'collection:plan-redrive': $required(5); $result=$service->runPlan(...$args); break;
+            case 'collection:plan-pause': $required(3); $result=$service->setPlanEnabled(...[...$args,false]); break;
+            case 'collection:plan-resume': $required(3); $result=$service->setPlanEnabled(...[...$args,true]); break;
             case 'collection:list': $required(0); $result=$this->app->container()->get(\Cajeer\Servers\Collector\CollectionRuntimeService::class)->catalog(); break;
             case 'collection:run': $required(5); $result=$service->enqueue(...$args); break;
             case 'collection:status': $required(3); $result=$service->status(...$args); if ($result['collector_name']===null) throw new \RuntimeException('Run is not a named collection.'); break;

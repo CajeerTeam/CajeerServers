@@ -89,7 +89,27 @@ final class ConnectorBindingController
     }
     public function runs(HttpRequest $r):HttpResponse
     {
-        return HttpResponse::json(['data'=>$this->execution()->runs($this->actor($r,'connectors.targets.read'),self::id($r),self::integer($r,'limit',50,100),self::integer($r,'offset',0,10000))],200,['Cache-Control'=>'private, no-store']);
+        return HttpResponse::json(['data'=>$this->execution()->runs($this->actor($r,'connectors.targets.read'),self::id($r),self::integer($r,'limit',50,100),self::integer($r,'offset',0,10000),self::filter($r,'plan_id'))],200,['Cache-Control'=>'private, no-store']);
+    }
+    public function collectionPlans(HttpRequest $r):HttpResponse
+    {
+        return HttpResponse::json(['data'=>$this->execution()->plans($this->actor($r,'connectors.targets.read'),self::id($r),self::integer($r,'limit',50,100),self::integer($r,'offset',0,10000))],200,['Cache-Control'=>'private, no-store']);
+    }
+    public function createCollectionPlan(HttpRequest $r):HttpResponse
+    {
+        $principal=$this->auth->authenticate($r,sessionOnly:true);$this->auth->requireCsrf($r,$principal);
+        $id=self::id($r);
+        return HttpResponse::json(['data'=>$this->execution()->createPlan($principal,$id,self::version($r,$id),$r->attribute('json'))],201,['Cache-Control'=>'private, no-store']);
+    }
+    public function changeCollectionPlan(HttpRequest $r):HttpResponse
+    {
+        return HttpResponse::json(['data'=>$this->execution()->setPlanEnabled($this->actor($r,'connectors.credentials.manage',true),self::id($r),self::id($r,'planId'),$r->attribute('json')['enabled'])],200,['Cache-Control'=>'private, no-store']);
+    }
+    public function runCollectionPlan(HttpRequest $r):HttpResponse
+    {
+        $id=self::id($r);$b=$r->attribute('json');
+        $run=$this->execution()->runPlan($this->actor($r,'connectors.credentials.manage',true),$id,self::id($r,'planId'),$r->header('Idempotency-Key',''),$b['redrive_of']??null);
+        return HttpResponse::json(['data'=>$run],202,['Cache-Control'=>'private, no-store','Location'=>'/api/v1/connectors/targets/'.$id.'/runs/'.$run['id']]);
     }
     public function drivers(HttpRequest $r):HttpResponse
     {

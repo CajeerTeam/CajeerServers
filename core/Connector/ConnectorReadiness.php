@@ -41,6 +41,9 @@ final class ConnectorReadiness
                 "SELECT count(*) FROM connector_runs r LEFT JOIN queue_jobs j ON j.id=r.id JOIN connector_service_grants g ON g.id=r.grant_id WHERE j.id IS NULL OR j.queue<>'connectors' OR j.type<>'connector.execute' OR j.payload<>'[]'::jsonb OR r.target_id<>g.target_id OR r.workspace_id<>g.workspace_id",
                 "SELECT count(*) FROM queue_jobs j WHERE j.queue='connectors' AND NOT EXISTS(SELECT 1 FROM connector_runs r WHERE r.id=j.id)",
                 'SELECT count(*) FROM connector_webhook_sources s JOIN connector_service_grants g ON g.id=s.grant_id WHERE s.target_id<>g.target_id OR s.workspace_id<>g.workspace_id',
+                "SELECT count(*) FROM connector_runs r JOIN collection_plans p ON p.grant_id=r.grant_id WHERE r.collection_plan_id IS DISTINCT FROM p.id OR r.collector_name IS DISTINCT FROM p.collector_name",
+                "SELECT count(*) FROM connector_runs r JOIN collection_plans p ON p.id=r.collection_plan_id WHERE r.grant_id<>p.grant_id",
+                "SELECT count(*) FROM collection_plans p JOIN connector_service_grants g ON g.id=p.grant_id WHERE g.interval_seconds IS NOT NULL OR g.operation NOT IN ('inspect','sync')",
                 'SELECT count(*) FROM connector_event_dispatches d JOIN connector_events e ON e.id=d.event_id JOIN connector_webhook_sources s ON s.id=e.source_id JOIN connector_runs r ON r.id=d.run_id WHERE r.target_id<>s.target_id OR r.workspace_id<>s.workspace_id',
             ];
             foreach($queries as $sql) if((string)$pdo->query($sql)->fetchColumn()!=='0')return false;
