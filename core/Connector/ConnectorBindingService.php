@@ -181,6 +181,9 @@ final class ConnectorBindingService
             $stmt=$pdo->prepare('SELECT 1 FROM connector_credential_bindings WHERE connector_id=CAST(:id AS uuid) LIMIT 1');
             $stmt->execute(['id'=>$id]);
             if ($stmt->fetchColumn())throw new HttpException(409,'Detach connector credentials first.','conflict');
+            $stmt=$pdo->prepare("SELECT 1 FROM connector_actions WHERE target_id=:id AND status IN ('dispatching','submitted','unknown') LIMIT 1");
+            $stmt->execute(['id'=>$id]);
+            if ($stmt->fetchColumn())throw new HttpException(409,'Resolve outstanding connector actions before deletion.','action_unresolved');
             $stmt=$pdo->prepare('DELETE FROM connector_targets WHERE id=CAST(:id AS uuid) AND version=:version');
             $stmt->execute(['id'=>$id,'version'=>$version]);
             if ($stmt->rowCount()!==1)throw new HttpException(412,'Connector changed.','precondition_failed');

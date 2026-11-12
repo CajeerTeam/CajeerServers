@@ -38,6 +38,11 @@ final class ConnectorRegistry
         catch (ConnectorTransportException $e) { throw new HttpException(502,$e->getMessage(),$e->category); }
         catch (\Throwable) { throw new HttpException(502,'Remote connector operation failed.','connector_failed'); }
     }
+    public function actions(string $provider):array
+    {
+        $driver=$this->drivers[$provider]??null;
+        return $driver instanceof \Cajeer\Servers\Connector\ConnectorActionDriver?$driver->actions():[];
+    }
     /** @return array<string,ConnectorManifest> */
     public function manifests(): array { return array_map(static fn(ConnectorInterface $d)=>$d->manifest(),$this->drivers); }
 }

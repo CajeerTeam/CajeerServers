@@ -38,9 +38,14 @@ jobs:
       - name: Connector HTTPS and host protocol integration
         run: |
           python3 tests/connector-https-integration.py
+          python3 tests/connector-actions-https-integration.py
           python3 tests/vmmanager-https-integration.py
           python3 tests/host-transport-integration.py --ssh
           bash tests/snmp-protocol-integration.sh
+      - name: Build and test TypeScript connector SDK
+        run: |
+          npm install --prefix packages/ts-sdk --no-audit --no-fund
+          bash tests/connector-sdk-integration.sh
       - name: Verify dependency lockfiles are present
         run: |
           test -s composer.lock
@@ -109,6 +114,8 @@ jobs:
           php tests/host-hardware-postgres-integration.php
           php tests/connector-health-postgres-integration.php
           php tests/connector-events-postgres-integration.php
+          php tests/connector-actions-postgres-integration.php
+          python3 tests/connector-actions-https-integration.py
           python3 tests/vmmanager-https-integration.py --postgres
       - name: PostgreSQL client version for encrypted backup/restore
         run: |

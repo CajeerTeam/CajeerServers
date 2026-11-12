@@ -1,0 +1,32 @@
+<?php
+declare(strict_types=1);
+require dirname(__DIR__).'/core/autoload.php';
+use Cajeer\Servers\Connector\{ConnectorActionService,ConnectorContext,ProxmoxConnector,HttpsTransport,EndpointPolicy};
+use Cajeer\Servers\Integration\{ConnectorRegistry,ConnectorExtensionLoader};
+use Cajeer\Servers\Http\Exception\HttpException;
+$n=0;$ok=static function(bool $v,string $s)use(&$n):void {if(!$v)throw new RuntimeException($s);$n++;};
+$reject=static function(callable $f)use($ok):void {try{$f();}catch(Throwable){$ok(true,'rejected');return;}throw new RuntimeException('Expected rejection');};
+$valid=['action'=>'vm.start','external_id'=>'qemu:101','confirm'=>'vm.start qemu:101'];
+ConnectorActionService::validate($valid,'1234567890123456');$ok(true,'valid intent');
+foreach ([['action'=>'vm.stop'],['external_id'=>'lxc:101'],['confirm'=>'yes'],['external_id'=>'qemu:101/../../'],['node'=>'pve'],['command'=>'shell']] as $patch) $reject(fn()=>ConnectorActionService::validate(array_replace($valid,$patch),'1234567890123456'));
+$reject(fn()=>ConnectorActionService::validate($valid,'short'));
+$ctx=new ConnectorContext('proxmox','pve.test',8006,'proxmox_api');
+$secret='{"token_id":"svc@pve!test","token_secret":"fixture-secret"}';
+$d=new ProxmoxConnector(static fn($url)=>str_contains($url,'/nodes')?'{"data":[{"node":"pve","status":"online"}]}':'{"data":[{"type":"qemu","node":"pve","vmid":101,"status":"stopped"}]}');
+$ok($d->prepareAction($ctx,'vm.start','qemu:101',$secret)===['node'=>'pve','vmid'=>101],'resolve live VM');
+$reject(fn()=>$d->prepareAction($ctx,'vm.start','qemu:102',$secret));
+$reject(fn()=>$d->prepareAction($ctx,'vm.shutdown','lxc:101',$secret));
+$registry=new ConnectorRegistry($d);$ok($registry->actions('proxmox')===['vm.start','vm.shutdown'],'actions published');
+$ok($registry->actions('ssh')===[],'no unsupported actions');
+$transport=new HttpsTransport(new EndpointPolicy(['127.0.0.1/32']));
+$reject(fn()=>$transport->powerPost('127.0.0.1',1,'/api2/json/nodes/pve/qemu/101/status/stop','test'));
+$reject(fn()=>$transport->powerPost('127.0.0.1',1,'/api2/json/nodes/pve/lxc/101/status/start','test'));
+$registry=ConnectorExtensionLoader::load($registry,dirname(__DIR__).'/examples/extensions/demo-connector/entry.php',$transport);
+$ok($registry->has('custom')&&$registry->actions('custom')===[],'real custom SDK installed');
+$reject(fn()=>ConnectorExtensionLoader::load($registry,'/missing.php',$transport));
+$reject(fn()=>ConnectorExtensionLoader::load($registry,'relative.php',$transport));
+$reject(fn()=>ConnectorExtensionLoader::load($registry,dirname(__DIR__).'/examples/extensions/demo-connector/entry.php',$transport));
+$ok(count((new \Cajeer\Servers\Database\SqlStatementParser())->split(file_get_contents(dirname(__DIR__).'/migrations/pgsql/0028_connector_actions.sql')))===5,'migration statements');
+putenv('APP_ENV=local');putenv('APP_URL=http://127.0.0.1:8080');$app=(new \Cajeer\Servers\Kernel\Application(dirname(__DIR__)))->boot();
+try {foreach(['GET','POST'] as $method){$r=$app->handle(new \Cajeer\Servers\Runtime\HttpRequest($method,'/api/v1/connectors/targets/11111111-1111-4111-8111-111111111111/actions'));$ok(in_array($r->status,[401,503,422,415],true),'guest denied');}}finally{$app->terminate();}
+echo "Connector actions and SDK smoke: $n PASS\n";

@@ -93,7 +93,7 @@ final class ConnectorBindingController
     public function drivers(HttpRequest $r):HttpResponse
     {
         $this->actor($r,'connectors.targets.read');
-        return HttpResponse::json(['data'=>array_values($this->registry->manifests())],200,['Cache-Control'=>'private, no-store']);
+        return HttpResponse::json(['data'=>array_values(array_map(fn($m)=>[...get_object_vars($m),'actions'=>$this->registry->actions($m->provider)],$this->registry->manifests()))],200,['Cache-Control'=>'private, no-store']);
     }
     public function health(HttpRequest $r):HttpResponse
     {

@@ -1,3 +1,9 @@
+## [0.4.8] — 2026-11-12 — Connector Actions & Extension SDK
+
+- Proxmox QEMU start/shutdown with opt-in, RBAC, MFA, ETag, explicit confirmation, idempotency, durable intent and remote UPID status. No automatic write retry.
+- Trusted custom PHP connector registration, SDK HTTP helper and real HTTPS example; typed TypeScript session API client.
+- Migration 0028, REST/OpenAPI, TLS fixture, SDK and PostgreSQL integration tests.
+
 ## [0.4.7] — 2026-11-12 — Connector Webhooks, Events & Signed Payloads
 
 - Signed target-scoped event inbox, Vault-encrypted source keys, rotation/revocation, durable atomic dispatch to existing connector sync worker.

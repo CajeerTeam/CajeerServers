@@ -2,11 +2,11 @@
   "name": "demo-connector",
   "type": "connector",
   "title": "Demo Connector",
-  "version": "0.1.0",
-  "cajeer": "^0.1",
+  "version": "1.0.0",
+  "cajeer": "^0.4.8",
   "permissions": [
-    "inventory.read",
-    "connectors.sync"
+    "connectors.targets.read",
+    "connectors.credentials.manage"
   ],
-  "entry": "src/DemoConnector.php"
+  "entry": "entry.php"
 }

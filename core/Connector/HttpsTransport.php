@@ -4,7 +4,7 @@ namespace Cajeer\Servers\Connector;
 
 use RuntimeException;
 
-/** Bounded read-only HTTPS. Pinned IP prevents DNS rebinding between policy and connection. */
+/** Bounded HTTPS with explicit allowlisted power POST. Pinned IP prevents DNS rebinding between policy and connection. */
 final class HttpsTransport
 {
     public function __construct(private readonly EndpointPolicy $policy=new EndpointPolicy(),
@@ -12,6 +12,16 @@ final class HttpsTransport
         if ($timeout<1 || $timeout>60 || $maxBytes<1 || $maxBytes>16777216) throw new RuntimeException('Invalid HTTPS limits.');
     }
     public function get(string $host,int $port,string $path,#[\SensitiveParameter] string $authorization,?string $caFile=null,string $credentialHeader='Authorization'):string
+    {
+        return $this->request('GET',$host,$port,$path,$authorization,$caFile,$credentialHeader);
+    }
+    /** Only the two supported Proxmox power operations may issue POST. */
+    public function powerPost(string $host,int $port,string $path,#[\SensitiveParameter] string $authorization,?string $caFile=null):string
+    {
+        if (!preg_match('~^/api2/json/nodes/[A-Za-z0-9][A-Za-z0-9._-]{0,119}/qemu/[1-9][0-9]{0,8}/status/(start|shutdown)$~D',$path)) throw new RuntimeException('Unsupported power request.');
+        return $this->request('POST',$host,$port,$path,$authorization,$caFile,'Authorization');
+    }
+    private function request(string $method,string $host,int $port,string $path,#[\SensitiveParameter] string $authorization,?string $caFile,string $credentialHeader):string
     {
         $host=ConnectorBindingService::validateHost($host); $port=ConnectorBindingService::validatePort($port);
         if (!in_array($credentialHeader,['Authorization','x-xsrf-token'],true) || $authorization==='' || strlen($authorization)>16384 || !preg_match('~^/[A-Za-z0-9/_?.=&%:-]+$~D',$path) || str_starts_with($path,'//') || preg_match('/[\x00-\x1f\x7f]/',$authorization))
@@ -21,9 +31,9 @@ final class HttpsTransport
         $bracket=static fn(string $h):string=>str_contains($h,':')?'['.$h.']':$h;
         $ssl=['verify_peer'=>true,'verify_peer_name'=>true,'allow_self_signed'=>false,'peer_name'=>$host,'SNI_enabled'=>true];
         if ($caFile!==null) $ssl['cafile']=$caFile;
-        $context=stream_context_create(['ssl'=>$ssl,'http'=>['method'=>'GET','protocol_version'=>1.1,
+        $context=stream_context_create(['ssl'=>$ssl,'http'=>['method'=>$method,'protocol_version'=>1.1,
             'follow_location'=>0,'ignore_errors'=>true,'timeout'=>$this->timeout,
-            'header'=>"Host: ".$bracket($host).":$port\r\nAccept: application/json\r\n$credentialHeader: $authorization\r\nConnection: close\r\n"]]);
+            'header'=>"Host: ".$bracket($host).":$port\r\nAccept: application/json\r\n$credentialHeader: $authorization\r\nConnection: close\r\n".($method==='POST'?"Content-Length: 0\r\n":'')]]);
         try {
             $stream=@fopen('https://'.$bracket($ip).':'.$port.$path,'rb',false,$context);
             if ($stream===false) throw new ConnectorTransportException('connector_transport_failed');

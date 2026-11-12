@@ -1,8 +1,8 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.4.7
-  description: 'CajeerServers 0.4.7: signed connector events, durable dispatch, Vault-backed signing keys and redrive.'
+  version: 0.4.8
+  description: 'CajeerServers 0.4.8: confirmed connector power actions, trusted extension SDK and typed API client.'
 servers:
 - url: /api/v1
 security: []
@@ -5013,7 +5013,7 @@ paths:
       - sessionAuth: []
       responses:
         '200':
-          description: Реальные драйверы, их purpose, credentialTypes, operations, resourceTypes и transport
+          description: Реальные драйверы, их purpose, credentialTypes, operations, resourceTypes, transport и actions
         '403':
           $ref: '#/components/responses/Forbidden'
   /connectors/targets/{id}/service-grants:
@@ -6732,6 +6732,498 @@ paths:
           description: Лимит запросов или очередь заполнена; повторить позже
         '503':
           description: Сервис недоступен
+  /connectors/targets/{id}/actions:
+    get:
+      operationId: listConnectorActions
+      summary: List durable action history
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: offset
+        in: query
+        schema:
+          type: integer
+          minimum: 0
+          maximum: 10000
+      responses:
+        '200':
+          description: Action metadata; submitted does not mean completed
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      required:
+                      - id
+                      - target_id
+                      - external_id
+                      - action
+                      - status
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        target_id:
+                          type: string
+                          format: uuid
+                        external_id:
+                          type: string
+                        action:
+                          type: string
+                          enum:
+                          - vm.start
+                          - vm.shutdown
+                        status:
+                          type: string
+                          enum:
+                          - dispatching
+                          - submitted
+                          - succeeded
+                          - failed
+                          - unknown
+                          - acknowledged
+                        remote_task:
+                          type:
+                          - string
+                          - 'null'
+                        error_code:
+                          type:
+                          - string
+                          - 'null'
+                        created_at:
+                          type: string
+                        updated_at:
+                          type: string
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Target or action not found
+        '409':
+          description: Conflict or unresolved action
+        '412':
+          description: Target version changed
+        '422':
+          description: Invalid action or unsupported capability
+        '502':
+          description: Remote operation failed; never retry automatically
+    post:
+      operationId: submitConnectorAction
+      summary: MFA-confirmed Proxmox VM power action
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        description: Session CSRF token
+        schema:
+          type: string
+      - name: If-Match
+        in: header
+        required: true
+        description: Current connector target ETag
+        schema:
+          type: string
+      - name: Idempotency-Key
+        in: header
+        required: true
+        description: Unique 16-128 character key for this action
+        schema:
+          type: string
+      responses:
+        '202':
+          description: Action metadata; submitted does not mean completed
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: object
+                    required:
+                    - id
+                    - target_id
+                    - external_id
+                    - action
+                    - status
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      target_id:
+                        type: string
+                        format: uuid
+                      external_id:
+                        type: string
+                      action:
+                        type: string
+                        enum:
+                        - vm.start
+                        - vm.shutdown
+                      status:
+                        type: string
+                        enum:
+                        - dispatching
+                        - submitted
+                        - succeeded
+                        - failed
+                        - unknown
+                        - acknowledged
+                      remote_task:
+                        type:
+                        - string
+                        - 'null'
+                      error_code:
+                        type:
+                        - string
+                        - 'null'
+                      created_at:
+                        type: string
+                      updated_at:
+                        type: string
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Target or action not found
+        '409':
+          description: Conflict or unresolved action
+        '412':
+          description: Target version changed
+        '422':
+          description: Invalid action or unsupported capability
+        '502':
+          description: Remote operation failed; never retry automatically
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - action
+              - external_id
+              - confirm
+              additionalProperties: false
+              properties:
+                action:
+                  type: string
+                  enum:
+                  - vm.start
+                  - vm.shutdown
+                external_id:
+                  type: string
+                  pattern: ^qemu:[1-9][0-9]{0,8}$
+                confirm:
+                  type: string
+                  description: Exact action + space + external_id
+  /connectors/targets/{id}/actions/{actionId}:
+    get:
+      operationId: getConnectorAction
+      summary: Read stored action status
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: actionId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Action metadata; submitted does not mean completed
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: object
+                    required:
+                    - id
+                    - target_id
+                    - external_id
+                    - action
+                    - status
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      target_id:
+                        type: string
+                        format: uuid
+                      external_id:
+                        type: string
+                      action:
+                        type: string
+                        enum:
+                        - vm.start
+                        - vm.shutdown
+                      status:
+                        type: string
+                        enum:
+                        - dispatching
+                        - submitted
+                        - succeeded
+                        - failed
+                        - unknown
+                        - acknowledged
+                      remote_task:
+                        type:
+                        - string
+                        - 'null'
+                      error_code:
+                        type:
+                        - string
+                        - 'null'
+                      created_at:
+                        type: string
+                      updated_at:
+                        type: string
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Target or action not found
+        '409':
+          description: Conflict or unresolved action
+        '412':
+          description: Target version changed
+        '422':
+          description: Invalid action or unsupported capability
+        '502':
+          description: Remote operation failed; never retry automatically
+  /connectors/targets/{id}/actions/{actionId}/refresh:
+    post:
+      operationId: refreshConnectorAction
+      summary: Read remote task status with fresh MFA grant
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: actionId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        description: Session CSRF token
+        schema:
+          type: string
+      - name: If-Match
+        in: header
+        required: true
+        description: Current connector target ETag
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Action metadata; submitted does not mean completed
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: object
+                    required:
+                    - id
+                    - target_id
+                    - external_id
+                    - action
+                    - status
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      target_id:
+                        type: string
+                        format: uuid
+                      external_id:
+                        type: string
+                      action:
+                        type: string
+                        enum:
+                        - vm.start
+                        - vm.shutdown
+                      status:
+                        type: string
+                        enum:
+                        - dispatching
+                        - submitted
+                        - succeeded
+                        - failed
+                        - unknown
+                        - acknowledged
+                      remote_task:
+                        type:
+                        - string
+                        - 'null'
+                      error_code:
+                        type:
+                        - string
+                        - 'null'
+                      created_at:
+                        type: string
+                      updated_at:
+                        type: string
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Target or action not found
+        '409':
+          description: Conflict or unresolved action
+        '412':
+          description: Target version changed
+        '422':
+          description: Invalid action or unsupported capability
+        '502':
+          description: Remote operation failed; never retry automatically
+  /connectors/targets/{id}/actions/{actionId}/acknowledge:
+    post:
+      operationId: acknowledgeConnectorAction
+      summary: Acknowledge externally verified unresolved action (no remote write)
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: actionId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        description: Session CSRF token
+        schema:
+          type: string
+      - name: If-Match
+        in: header
+        required: true
+        description: Current connector target ETag
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Action metadata; submitted does not mean completed
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: object
+                    required:
+                    - id
+                    - target_id
+                    - external_id
+                    - action
+                    - status
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      target_id:
+                        type: string
+                        format: uuid
+                      external_id:
+                        type: string
+                      action:
+                        type: string
+                        enum:
+                        - vm.start
+                        - vm.shutdown
+                      status:
+                        type: string
+                        enum:
+                        - dispatching
+                        - submitted
+                        - succeeded
+                        - failed
+                        - unknown
+                        - acknowledged
+                      remote_task:
+                        type:
+                        - string
+                        - 'null'
+                      error_code:
+                        type:
+                        - string
+                        - 'null'
+                      created_at:
+                        type: string
+                      updated_at:
+                        type: string
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Target or action not found
+        '409':
+          description: Conflict or unresolved action
+        '412':
+          description: Target version changed
+        '422':
+          description: Invalid action or unsupported capability
+        '502':
+          description: Remote operation failed; never retry automatically
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - confirm
+              additionalProperties: false
+              properties:
+                confirm:
+                  const: I verified the remote result
 components:
   schemas:
     ConnectorTargetWithHealth:

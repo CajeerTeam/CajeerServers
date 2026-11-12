@@ -310,6 +310,17 @@ return static function (Router $router, ServiceContainer $container): void {
             $connectors->get('/targets/{id}/events',static fn(HttpRequest $r):HttpResponse=>$events()->events($r));
             $connectors->post('/targets/{id}/events/{eventId}/redrive',static fn(HttpRequest $r):HttpResponse=>$events()->redrive($r),$grantBody);
             $connectors->post('/webhooks/{sourceId}/events',static fn(HttpRequest $r):HttpResponse=>$events()->ingest($r));
+            $actions=static fn()=> $container->get(\Cajeer\Servers\Connector\ConnectorActionController::class);
+            $connectors->get('/targets/{id}/actions',static fn(HttpRequest $r):HttpResponse=>$actions()->list($r));
+            $connectors->post('/targets/{id}/actions',static fn(HttpRequest $r):HttpResponse=>$actions()->submit($r),[
+                'required'=>['action','external_id','confirm'],'properties'=>[
+                    'action'=>['type'=>'string','enum'=>['vm.start','vm.shutdown']],
+                    'external_id'=>['type'=>'string','maxLength'=>180], 'confirm'=>['type'=>'string','maxLength'=>220],
+                ],'additionalProperties'=>false]);
+            $connectors->get('/targets/{id}/actions/{actionId}',static fn(HttpRequest $r):HttpResponse=>$actions()->get($r));
+            $connectors->post('/targets/{id}/actions/{actionId}/refresh',static fn(HttpRequest $r):HttpResponse=>$actions()->refresh($r));
+            $connectors->post('/targets/{id}/actions/{actionId}/acknowledge',static fn(HttpRequest $r):HttpResponse=>$actions()->acknowledge($r),[
+                'required'=>['confirm'],'properties'=>['confirm'=>['type'=>'string','maxLength'=>64]],'additionalProperties'=>false]);
             $connectors->get('/drivers',static fn(HttpRequest $r):HttpResponse=>$handler()->drivers($r));
             $connectors->get('/targets',static fn(HttpRequest $r):HttpResponse=>$handler()->index($r));
             $connectors->post('/targets',static fn(HttpRequest $r):HttpResponse=>$handler()->create($r),$create);

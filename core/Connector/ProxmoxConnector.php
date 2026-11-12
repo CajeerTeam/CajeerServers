@@ -6,7 +6,7 @@ use Cajeer\Servers\Credentials\CredentialProfile;
 use RuntimeException;
 
 /** Read-only Proxmox VE API client. Credentials never leave this server except over verified TLS. */
-final class ProxmoxConnector implements ConnectorInterface
+final class ProxmoxConnector implements ConnectorInterface, ConnectorActionDriver
 {
     private const MAX_RESPONSE = 2_097_152;
     private const MAX_NODES = 256;
@@ -39,6 +39,55 @@ final class ProxmoxConnector implements ConnectorInterface
         // Full means a successful visible-inventory read, not proof of cluster-wide ACL visibility.
         $complete=$operation!=='health' && $items!==[] && count(array_filter($items,static fn(array $i):bool=>$i['type']==='hypervisor_node'))>0;
         return new ConnectorResult($items,$complete);
+    }
+
+    public function actions(): array { return ['vm.start','vm.shutdown']; }
+
+    /** Resolve the live node by cluster-wide VMID; never accept a node/path from HTTP input. */
+    public function prepareAction(ConnectorContext $context,string $action,string $externalId,#[\SensitiveParameter] string $secret): array
+    {
+        if ($context->provider!=='proxmox'||!in_array($action,$this->actions(),true)||!preg_match('/^qemu:([1-9][0-9]{0,8})$/D',$externalId,$m)) throw new RuntimeException('Unsupported VM action.');
+        $items=$this->discover($context->host,$context->port,$context->credentialType,$secret,$this->caFile);
+        foreach ($items as $item) if ($item['external_id']===$externalId) {
+            $node=self::node(substr($item['parent_external_id'],5));
+            return ['node'=>$node,'vmid'=>(int)$m[1]];
+        }
+        throw new RuntimeException('VM is not visible in current cluster.');
+    }
+    public function dispatchAction(ConnectorContext $context,string $action,array $resource,#[\SensitiveParameter] string $secret): string
+    {
+        $node=self::node($resource['node']??null);$id=$resource['vmid']??null;
+        if ($context->provider!=='proxmox'||!is_int($id)||$id<1||$id>999999999||!in_array($action,$this->actions(),true)) throw new RuntimeException('Invalid power action.');
+        $auth=self::authorization($context->credentialType,$secret);
+        try {
+            $path='/api2/json/nodes/'.$node.'/qemu/'.$id.'/status/'.($action==='vm.start'?'start':'shutdown');
+            $body=($this->https??new HttpsTransport())->powerPost($context->host,$context->port,$path,$auth,$this->caFile);
+            $task=HttpsTransport::jsonObject($body)->data??null;
+            $task=self::taskId($task,$node);
+            $parts=explode(':',$task);
+            if ($parts[5]!==($action==='vm.start'?'qmstart':'qmshutdown') || $parts[6]!== (string)$id) throw new RuntimeException('Remote task does not match requested action.');
+            return $task;
+        } finally { sodium_memzero($auth); }
+    }
+    private static function taskId(mixed $task,string $node):string
+    {
+        if (!is_string($task)||strlen($task)>512||!preg_match('/^UPID:'.preg_quote($node,'/').':[A-Fa-f0-9]+:[A-Fa-f0-9]+:[A-Fa-f0-9]+:[A-Za-z0-9_-]+:[A-Za-z0-9_.@!-]*:[A-Za-z0-9_.@!-]+:$/D',$task)) throw new RuntimeException('Invalid remote task identity.');
+        return $task;
+    }
+    public function actionStatus(ConnectorContext $context,string $node,string $task,#[\SensitiveParameter] string $secret): string
+    {
+        $node=self::node($node);self::taskId($task,$node);
+        $auth=self::authorization($context->credentialType,$secret);
+        try {
+            $body=($this->https??new HttpsTransport())->get($context->host,$context->port,'/api2/json/nodes/'.$node.'/tasks/'.rawurlencode($task).'/status',$auth,$this->caFile);
+            $data=HttpsTransport::jsonObject($body)->data??null;
+            if (!$data instanceof \stdClass) throw new RuntimeException('Invalid task status.');
+            return match($data->status??null) {
+                'running'=>'submitted',
+                'stopped'=>is_string($data->exitstatus??null)&&$data->exitstatus!==''?($data->exitstatus==='OK'?'succeeded':'failed'):throw new RuntimeException('Missing task result.'),
+                default=>throw new RuntimeException('Invalid task state.'),
+            };
+        } finally { sodium_memzero($auth); }
     }
 
     /** @return list<array{type:string,external_id:string,fields:array<string,string>}> */

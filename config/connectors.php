@@ -1,5 +1,7 @@
 <?php
 return [
+    'write_actions' => getenv('CONNECTOR_WRITE_ACTIONS') === 'true',
+    'extension_file' => getenv('CONNECTOR_EXTENSION_FILE') ?: '',
     // Operator-owned TLS CA and optional CIDR allowlist for outbound connector traffic.
     'proxmox_ca_file' => getenv('PROXMOX_CA_FILE') ?: '',
     'vmmanager_ca_file' => getenv('VMMANAGER_CA_FILE') ?: '',

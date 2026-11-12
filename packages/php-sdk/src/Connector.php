@@ -1,8 +1,5 @@
 <?php
+declare(strict_types=1);
 namespace Cajeer\ServersSdk;
-
-interface Connector
-{
-    public function health(): array;
-    public function sync(array $options = []): array;
-}
+/** SDK v1 driver ABI. Requires CajeerServers 0.4.8+ host runtime. */
+interface Connector extends \Cajeer\Servers\Connector\ConnectorInterface {}
