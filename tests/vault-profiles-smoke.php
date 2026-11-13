@@ -79,6 +79,9 @@ $reject('snmp_v3',['username'=>'monitor','auth_protocol'=>'sha256','auth_passphr
 $reject('snmp_v3',['username'=>'monitor','auth_protocol'=>'sha256','auth_passphrase'=>'test-super-secret', 'privacy_passphrase'=>'test-super-secret'],'missing SNMP privacy algorithm');
 $reject('snmp_v2c',['community'=>"bad\ncommunity"],'control characters in community');
 $reject('proxmox_api',['token_id'=>'bad-token','token_secret'=>'test-super-secret'],'invalid proxmox ID');
+$validExpiry=CredentialProfile::encode('vmmanager_api',['token'=>'test-super-secret','expires_at'=>'2030-02-28T12:00:00Z']);
+$ok(CredentialProfile::decodeForInternalUse('vmmanager_api',$validExpiry)['expires_at']==='2030-02-28T12:00:00Z','VMmanager encrypted expiry');
+foreach(['2030-02-30T12:00:00Z','2030-02-28 12:00:00','2030-02-28T12:00:00+01:00'] as $badExpiry) $reject('vmmanager_api',['token'=>'test-super-secret','expires_at'=>$badExpiry],'invalid expiry');
 $reject('vmmanager_api',['token'=>'short'],'short VMmanager token');
 $reject('ssh_private_key',['username'=>'deploy','private_key'=>'-----BEGIN OPENSSH PRIVATE KEY-----\ninvalid\n-----END OPENSSH PRIVATE KEY-----'],'invalid SSH key');
 $reject('api_token',['token'=>'test-super-secret'],'old API token must remain scalar');

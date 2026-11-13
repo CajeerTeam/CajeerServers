@@ -1,0 +1,24 @@
+# VMmanager 6 API Authentication & Capabilities — 0.7.2
+
+## Configuration
+
+Update files over 0.7.1. No database migration is required. Rebuild the Admin UI and restart PHP and collection workers. Existing `api_token` and `vmmanager_api` credentials remain valid; use a persistent integration token created by a VMmanager administrator in accordance with the vendor token lifetime procedure. Do not use a user's short-lived login token for scheduled jobs.
+
+1. Configure the target, CA/hostname and leaf SHA-256 pin and anchor node as in [0.7.1](VMmanager-Connection-Profile-0.7.1.md). Enable `VMMANAGER_REQUIRE_PROFILE=true` after configuring all targets.
+2. Create or rotate a Vault `vmmanager_api` credential using `{ "token": "<integration-token>", "expires_at": "2030-01-01T00:00:00Z" }`. The optional expiry is an operator-supplied UTC timestamp, not remotely discovered. Omit it if unknown. It is encrypted with the token. The legacy scalar `api_token` remains supported without expiry metadata. Use the actual remote lifetime, not the example date. Expired configured credentials fail before network I/O. The remote server remains authoritative about validity and revocation.
+3. Bind the credential to the target with purpose `api`. Perform an MFA health check in Admin UI → Connectors. The returned authentication includes verified owner/trustee IDs, whether `@admin` is present, and configured expiry or unknown. No emails, arbitrary roles, remote messages, or token values are exposed.
+4. Review live read probes: nodes, guests, clusters, tasks, networks, pools, addresses. `available` means the bounded GET returned a valid list (possibly empty); `denied` means HTTP 403, `not_found` means HTTP 404. These results do not prove complete visibility, feature absence, or permission to mutate a resource. Authentication, TLS, redirects, malformed responses, rate limits and service failures abort the check. Optional denied/not-found probes do not prevent successful node health.
+5. Review advertised start/stop/restart handlers from `GET /auth/v4/self/handles`. `advertised` means an exact corresponding POST template was returned, `not_advertised` means the service post list did not contain it, `unknown` means the list was unavailable. These are not permission grants for a specific guest and no POST is executed.
+6. Stage a new credential version, validate it through the existing MFA/Vault remote validation on each bound target, and activate it only after all required checks pass. Use a dedicated least-privilege integration account. The existing `api` binding remains read-only; action credentials and mutations are not part of this release.
+
+## Runtime behavior
+
+The allowlisted client uses `x-xsrf-token` over the target's HTTPS transport and pin. `GET /auth/v4/whoami` validates identity before and after inventory; a change of owner, trustee or administrator status aborts publication. For pinned targets anchor checks also run before and after the collection. All inventory calls use bounded keyset paging; scoped or delegated users yield incomplete snapshots, preventing missing-resource reconciliation. `@admin` with no delegation is used as a conservative prerequisite for complete inventory, not a guarantee of unfiltered server-side results. Read access is never treated as write authorization. Capabilities are measured on demand by health and are not cached authorization grants. Remote error envelopes are sanitized, including errors in HTTP 200. No retries or credential-bearing redirects are followed.
+
+The installed product version/edition and remote token expiry are not inferred from API v3/v4. Password login, automatic token minting/refresh, write-capability certification and VM operations are out of scope. The current release retains read-only VMmanager integration; subsequent collectors may use the shared client with explicitly reviewed endpoints.
+
+## Verification
+
+`python3 tests/vmmanager-https-integration.py` runs a real local TLS fixture against production PHP code. `--postgres` additionally exercises the PostgreSQL/Vault/runtime chain. `php tests/vault-profiles-smoke.php` tests encrypted profile validation. `php scripts/verify-release.php` runs the native release checks. A deployed VMmanager, PostgreSQL and built Admin UI are needed for live acceptance and browser verification.
+
+Vendor references: [API guide](https://www.ispsystem.ru/docs/vmmanager-admin/razrabotchiku/rabota-s-api-v2026052), [API examples](https://www.ispsystem.ru/docs/vmmanager-admin/razrabotchiku/primery-ispol-zovaniya-api-v2026052), [VM API](https://www.ispsystem.ru/docs/vmmanager-admin/razrabotchiku/api/vmmanager-api-v2026052), [Auth API](https://www.ispsystem.ru/docs/vmmanager-admin/razrabotchiku/api/auth-api-v4-v2026081), [IP API](https://www.ispsystem.ru/docs/vmmanager-admin/razrabotchiku/api/ipmanager-v2026081).

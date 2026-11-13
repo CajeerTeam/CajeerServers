@@ -21,6 +21,7 @@ HOSTS = [dict(id=21, name='vmm-guest-a', state=True, node={'id': 1}, cluster={'i
 class Handler(http.server.BaseHTTPRequestHandler):
     calls = []
     anchor_calls = 0
+    identity_calls = 0
 
     def log_message(self, *_):
         pass
@@ -68,13 +69,41 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.reply({'list': []}, truncated=True)
             return
         path = urlsplit(self.path)
+        if path.path == '/auth/v4/self/handles':
+            if token == 'fixture-vmm-capabilities':
+                self.reply({'error': {'code': 42}}, 403)
+            else:
+                self.reply({'user_id': 7, 'handles': {'vm_v3': {'post': ['/host/{host_id}/start', '/host/{id}/restart', '/host/{id}/stop/not-a-match'], 'get': ['/host']}}})
+            return
+        if path.path == '/auth/v4/whoami':
+            owner = 7
+            if token == 'fixture-vmm-identity-drift':
+                Handler.identity_calls += 1
+                if Handler.identity_calls > 1:
+                    owner = 8
+            if token == 'fixture-vmm-invalid-identity':
+                self.reply({'owner_id': 7, 'roles': {}})
+                return
+            roles = ['@user'] if token == 'fixture-vmm-scoped' else ['@admin']
+            self.reply({'owner_id': owner, 'owner_email': 'remote-secret-marker@example.test', 'roles': roles})
+            return
         args = parse_qs(path.query, strict_parsing=True)
         match = re.fullmatch(r'id GT (\d+)', args.get('where', [''])[0])
         limit_match = re.fullmatch(r'0,(1|100)', args.get('limit', [''])[0])
-        if path.path not in ('/vm/v3/node', '/vm/v3/host') or not match or not limit_match or args.get('orderby') != ['id asc']:
+        if path.path not in ('/vm/v3/node', '/vm/v3/host', '/vm/v3/cluster', '/vm/v3/task', '/ip/v3/ipnet', '/ip/v3/ippool', '/ip/v3/ip') or not match or not limit_match or args.get('orderby') != ['id asc']:
             self.reply({'error': {'code': 400}}, 400)
             return
         after, limit = int(match[1]), int(limit_match[1])
+        if path.path not in ('/vm/v3/node', '/vm/v3/host'):
+            if token == 'fixture-vmm-capabilities' and path.path == '/ip/v3/ipnet':
+                self.reply({'error': {'code': 42}}, 403)
+            elif token == 'fixture-vmm-capabilities' and path.path == '/vm/v3/task':
+                self.reply({'error': {'code': 42}}, 404)
+            elif token == 'fixture-vmm-cap-revoked':
+                self.reply({'error': {'code': 3001, 'msg': 'remote-secret-marker'}})
+            else:
+                self.reply({'list': []})
+            return
         if token == 'fixture-vmm-object':
             self.reply({'list': {}})
             return
@@ -92,6 +121,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 if Handler.anchor_calls > 1:
                     rows[0]['name'] = 'other-platform'
         if path.path.endswith('/host'):
+            if token == 'fixture-vmm-scoped':
+                rows = rows[:1]
             if token == 'fixture-vmm-rotated':
                 rows[0].update(name='vmm-guest-renamed', node={'id': 2})
             if token == 'fixture-vmm-missing':
@@ -145,6 +176,22 @@ $target=['provider'=>'vmmanager','endpoint_host'=>'vmmanager.test','endpoint_por
 $collected=$collector->collect(new \Cajeer\Servers\Collector\CollectionPlan('vmmanager.inventory','inspect'),$target,'vmmanager_api',$secret('fixture-vmm-active'));
 $ok(count($collected->items)===4&&$collected->complete,'named VMmanager collector');
 $health=$execute('fixture-vmm-active','health');$ok(count($health->items)===1&&!$health->complete,'health one-node partial');
+$ok($health->connection['authentication']['owner_id']===7&&$health->connection['authentication']['administrator']===true&&$health->connection['authentication']['expiry_source']==='unknown','verified remote principal');
+$ok(count($health->connection['capabilities'])===7&&$health->connection['capabilities']['tasks']==='available'&&!str_contains(json_encode($health->connection),'remote-secret-marker'),'real read probes, empty list accessible, no remote PII');
+$ok($health->connection['action_capabilities']===['start'=>'advertised','stop'=>'not_advertised','restart'=>'advertised'],'advertised handlers, exact template match');
+$restrictedHealth=$execute('fixture-vmm-capabilities','health')->connection;
+$ok($restrictedHealth['action_capabilities']['start']==='unknown','handler ACL not treated as write permission');
+$cap=$restrictedHealth['capabilities'];
+$ok($cap['networks']==='denied'&&$cap['tasks']==='not_found'&&$cap['guests']==='available','capability ACL and 404 distinct');
+$scoped=$execute('fixture-vmm-scoped');$ok(!$scoped->complete&&count($scoped->items)===3,'scoped identity cannot authorize missing-resource reconciliation');
+foreach(['identity-drift'=>'connector_auth_failed','invalid-identity'=>'connector_protocol_error','cap-revoked'=>'connector_auth_failed'] as $case=>$category){
+ try{$execute('fixture-vmm-'.$case,$case==='cap-revoked'?'health':'sync');throw new LogicException('accepted '.$case);}catch(HttpException $e){$ok($e->errorCode===$category,'reject '.$case);}
+}
+$expires=gmdate('Y-m-d\\TH:i:s\\Z',time()+3600);
+$r=$registry->execute($ctx,'health','api',json_encode(['token'=>'fixture-vmm-active','expires_at'=>$expires]));
+$ok($r->connection['authentication']['expires_at']===$expires&&$r->connection['authentication']['expiry_source']==='configured','configured expiry reported');
+try{$registry->execute($ctx,'health','api',json_encode(['token'=>'fixture-vmm-expired','expires_at'=>'2000-01-01T00:00:00Z']));throw new LogicException('expired token accepted');}catch(HttpException $e){$ok($e->errorCode==='connector_auth_failed','expired credential fails locally');}
+
 $many=$execute('fixture-vmm-many');$ok(count($many->items)===104&&$many->items[103]['external_id']==='host:1101','keyset pagination across more than 100 hosts');
 $short=$execute('fixture-vmm-short');$ok(count($short->items)===4&&$short->complete,'short pages still exhausted');
 $changed=$execute('fixture-vmm-rotated');$ok($changed->items[2]['external_id']==='host:21'&&$changed->items[2]['parent_external_id']==='node:2'&&$changed->items[2]['fields']['name']==='vmm-guest-renamed','stable ID on migration');
@@ -190,7 +237,7 @@ echo "VMmanager HTTPS integration: $n PASS\n";
 '''
             subprocess.run(['php','-r',code,str(ROOT),str(server.server_port),str(cert)],check=True,timeout=60)
             assert all(host == f'vmmanager.test:{server.server_port}' for _,host,_ in Handler.calls)
-            assert not any(token in ('fixture-vmm-wrong-pin','fixture-vmm-mandatory-missing') for _,_,token in Handler.calls), 'credentials sent before trust check'
+            assert not any(token in ('fixture-vmm-wrong-pin','fixture-vmm-mandatory-missing','fixture-vmm-expired') for _,_,token in Handler.calls), 'credentials sent before trust check'
             assert not any(path == '/redirect-destination' for path,_,_ in Handler.calls)
             assert any('id%20GT%201099' in path for path,_,_ in Handler.calls)
             if args.postgres:

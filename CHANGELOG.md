@@ -1,3 +1,10 @@
+## [0.7.2] — 2026-11-14 — API Authentication & Capabilities
+
+- VMmanager API client for auth/v4, vm/v3 and ip/v3 with bounded allowlisted read requests and safe error envelopes.
+- Authenticate via whoami before/after discovery, preserve principal consistency and disable missing-resource reconciliation for scoped/delegated credentials.
+- Health reports live read capability probes and configured credential expiry; Vault accepts optional UTC expiry and rejects expired credentials before I/O.
+- Admin/SDK/OpenAPI diagnostics and TLS regression coverage. Existing credential and profile schema unchanged; no migration required.
+
 ## [0.7.1] — 2026-11-13 — VMmanager Connection Profile
 
 - Persist scoped VMmanager TLS profiles, verify leaf SHA-256 before sending tokens and an exact visible node identity before/after discovery.

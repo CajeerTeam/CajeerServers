@@ -9,7 +9,10 @@ type Driver={provider:string;purpose:string;credentialTypes:string[];operations:
 const drivers=ref<Driver[]>([])
 type Workspace={id:string;name:string;role:string}
 type VmmProfile={primary_pin:string;anchor_id:number;anchor_node:string}
-type VmmConnection={provider:'vmmanager';api_version:'v3';endpoint_host:string;endpoint_port:number;tls_pinned:boolean;identity_verified:boolean;anchor_id?:number;anchor_node?:string}
+type VmmCapability='available'|'denied'|'not_found'
+type VmmActionCapability='advertised'|'not_advertised'|'unknown'
+type VmmAuth={status:'verified';api_version:'v4';owner_id:number;trustee_id:number;administrator:boolean;expiry_source:'configured'|'unknown';expires_at:string|null}
+type VmmConnection={provider:'vmmanager';api_version:'v3';endpoint_host:string;endpoint_port:number;tls_pinned:boolean;identity_verified:boolean;anchor_id?:number;anchor_node?:string;authentication?:VmmAuth;capabilities?:Record<string,VmmCapability>;action_capabilities?:Record<string,VmmActionCapability>}
 const vmmForm=reactive<VmmProfile>({primary_pin:'',anchor_id:1,anchor_node:''}),vmmConnection=ref<VmmConnection|null>(null)
 type PveProfile={cluster:string|null;anchor_node:string;anchor_id:number|null;primary_pin:string;fallbacks:{host:string;port:number;pin:string}[]}
 type PveConnection={version:string;cluster:string|null;anchor_node:string;anchor_id:number|null;endpoint_host:string;endpoint_port:number;failover:boolean;visible_members:number;quorate:boolean|null;permissions_visible?:boolean;root_privileges?:string[]}
@@ -270,6 +273,21 @@ onMounted(init)
         </form>
         <p v-if="active.vmmanager_profile">Опорный узел: {{active.vmmanager_profile.anchor_node}} ({{active.vmmanager_profile.anchor_id}}) · SHA-256: <code>{{active.vmmanager_profile.primary_pin}}</code></p>
         <dl v-if="vmmConnection" class="kv-grid"><div><dt>Платформа / API</dt><dd>VMmanager / {{vmmConnection.api_version}}</dd></div><div><dt>Endpoint</dt><dd>{{vmmConnection.endpoint_host}}:{{vmmConnection.endpoint_port}}</dd></div><div><dt>TLS pin</dt><dd>{{vmmConnection.tls_pinned?'Проверен':'Не настроен'}}</dd></div><div><dt>Идентичность узла</dt><dd>{{vmmConnection.identity_verified?'Подтверждена':'Не проверена'}}</dd></div></dl>
+        <section v-if="vmmConnection?.authentication" data-testid="vmmanager-authentication">
+          <h3>Авторизация API</h3>
+          <dl class="kv-grid"><div><dt>Сервис</dt><dd>auth/{{vmmConnection.authentication.api_version}} · подтверждена</dd></div><div><dt>Пользователь / делегат</dt><dd>{{vmmConnection.authentication.owner_id}} / {{vmmConnection.authentication.trustee_id}}</dd></div><div><dt>Роль</dt><dd>{{vmmConnection.authentication.administrator?'Администратор':'Ограниченная учётная запись'}}</dd></div><div><dt>Срок действия (UTC)</dt><dd>{{vmmConnection.authentication.expires_at||'Неизвестен'}}</dd></div></dl>
+          <p class="muted small">Срок указан в Vault, если настроен. Доступность проверена удалённым API; срок не подтверждается whoami.</p>
+        </section>
+        <section v-if="vmmConnection?.capabilities" data-testid="vmmanager-capabilities">
+          <h3>Доступность API для чтения</h3>
+          <table><thead><tr><th>Раздел</th><th>Проверка</th></tr></thead><tbody><tr v-for="(status, key) in vmmConnection.capabilities" :key="key"><td>{{key}}</td><td>{{status==='available'?'Доступен':status==='denied'?'Нет прав':'Endpoint не найден'}}</td></tr></tbody></table>
+          <p class="muted small">Проверка GET не подтверждает полноту видимых ресурсов или разрешения на изменение.</p>
+        </section>
+        <section v-if="vmmConnection?.action_capabilities" data-testid="vmmanager-action-capabilities">
+          <h3>Объявленные права на операции</h3>
+          <table><thead><tr><th>Операция</th><th>Объявлена API</th></tr></thead><tbody><tr v-for="(status, key) in vmmConnection.action_capabilities" :key="key"><td>{{key}}</td><td>{{status==='advertised'?'Да':status==='not_advertised'?'Нет':'Неизвестно'}}</td></tr></tbody></table>
+          <p class="muted small">Данные auth/v4/self/handles. Не являются подтверждением доступа к конкретной VM. Выполнение операций в 0.7.2 отключено.</p>
+        </section>
       </section>
       <section v-if="active&&canManage" class="panel"><h2>Настройки: {{active.name}}</h2><form @submit.prevent="editTarget"><div class="form-row"><label>Название подключения<input v-model="edit.name" required maxlength="120" data-testid="connector-edit-name" /></label><label>Адрес подключения<input v-model="edit.endpoint_host" required maxlength="253" /></label><label>Порт подключения<input v-model.number="edit.endpoint_port" type="number" min="1" max="65535" required /></label></div><button class="btn" :disabled="busy">Сохранить настройки</button><button class="btn" type="button" :disabled="busy" @click="open(active)">Загрузить текущие настройки</button></form></section>
       <section v-if="active" class="panel"><h2>Credentials: {{active.name}}</h2><NuxtLink v-if="!busy&&auth.can('inventory.assets.read')&&['proxmox','pbs'].includes(active.provider)" class="btn" :to="proxmoxUrl(workspace,active.id,active.provider==='pbs'?'backups':'overview')">Открыть панель Proxmox</NuxtLink>

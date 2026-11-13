@@ -8,12 +8,13 @@ use RuntimeException;
 /** VMmanager 6 Hosting/Infrastructure, VM API v3, read-only token authentication. */
 final class VmmanagerConnector implements ConnectorInterface, \Cajeer\Servers\Metrics\MetricDriver
 {
+    private readonly VmmanagerApiClient $api;
     private const PAGE = 100;
     private const LIMIT = 2000;
     private const DEADLINE = 60;
     private const MAX_PAGES = 64;
 
-    public function __construct(private readonly HttpsTransport $https, private readonly ?string $caFile = null, private readonly bool $requireProfile = false) {}
+    public function __construct(private readonly HttpsTransport $https, private readonly ?string $caFile = null, private readonly bool $requireProfile = false) { $this->api=new VmmanagerApiClient($https,$caFile); }
 
     public function manifest(): ConnectorManifest
     {
@@ -30,12 +31,18 @@ final class VmmanagerConnector implements ConnectorInterface, \Cajeer\Servers\Me
         if($this->requireProfile && $context->vmmanagerProfile===null) throw new ConnectorTransportException('connector_trust_failed');
         $decoded = CredentialProfile::decodeForInternalUse($context->credentialType,$secret);
         $token = is_array($decoded) ? $decoded['token'] : $decoded;
+        $expiresAt=is_array($decoded)?($decoded['expires_at']??null):null;
         unset($decoded);
         try {
             if (strlen($token)<8 || strlen($token)>8192 || preg_match('/[^\x21-\x7e]/D',$token)) {
                 throw new RuntimeException('Invalid VMmanager token format.');
             }
             $deadline = microtime(true)+self::DEADLINE;
+            if($expiresAt!==null){
+                $expiry=(new \DateTimeImmutable($expiresAt))->getTimestamp();
+                if($expiry<=time()) throw new ConnectorTransportException('connector_auth_failed');
+                $deadline=min($deadline,(float)$expiry);
+            }
             $profile=$context->vmmanagerProfile;
             $connection=['provider'=>'vmmanager','api_version'=>'v3','endpoint_host'=>$context->host,'endpoint_port'=>$context->port,'tls_pinned'=>$profile!==null,'identity_verified'=>false];
             $anchor=[];
@@ -44,9 +51,15 @@ final class VmmanagerConnector implements ConnectorInterface, \Cajeer\Servers\Me
                 $connection['identity_verified']=true;
                 $connection['anchor_id']=$profile['anchor_id'];$connection['anchor_node']=$profile['anchor_node'];
             }
+            $identity=$this->api->identity($context,$token,$deadline);
+            $connection['authentication']=$identity+['status'=>'verified','api_version'=>'v4','expiry_source'=>$expiresAt===null?'unknown':'configured','expires_at'=>$expiresAt];
             if ($operation==='health') {
                 $page=$profile!==null?$anchor:$this->page($context,'node',0,1,$token,$deadline);
                 if ($page===[]) throw new RuntimeException('VMmanager returned no visible nodes.');
+                $connection['capabilities']=$this->api->capabilities($context,$token,$deadline);
+                $connection['action_capabilities']=$this->api->actionCapabilities($context,$token,$deadline,$identity);
+                if($profile!==null) $this->anchor($context,$token,$deadline);
+                if($this->api->identity($context,$token,$deadline)!==$identity) throw new ConnectorTransportException('connector_auth_failed');
                 return new ConnectorResult(self::observations($page,[]),false,connection:$connection);
             }
             $nodes=$this->collect($context,'node',$token,$deadline,self::LIMIT);
@@ -56,7 +69,9 @@ final class VmmanagerConnector implements ConnectorInterface, \Cajeer\Servers\Me
                 VmmanagerProfile::verify($profile,array_values(array_filter($nodes,static fn($row)=>$row['id']===$profile['anchor_id'])));
                 $this->anchor($context,$token,$deadline);
             }
-            return new ConnectorResult(self::observations($nodes,$hosts),true,connection:$connection);
+            if($this->api->identity($context,$token,$deadline)!==$identity) throw new ConnectorTransportException('connector_auth_failed');
+            // A scoped user may see only a subset. Never use such a snapshot to mark other resources missing.
+            return new ConnectorResult(self::observations($nodes,$hosts),$identity['administrator']&&$identity['owner_id']===$identity['trustee_id'],connection:$connection);
         } finally { sodium_memzero($token); }
     }
 
@@ -96,25 +111,10 @@ final class VmmanagerConnector implements ConnectorInterface, \Cajeer\Servers\Me
 
     private function page(ConnectorContext $context,string $kind,int $after,int $limit,#[\SensitiveParameter] string $token,float $deadline,bool $strictName=false):array
     {
-        if (microtime(true)>=$deadline) throw new RuntimeException('VMmanager discovery deadline exceeded.');
-        // API v3 filter syntax, not URL supplied by remote data or user input.
-        $path='/vm/v3/'.$kind.'?where=id%20GT%20'.$after.'&orderby=id%20asc&limit=0%2C'.$limit;
-        $body=$this->https->get($context->host,$context->port,$path,$token,$this->caFile,'x-xsrf-token',$context->vmmanagerProfile['primary_pin']??null);
-        if (microtime(true)>=$deadline) throw new RuntimeException('VMmanager discovery deadline exceeded.');
-        $decoded=HttpsTransport::jsonObject($body);
-        if (property_exists($decoded,'error')) {
-            $code=$decoded->error instanceof \stdClass?($decoded->error->code??null):null;
-            throw new ConnectorTransportException(in_array($code,[3001,'3001',5112,'5112'],true)?'connector_auth_failed':'connector_protocol_error');
-        }
-        if (!isset($decoded->list) || !is_array($decoded->list) || count($decoded->list)>$limit) {
-            throw new ConnectorTransportException('connector_protocol_error');
-        }
-        $last=$after; $rows=[];
-        foreach ($decoded->list as $row) {
-            if (!$row instanceof \stdClass) throw new RuntimeException('Invalid VMmanager record.');
+        $batch=$this->api->page($context,$kind==='node'?'nodes':'guests',$after,$limit,$token,$deadline);
+        $rows=[];
+        foreach ($batch as $row) {
             $id=self::id($row->id??null);
-            if ($id<=$last) throw new RuntimeException('VMmanager pagination returned duplicate or unordered IDs.');
-            $last=$id;
             // Keep only the fields consumed by the mapper; discard bulky or sensitive remote metadata.
             if($strictName && (!is_string($row->name??null)||self::name($row->name,'')!==$row->name||$row->name==='')) throw new ConnectorTransportException('connector_trust_failed');
             $state=$row->state??null;

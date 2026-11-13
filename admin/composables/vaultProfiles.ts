@@ -45,7 +45,7 @@ export function vaultFieldOptions(field: string): readonly string[] {
 
 /** Browser never displays secret fields in cleartext; identifiers are still editable. */
 export function vaultFieldIsSensitive(field: string): boolean {
-  return !['username', 'token_id'].includes(field) && !vaultFieldOptions(field).length
+  return !['username', 'token_id', 'expires_at'].includes(field) && !vaultFieldOptions(field).length
 }
 
 export function vaultSecretPayload(profile: VaultProfile, scalar: string, fields: Record<string, string>): string | Record<string, string> {

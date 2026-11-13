@@ -20,7 +20,7 @@ final class CredentialProfile
         'generic_secret' => ['fields'=>['secret'], 'optional'=>[], 'note'=>'Opaque UTF-8 secret'],
         'api_token' => ['fields'=>['secret'], 'optional'=>[], 'note'=>'Opaque API token (legacy scalar format)'],
         'proxmox_api' => ['fields'=>['token_id','token_secret'], 'optional'=>[], 'note'=>'Proxmox VE API token'],
-        'vmmanager_api' => ['fields'=>['token'], 'optional'=>[], 'note'=>'VMmanager API token'],
+        'vmmanager_api' => ['fields'=>['token'], 'optional'=>['expires_at'], 'note'=>'VMmanager API token; optional expiry in UTC YYYY-MM-DDTHH:MM:SSZ'],
         'ssh_password' => ['fields'=>['username','password'], 'optional'=>[], 'note'=>'SSH user and password'],
         'ssh_private_key' => ['fields'=>['username','private_key'], 'optional'=>['passphrase'], 'note'=>'SSH private key (PEM / OpenSSH)'],
         'winrm' => ['fields'=>['username','password'], 'optional'=>['auth'], 'note'=>'WinRM / PowerShell credentials (0.4.5 runtime: auth=basic over verified HTTPS)'],
@@ -105,6 +105,7 @@ final class CredentialProfile
         return match ($field) {
             'username' => self::identity($value, $type==='winrm'?256:128),
             'token_id' => self::tokenId($value),
+            'expires_at' => self::utcExpiry($value),
             'token','token_secret' => self::bounded($value, 8, 8192, false),
             'password' => self::bounded($value, 1, 8192, false),
             'passphrase' => self::bounded($value, 1, 8192, false),
@@ -116,6 +117,14 @@ final class CredentialProfile
             'auth_passphrase','privacy_passphrase' => self::bounded($value, 8, 255, false),
             default => self::invalidField(),
         };
+    }
+
+    private static function utcExpiry(mixed $value): string
+    {
+        if (!is_string($value)||!preg_match('/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$/D',$value)) self::reject();
+        $date=\DateTimeImmutable::createFromFormat('!Y-m-d\\TH:i:s\\Z',$value,new \DateTimeZone('UTC'));
+        if ($date===false||$date->format('Y-m-d\\TH:i:s\\Z')!==$value) self::reject();
+        return $value;
     }
 
     private static function invalidField(): never { self::reject(); }

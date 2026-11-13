@@ -1,7 +1,7 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.7.1
+  version: 0.7.2
   description: 'CajeerServers 0.7.1: VMmanager connection profiles, PVE/PBS integration and infrastructure collection.'
 servers:
 - url: /api/v1
@@ -11785,6 +11785,25 @@ components:
         identity_verified: {type: boolean}
         anchor_id: {type: integer}
         anchor_node: {type: string}
+        authentication:
+          type: object
+          required: [status, api_version, owner_id, trustee_id, administrator, expiry_source, expires_at]
+          properties:
+            status: {const: verified}
+            api_version: {const: v4}
+            owner_id: {type: integer, minimum: 1}
+            trustee_id: {type: integer, minimum: 1}
+            administrator: {type: boolean}
+            expiry_source: {type: string, enum: [configured, unknown]}
+            expires_at: {type: [string, 'null'], format: date-time}
+        capabilities:
+          type: object
+          description: Live GET probes (health only); not write permissions or proof of full resource visibility.
+          additionalProperties: {type: string, enum: [available, denied, not_found]}
+        action_capabilities:
+          type: object
+          description: Advertised auth/v4/self/handles permissions; not resource authorization or verified mutations.
+          additionalProperties: {type: string, enum: [advertised, not_advertised, unknown]}
     ProxmoxProfile:
       type: object
       additionalProperties: false

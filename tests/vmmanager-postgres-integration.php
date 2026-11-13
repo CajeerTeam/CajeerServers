@@ -83,7 +83,8 @@ try {
     $ok($execution->once()['status']==='succeeded'&&$execution->status($actor,$id,$queued['id'])['status']==='succeeded'&&$count()===$before+4,'worker runs without session, no duplicates');
     $ok($execution->tick()===1&&$execution->once()['status']==='succeeded'&&$count()===$before+4,'scheduler executes VMmanager');
     $pdo->prepare('UPDATE auth_sessions SET revoked_at=NULL WHERE id=:id')->execute(['id'=>$session['id']]);
-    $pending=$versions->stage($actor,$cid,1,['token'=>'fixture-vmm-rotated']);
+    $expiry=gmdate('Y-m-d\\TH:i:s\\Z',time()+3600);
+    $pending=$versions->stage($actor,$cid,1,['token'=>'fixture-vmm-rotated','expires_at'=>$expiry]);
     $reject(409,fn()=>$versions->activate($actor,$cid,$pending['version'],$pending['secret_version'],true),'VMmanager pending proof required');
     $authorize();$proof=$runtime->validatePending($principal,$id,2,$pending['secret_version']);
     $ok($proof['required_targets']===1&&$proof['validated_targets']===1&&$count()===$before+4,'actual TLS validation with pending token, no Inventory write');
@@ -111,6 +112,7 @@ try {
     $reject(412,fn()=>$bindings->runtimeContext($actor,$id,2,'health'),'old profile revision fenced');
     $authorize();$verified=$runtime->health($principal,$id,3);
     $ok($verified['connection']['identity_verified']===true,'updated profile health verified through Vault');
+    $ok($verified['connection']['authentication']['owner_id']===7&&$verified['connection']['authentication']['expires_at']===$expiry&&$verified['connection']['capabilities']['guests']==='available','rotation expiry and remote authorization diagnostics through Vault');
     echo "VMmanager PostgreSQL/Vault/Queue/HTTPS integration: $n PASS\n";
 } catch(Throwable $e){$failed=true;fwrite(STDERR,'FAIL VMmanager PostgreSQL: '.$e::class.': '.$e->getMessage()."\n");}
 finally {

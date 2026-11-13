@@ -288,7 +288,7 @@ onMounted(() => { void init() })
                   <option value="">Выберите значение</option><option v-for="opt in vaultFieldOptions(field)" :key="opt" :value="opt">{{ opt }}</option>
                 </select>
                 <textarea v-else-if="field === 'private_key'" :id="`vault-create-${field}`" v-model="createFields[field]" rows="7" :required="createProfile.required_fields.includes(field)" autocomplete="off" spellcheck="false" />
-                <input v-else :id="`vault-create-${field}`" v-model="createFields[field]" :type="vaultFieldIsSensitive(field) ? 'password' : 'text'" :required="createProfile.required_fields.includes(field)" autocomplete="off" spellcheck="false" />
+                <input v-else :id="`vault-create-${field}`" v-model="createFields[field]" :placeholder="field === 'expires_at' ? 'YYYY-MM-DDTHH:MM:SSZ' : undefined" :type="vaultFieldIsSensitive(field) ? 'password' : 'text'" :required="createProfile.required_fields.includes(field)" autocomplete="off" spellcheck="false" />
               </div>
             </div>
           </template>
@@ -354,7 +354,7 @@ onMounted(() => { void init() })
                     <option value="">Выберите значение</option><option v-for="opt in vaultFieldOptions(field)" :key="opt" :value="opt">{{ opt }}</option>
                   </select>
                   <textarea v-else-if="field === 'private_key'" :id="`vault-operation-${field}`" v-model="operationFields[field]" rows="7" :required="activeProfile.required_fields.includes(field)" autocomplete="off" spellcheck="false" />
-                  <input v-else :id="`vault-operation-${field}`" v-model="operationFields[field]" :type="vaultFieldIsSensitive(field) ? 'password' : 'text'" :required="activeProfile.required_fields.includes(field)" autocomplete="off" spellcheck="false" />
+                  <input v-else :id="`vault-operation-${field}`" v-model="operationFields[field]" :placeholder="field === 'expires_at' ? 'YYYY-MM-DDTHH:MM:SSZ' : undefined" :type="vaultFieldIsSensitive(field) ? 'password' : 'text'" :required="activeProfile.required_fields.includes(field)" autocomplete="off" spellcheck="false" />
                 </div>
               </div>
             </template>
