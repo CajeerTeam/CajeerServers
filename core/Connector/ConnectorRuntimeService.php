@@ -167,6 +167,7 @@ final class ConnectorRuntimeService
                     $this->audit->record($pdo,$actor,'collection.metrics.saved','success','connector_target',$targetId,$result['metrics'],$requestId);
                 }
                 if ($collection!==null) $result['collection']=$collection;
+                if(($collection['collector']??null)==='proxmox.cluster')ProxmoxClusterStore::save($pdo,$target,$snapshot->connection['cluster_discovery'],$collection['observed_at']);
                 $this->audit->record($pdo,$actor,$operation==='health'?'connector.health.checked':'connector.inventory.inspected',
                     'success','connector_target',$targetId,['count'=>count($items)],$requestId);
                 if ($complete!==null) $complete($pdo,$result);
@@ -189,11 +190,19 @@ final class ConnectorRuntimeService
                 ['count'=>count($items),'complete'=>$snapshot->complete,'blocked'=>$delta['snapshot']['blocked']],$requestId);
             $result=['connector_id'=>$targetId,'mode'=>'sync','discovered'=>count($items),'types'=>$summary,...$delta];
             if ($collection!==null) $result['collection']=$collection;
+            if(($collection['collector']??null)==='proxmox.cluster')ProxmoxClusterStore::save($pdo,$target,$snapshot->connection['cluster_discovery'],$observedAt);
             if($snapshot->connection!==[])$result['connection']=$snapshot->connection;
             if ($complete!==null) $complete($pdo,$result);
             return $result;
         });
         return $result;
+    }
+    public function proxmoxCluster(string $actor,string $targetId):array
+    {
+        (new Rbac($this->db,$this->audit))->requireUserPermission($actor,'inventory.assets.read');
+        $target=$this->bindings->show($actor,$targetId);
+        if($target['provider']!=='proxmox')throw new HttpException(404,'Proxmox target not found.','not_found');
+        return ProxmoxClusterStore::read($this->db->connection(),$target);
     }
     public function metricSeries(string $actor,string $targetId,int $limit,int $offset,?string $metric):array
     {

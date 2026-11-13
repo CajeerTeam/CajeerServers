@@ -398,6 +398,7 @@ return static function (Router $router, ServiceContainer $container): void {
                 ],'additionalProperties'=>false,
             ]);
             $connectors->delete('/targets/{id}/service-grants/{grantId}',static fn(HttpRequest $r):HttpResponse=>$handler()->revokeGrant($r));
+            $connectors->get('/targets/{id}/proxmox-cluster',static fn(HttpRequest $r):HttpResponse=>$handler()->proxmoxCluster($r));
             $connectors->get('/targets/{id}/metric-series',static fn(HttpRequest $r):HttpResponse=>$handler()->metricSeries($r));
             $connectors->get('/targets/{id}/metric-series/{seriesId}/samples',static fn(HttpRequest $r):HttpResponse=>$handler()->metricQuery($r));
             $connectors->get('/targets/{id}/collection-plans',static fn(HttpRequest $r):HttpResponse=>$handler()->collectionPlans($r));

@@ -23,7 +23,7 @@ try{
     $db=new DatabaseManager(new ConfigRepository($root.'/config'),new ConnectionFactory(),['driver'=>'pgsql','host'=>getenv('CAJEER_PG_TEST_HOST')?:'127.0.0.1','port'=>getenv('CAJEER_PG_TEST_PORT')?:'5432','database'=>getenv('CAJEER_PG_TEST_DATABASE'),'username'=>getenv('CAJEER_PG_TEST_USERNAME')?:'cajeer','password'=>getenv('CAJEER_PG_TEST_PASSWORD')?:'','sslmode'=>getenv('CAJEER_PG_TEST_SSLMODE')?:'prefer']);
     $pdo=$db->connection();$ok((int)$pdo->query("SELECT current_setting('server_version_num')")->fetchColumn()>=170000,'PG17+');
     $pdo->exec('CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public');$pdo->exec('CREATE SCHEMA "'.$schema.'"');$created=true;$pdo->exec('SET search_path TO "'.$schema.'",public');
-    foreach(glob($root.'/migrations/pgsql/*.sql') as $f)if(basename($f)!=='0037_proxmox_profiles.sql')copy($f,$dir.'/'.basename($f));
+    foreach(glob($root.'/migrations/pgsql/*.sql') as $f)if(strcmp(basename($f),'0037_proxmox_profiles.sql')<0)copy($f,$dir.'/'.basename($f));
     $runner=new MigrationRunner($db,$dir);$runner->run();
     $password='fixture-only-password-123!';$q=$pdo->prepare('INSERT INTO users(email,name,password_hash,two_factor_enabled) VALUES(:email,:name,:hash,true) RETURNING id::text');
     $user=static function(string $name)use($q,$password):string{$q->execute(['email'=>$name.'@example.invalid','name'=>$name,'hash'=>password_hash($password,PASSWORD_ARGON2ID)]);return (string)$q->fetchColumn();};
@@ -36,9 +36,10 @@ try{
     $ok($runner->run()['applied']===['0037_proxmox_profiles']&&$runner->validate()['valid']&&$runner->run()['applied']===[],'0.6.0 upgrade and replay');
     $audit=new AuditLogger($db);$repo=new InventoryRepository();$inventory=new InventoryService($db,$repo,$audit);$rbac=new Rbac($db,$audit);
     $key=new VaultMasterKey('base64:'.base64_encode(random_bytes(32)));$crypto=new VaultCrypto($key);$vault=new CredentialsVault($db,$crypto,$key);$vault->initialize();$store=new CredentialStore($db,$repo,$vault,$crypto,$audit);
-    $calls=0;$driver=new ProxmoxConnector(static function(string $url,string $auth,?string $ca)use(&$calls):string{
-        $calls++;if($auth!=='PVEAPIToken=svc@pve!read=fixture-secret')throw new RuntimeException('wrong Vault credential');
-        return json_encode(['data'=>match(parse_url($url,PHP_URL_PATH)){'/api2/json/version'=>['version'=>'9.0.3'],'/api2/json/cluster/status'=>[['type'=>'cluster','name'=>'prod','quorate'=>1],['type'=>'node','name'=>'pve-a','nodeid'=>1,'local'=>1]],'/api2/json/access/permissions'=>['/'=>['Sys.Audit'=>1]],'/api2/json/nodes'=>[['node'=>'pve-a','status'=>'online']],'/api2/json/cluster/resources'=>[['type'=>'qemu','node'=>'pve-a','vmid'=>100,'status'=>'running']],default=>throw new RuntimeException('unexpected path')}],JSON_THROW_ON_ERROR);
+    $calls=0;$clusterMode='ok';$driver=new ProxmoxConnector(static function(string $url,string $auth,?string $ca)use(&$calls,&$clusterMode):string{
+        $calls++;if(parse_url($url,PHP_URL_PATH)==='/api2/json/nodes/pve-a/status'&&$clusterMode==='denied')throw \Cajeer\Servers\Connector\ConnectorTransportException::forStatus(403);
+        if($auth!=='PVEAPIToken=svc@pve!read=fixture-secret')throw new RuntimeException('wrong Vault credential');
+        return json_encode(['data'=>match(parse_url($url,PHP_URL_PATH)){'/api2/json/version'=>['version'=>'9.0.3'],'/api2/json/cluster/status'=>[['type'=>'cluster','name'=>'prod','quorate'=>$clusterMode==='denied'?0:1,'nodes'=>1,'version'=>5],['type'=>'node','name'=>'pve-a','nodeid'=>1,'local'=>1,'online'=>1]],'/api2/json/access/permissions'=>['/'=>['Sys.Audit'=>1]],'/api2/json/nodes'=>[['node'=>'pve-a','status'=>'online']],'/api2/json/cluster/resources'=>[['type'=>'qemu','node'=>'pve-a','vmid'=>100,'status'=>'running']],'/api2/json/nodes/pve-a/status'=>['cpuinfo'=>['cpus'=>16,'model'=>'Fixture CPU'],'memory'=>['total'=>34359738368,'used'=>4294967296],'uptime'=>1234],default=>throw new RuntimeException('unexpected path')}],JSON_THROW_ON_ERROR);
     });
     $registry=new ConnectorRegistry($driver);$bindings=new ConnectorBindingService($db,$repo,$audit,$registry);
     $old=$bindings->show($actor,$legacy);$ok($old['proxmox_profile']===null&&$old['version']===1,'legacy target unchanged');
@@ -61,7 +62,33 @@ try{
     $authorize();$health=$runtime->health($principal,$id,2);$ok($health['connection']['version']==='9.0.3'&&$health['connection']['root_privileges']===['Sys.Audit']&&$calls===4,'MFA Vault health runtime');
     $authorize();$grant=$exec->issue($principal,$id,2,'inspect',3600);$run=$exec->enqueue($actor,$id,$grant['id'],'pve-profile-run','proxmox.inventory');
     $ok($exec->once()['status']==='succeeded','worker actual profiled read');$result=$exec->status($actor,$id,$run['id']);$ok($result['result']['connection']['cluster']==='prod'&&$result['result']['collection']['complete']===false,'saved profiled collection');
-    $changed=$bindings->update($actor,$id,2,['proxmox_profile'=>array_replace($profile,['primary_pin'=>str_repeat('b',64)])]);$ok($changed['version']===3,'pin update fences grants');
+    copy($root.'/migrations/pgsql/0038_proxmox_cluster_discovery.sql',$dir.'/0038_proxmox_cluster_discovery.sql');
+    $ok($runner->run()['applied']===['0038_proxmox_cluster_discovery']&&$runner->validate()['valid']&&$runner->run()['applied']===[],'0.6.1 upgrade and migration replay');
+    $ok($runtime->proxmoxCluster($actor,$id)['state']==='not_collected','initial current state');
+    $authorize();$syncGrant=$exec->issue($principal,$id,2,'sync',3600);
+    $guestRun=$exec->enqueue($actor,$id,$syncGrant['id'],'pve-existing-guest','proxmox.inventory');
+    $ok($exec->once()['status']==='succeeded','legacy guest Inventory sync');
+    $resources=static function()use($pdo,$id):array{$q=$pdo->prepare('SELECT external_id,asset_id::text,presence,missed_complete,parent_external_id FROM connector_discovered_resources WHERE target_id=:id');$q->execute(['id'=>$id]);return array_column($q->fetchAll(PDO::FETCH_ASSOC),null,'external_id');};
+    $before=$resources();$ok(isset($before['qemu:100']['asset_id'],$before['node:pve-a']['asset_id']),'guest and node exist before cluster discovery');
+    $authorize();$plan=$exec->createPlan($principal,$id,2,['name'=>'Cluster discovery','collector'=>'proxmox.cluster','operation'=>'sync','ttl_seconds'=>3600,'interval_seconds'=>60]);
+    $run=$exec->runPlan($actor,$id,$plan['id'],'pve-cluster-1');
+    $ok($exec->once()['status']==='succeeded','cluster plan worker');
+    $state=$runtime->proxmoxCluster($actor,$id);$snapshot=$state['snapshot'];
+    $ok($state['state']==='available'&&$snapshot['cluster']['quorate']&&$snapshot['nodes'][0]['last_details']['cpu']['logical_cpus']===16,'saved current hardware');
+    $after=$resources();$ok($after['node:pve-a']['asset_id']===$before['node:pve-a']['asset_id']&&$after['node:pve-a']['parent_external_id']==='cluster:prod'&&isset($after['cluster:prod']['asset_id']),'stable node UUID and cluster parent');
+    $ok($after['qemu:100']['asset_id']===$before['qemu:100']['asset_id']&&(int)$after['qemu:100']['missed_complete']===0,'cluster-only snapshot never marks guests absent');
+    $clusterMode='denied';$pdo->prepare("UPDATE collection_plans SET next_due_at=clock_timestamp()-interval '1 second' WHERE id=:id")->execute(['id'=>$plan['id']]);
+    $ok($exec->tick()>=1&&$exec->once()['status']==='succeeded','scheduled partial cluster run succeeds');
+    $state2=$runtime->proxmoxCluster($actor,$id);$node=$state2['snapshot']['nodes'][0];
+    $ok(!$state2['snapshot']['cluster']['quorate']&&$node['details_state']==='permission_denied'&&$node['details']===null&&$node['last_details_observed_at']===$snapshot['nodes'][0]['last_details_observed_at'],'partial state preserves previous timestamp');
+    $ok($resources()['cluster:prod']['asset_id']===$after['cluster:prod']['asset_id'],'stable cluster UUID');
+    $history=$exec->runs($actor,$id,50,0,null,'proxmox.cluster');$ok(count($history)===2&&!isset($history[0]['result']['connection']['cluster_discovery']['nodes']),'filtered bounded history');
+    $detail=$exec->status($actor,$id,$run['id']);$ok($detail['result']['connection']['cluster_discovery']['nodes'][0]['details']['cpu']['logical_cpus']===16,'historical snapshot immutable');
+    $reject(403,fn()=>$runtime->proxmoxCluster($other,$id));
+    $pdo->prepare("INSERT INTO user_roles(user_id,role_id) SELECT :id,id FROM roles WHERE slug='administrator'")->execute(['id'=>$other]);
+    $reject(404,fn()=>$runtime->proxmoxCluster($other,$id));
+    $exec->setPlanEnabled($actor,$id,$plan['id'],false);
+    $changed=$bindings->update($actor,$id,2,['proxmox_profile'=>array_replace($profile,['primary_pin'=>str_repeat('b',64)])]);$ok($changed['version']===3,'pin update fences grants');$ok($runtime->proxmoxCluster($actor,$id)['state']==='stale','profile revision invalidates current state');
     $reject(412,fn()=>$bindings->update($actor,$id,2,['proxmox_profile'=>$profile]));
     try{$exec->enqueue($actor,$id,$grant['id'],'pve-old-grant','proxmox.inventory');throw new RuntimeException('stale grant accepted');}catch(HttpException $e){$ok(in_array($e->status,[403,409,412],true),'stale grant rejected');}
     $ok(!str_contains(json_encode($changed),'fixture-secret'),'no plaintext in target');

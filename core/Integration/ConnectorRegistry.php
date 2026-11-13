@@ -56,6 +56,16 @@ final class ConnectorRegistry
         }
         catch (\Throwable) { throw new HttpException(502,'Remote connector returned an invalid or unsupported response.','connector_protocol_error'); }
     }
+    public function supportsClusterDiscovery():bool
+    {return ($this->drivers['proxmox']??null) instanceof \Cajeer\Servers\Connector\ProxmoxConnector;}
+    public function cluster(ConnectorContext $context,string $operation,string $purpose,#[\SensitiveParameter] string $secret):ConnectorResult
+    {
+        $driver=$this->require($context->provider,$operation);
+        if(!$driver instanceof \Cajeer\Servers\Connector\ProxmoxConnector||!in_array($operation,['inspect','sync'],true)||!$this->metadata['proxmox']->accepts($context->credentialType,$purpose))throw new HttpException(403,'Cluster collection not permitted.','permission_denied');
+        try{return $driver->cluster($context,$secret)->validated($this->metadata['proxmox']);}
+        catch(ConnectorTransportException $e){throw new HttpException(502,$e->getMessage(),$e->category);}
+        catch(\Throwable){throw new HttpException(502,'Invalid cluster discovery result.','connector_protocol_error');}
+    }
     public function supportsMetrics(string $provider):bool
     {return ($this->drivers[$provider]??null) instanceof \Cajeer\Servers\Metrics\MetricDriver;}
     public function metrics(ConnectorContext $context,string $purpose,#[\SensitiveParameter] string $secret):array

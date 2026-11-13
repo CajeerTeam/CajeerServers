@@ -16,7 +16,7 @@ final class ProxmoxConnector implements ConnectorInterface, ConnectorActionDrive
     public function manifest(): ConnectorManifest
     {
         return new ConnectorManifest('proxmox','api',['proxmox_api','api_token'],
-            ['inspect','sync','validate_rotation','health'],['hypervisor_node','virtual_machine','container'],'https');
+            ['inspect','sync','validate_rotation','health'],['hypervisor_node','virtual_machine','container','cluster'],'https');
     }
 
     public function execute(ConnectorContext $context,string $operation,#[\SensitiveParameter] string $secret): ConnectorResult
@@ -31,9 +31,16 @@ final class ProxmoxConnector implements ConnectorInterface, ConnectorActionDrive
         },$operation==='validate_rotation',$operation==='health');
         if (in_array($operation,['health','validate_rotation'],true) && !array_filter($items,static fn(array $i):bool=>$i['type']==='hypervisor_node'))
             throw new RuntimeException('Remote API returned no Proxmox nodes.');
-        // Hardened profiles deliberately never claim ACL-filtered discovery is authoritative.
-        $complete=$context->proxmoxProfile===null && $operation!=='health' && $items!==[] && count(array_filter($items,static fn(array $i):bool=>$i['type']==='hypervisor_node'))>0;
-        return new ConnectorResult($items,$complete,[],$info);
+        // PVE ACLs may hide guests even on legacy targets. Never infer absence from list success.
+        return new ConnectorResult($items,false,[],$info);
+    }
+
+    /** Named cluster collector, available only with an identity-checked connection profile. */
+    public function cluster(ConnectorContext $context,#[\SensitiveParameter] string $secret):ConnectorResult
+    {
+        if($context->provider!=='proxmox'||$context->proxmoxProfile===null)throw new ConnectorTransportException('connector_trust_failed');
+        $deadline=ProxmoxClusterDiscovery::deadline();
+        return $this->client()->read($context,$secret,static fn(callable $get,array $info):ConnectorResult=>ProxmoxClusterDiscovery::collect($get,$info,$deadline),false,false,true);
     }
 
     public function metrics(ConnectorContext $context,#[\SensitiveParameter] string $secret):array

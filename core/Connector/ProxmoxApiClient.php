@@ -17,7 +17,7 @@ final class ProxmoxApiClient
         if(!preg_match('/^[a-zA-Z0-9._@-]+![a-zA-Z0-9._-]{1,128}$/D',$id)||$token===''||strlen($token)>8192||preg_match('/[\x00-\x20\x7f]/',$token))throw new \RuntimeException('Invalid Proxmox token format.');
         return 'PVEAPIToken='.$id.'='.$token;
     }
-    public function read(ConnectorContext $ctx,#[\SensitiveParameter] string $secret,callable $operation,bool $primaryOnly=false,bool $diagnostics=false):mixed
+    public function read(ConnectorContext $ctx,#[\SensitiveParameter] string $secret,callable $operation,bool $primaryOnly=false,bool $diagnostics=false,bool $membership=false):mixed
     {
         if($ctx->provider!=='proxmox'||($this->requireProfile&&$ctx->proxmoxProfile===null))throw new ConnectorTransportException('connector_trust_failed');
         $auth=self::authorization($ctx->credentialType,$secret);
@@ -30,7 +30,9 @@ final class ProxmoxApiClient
                     if($ctx->proxmoxProfile!==null){
                         $version=$get('/api2/json/version');
                         if(!$version instanceof \stdClass||!is_string($version->version??null)||!preg_match('/^(8|9)\.[0-9]+(?:\.[0-9]+)?(?:-[0-9]+)?$/D',$version->version))throw new ConnectorTransportException('connector_protocol_error');
-                        $info=ProxmoxProfile::verifyIdentity($ctx->proxmoxProfile,self::rows($get('/api2/json/cluster/status')));
+                        $rows=self::rows($get('/api2/json/cluster/status'));
+                        $info=ProxmoxProfile::verifyIdentity($ctx->proxmoxProfile,$rows);
+                        if($membership)$info['membership']=ProxmoxClusterDiscovery::membership($rows,$info);
                         $info+=['version'=>$version->version,'endpoint_host'=>$e['host'],'endpoint_port'=>$e['port'],'failover'=>$index>0];
                         if($diagnostics){
                             try{$permissions=$get('/api2/json/access/permissions');if(!$permissions instanceof \stdClass)throw new ConnectorTransportException('connector_protocol_error');
@@ -50,7 +52,7 @@ final class ProxmoxApiClient
     }
     private function get(array $e,string $path,#[\SensitiveParameter] string $auth):mixed
     {
-        if(!in_array($path,['/api2/json/version','/api2/json/cluster/status','/api2/json/nodes','/api2/json/cluster/resources?type=vm','/api2/json/access/permissions'],true)&&!preg_match('~^/api2/json/nodes/[A-Za-z0-9][A-Za-z0-9._-]{0,119}/tasks/UPID%3A[A-Za-z0-9._%!-]+/status$~D',$path))throw new \RuntimeException('Unsupported PVE read operation.');
+        if(!in_array($path,['/api2/json/version','/api2/json/cluster/status','/api2/json/nodes','/api2/json/cluster/resources?type=vm','/api2/json/access/permissions'],true)&&!preg_match('~^/api2/json/nodes/[A-Za-z0-9][A-Za-z0-9._-]{0,119}/status$~D',$path)&&!preg_match('~^/api2/json/nodes/[A-Za-z0-9][A-Za-z0-9._-]{0,119}/tasks/UPID%3A[A-Za-z0-9._%!-]+/status$~D',$path))throw new \RuntimeException('Unsupported PVE read operation.');
         if($this->fixture!==null){$host=$e['host'];$body=($this->fixture)('https://'.(str_contains($host,':')?'['.$host.']':$host).':'.$e['port'].$path,$auth,$this->caFile);}
         else $body=$this->https->get($e['host'],$e['port'],$path,$auth,$this->caFile,'Authorization',$e['pin']);
         if(!is_string($body)||strlen($body)>2097152)throw new ConnectorTransportException('connector_protocol_error');

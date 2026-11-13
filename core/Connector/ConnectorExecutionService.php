@@ -288,7 +288,7 @@ final class ConnectorExecutionService
     }
     private function runRow(PDO $pdo,string $id,bool $detail=true):array
     {
-        $r=$this->query($pdo,"SELECT r.id,r.grant_id,r.target_id,r.workspace_id,r.collector_name,r.collection_plan_id,r.redrive_of,r.created_at,r.finished_at,r.cancelled_at,r.error_code,".($detail?"r.result":"r.result #- '{collection,observations}' #- '{collection,metric_samples}'")." AS result,g.operation,CASE WHEN r.cancelled_at IS NOT NULL THEN 'cancelled' WHEN r.result IS NOT NULL THEN 'succeeded' WHEN r.error_code IS NOT NULL OR j.status IN ('failed','completed') OR j.id IS NULL THEN 'failed' WHEN j.status='running' THEN 'running' ELSE 'queued' END AS status,COALESCE(j.attempts,0) AS attempts FROM connector_runs r JOIN connector_service_grants g ON g.id=r.grant_id LEFT JOIN queue_jobs j ON j.id=r.id WHERE r.id=:id",['id'=>CredentialInput::uuid($id)])->fetch(PDO::FETCH_ASSOC);
+        $r=$this->query($pdo,"SELECT r.id,r.grant_id,r.target_id,r.workspace_id,r.collector_name,r.collection_plan_id,r.redrive_of,r.created_at,r.finished_at,r.cancelled_at,r.error_code,".($detail?"r.result":"r.result #- '{collection,observations}' #- '{collection,metric_samples}' #- '{connection,cluster_discovery,nodes}'")." AS result,g.operation,CASE WHEN r.cancelled_at IS NOT NULL THEN 'cancelled' WHEN r.result IS NOT NULL THEN 'succeeded' WHEN r.error_code IS NOT NULL OR j.status IN ('failed','completed') OR j.id IS NULL THEN 'failed' WHEN j.status='running' THEN 'running' ELSE 'queued' END AS status,COALESCE(j.attempts,0) AS attempts FROM connector_runs r JOIN connector_service_grants g ON g.id=r.grant_id LEFT JOIN queue_jobs j ON j.id=r.id WHERE r.id=:id",['id'=>CredentialInput::uuid($id)])->fetch(PDO::FETCH_ASSOC);
         if (!$r) throw new HttpException(404,'Connector run not found.','not_found');
         if ($r['status']==='failed' && $r['error_code']===null) $r['error_code']='lease_exhausted';
         unset($r['idempotency_key']);
@@ -296,7 +296,7 @@ final class ConnectorExecutionService
         if ($detail && $r['collector_name']!==null) $r['attempt_history']=$this->query($pdo,'SELECT attempt,started_at,finished_at,outcome,error_code FROM collection_run_attempts WHERE run_id=:id ORDER BY attempt',['id'=>$id])->fetchAll(PDO::FETCH_ASSOC);
         return $r;
     }
-    public function runs(string $actor,string $target,int $limit=50,int $offset=0,?string $planId=null):array
+    public function runs(string $actor,string $target,int $limit=50,int $offset=0,?string $planId=null,?string $collector=null):array
     {
         $this->rbac->requireUserPermission($actor,'connectors.targets.read');
         $this->rbac->requireUserPermission($actor,'inventory.assets.read');
@@ -304,8 +304,10 @@ final class ConnectorExecutionService
         if ($limit<1 || $limit>100 || $offset<0 || $offset>10000) throw new HttpException(422,'Invalid pagination.','validation_failed');
         $pdo=$this->db->connection();
         if ($planId!==null) $this->planRow($pdo,$target,$planId);
-        $q=$pdo->prepare('SELECT id FROM connector_runs WHERE target_id=:id'.($planId!==null?' AND collection_plan_id=:plan':'').' ORDER BY created_at DESC,id DESC LIMIT :lim OFFSET :off');
+        if($collector!==null&&!preg_match('/^[a-z][a-z0-9_.-]{0,63}$/D',$collector))throw new HttpException(422,'Invalid collector filter.','validation_failed');
+        $q=$pdo->prepare('SELECT id FROM connector_runs WHERE target_id=:id'.($planId!==null?' AND collection_plan_id=:plan':'').($collector!==null?' AND collector_name=:collector':'').' ORDER BY created_at DESC,id DESC LIMIT :lim OFFSET :off');
         if ($planId!==null) $q->bindValue('plan',$planId);
+        if ($collector!==null) $q->bindValue('collector',$collector);
         $q->bindValue('id',$target); $q->bindValue('lim',$limit,PDO::PARAM_INT); $q->bindValue('off',$offset,PDO::PARAM_INT); $q->execute();
         return array_map(fn(string $id)=>$this->runRow($pdo,$id,false),$q->fetchAll(PDO::FETCH_COLUMN));
     }

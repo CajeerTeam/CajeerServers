@@ -30,7 +30,7 @@ $ok($a[2]['external_id']===$b[2]['external_id']&&$b[2]['parent_external_id']==='
 $reject(fn()=>ProxmoxConnector::observations([['node'=>'a']],$rawGuest),'inconsistent node snapshot rejected');
 $driver=new ProxmoxConnector(static fn(string $url)=>str_contains($url,'/nodes')?' {"data":[{"node":"a","status":"online"}]}':'{"data":[]}');
 $registry=new ConnectorRegistry($driver);$ctx=new ConnectorContext('proxmox','pve.internal',8006,'api_token');
-$ok($registry->execute($ctx,'sync','api','user@pve!token=secret')->complete,'successful nonempty visible snapshot');
+$ok(!$registry->execute($ctx,'sync','api','user@pve!token=secret')->complete,'successful visible PVE snapshot is not proof of full ACL visibility');
 $ok(!$registry->execute($ctx,'health','api','user@pve!token=secret')->complete,'health not full');
 $id='proxmox:11111111-1111-4111-8111-111111111111:qemu:42';
 $ok(ObservationInput::reserved($id)&&!ObservationInput::reserved('external-server-42'),'reserved connector namespace');

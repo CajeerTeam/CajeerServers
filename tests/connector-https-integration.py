@@ -62,7 +62,7 @@ $collector=new \Cajeer\Servers\Collector\CollectionRuntimeService(\Cajeer\Server
 $plan=new \Cajeer\Servers\Collector\CollectionPlan('proxmox.inventory','inspect');
 $target=['provider'=>'proxmox','endpoint_host'=>'connector.test','endpoint_port'=>$port,'credential_type'=>'proxmox_api','purpose'=>'api'];
 $observations=$collector->collect($plan,$target,'proxmox_api',$secret);
-if(count($observations->items)!==2 || !$observations->complete)throw new RuntimeException('Bad named HTTPS collection');
+if(count($observations->items)!==2 || $observations->complete)throw new RuntimeException('Bad named HTTPS collection');
 $auth='PVEAPIToken=svc@pve!test=fixture-secret';
 foreach ([['connector.test','/api2/json/nodes',null],['wrong.test','/api2/json/nodes',$ca],['connector.test','/redirect',$ca],['connector.test','/oversized',$ca]] as [$host,$path,$trust]) {
     try{$transport->get($host,$port,$path,$auth,$trust);}catch(RuntimeException){continue;}

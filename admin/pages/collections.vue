@@ -5,7 +5,7 @@ import { collectionViews,collectionView,collectionUrl,scopedTarget,type Collecti
 import type { LifecycleTarget,LifecycleBinding,CollectorDefinition } from '~/composables/connectorLifecycle'
 const api=useApi(),auth=useAuth(),route=useRoute()
 type Workspace={id:string;name:string;role:string}
-type Target=LifecycleTarget&{provider:string;endpoint_host:string;endpoint_port:number;health_status:string}
+type Target=LifecycleTarget&{provider:string;endpoint_host:string;endpoint_port:number;health_status:string;proxmox_profile?:unknown}
 type Driver={provider:string;purpose:string;credentialTypes:string[];operations:string[];collectors?:CollectorDefinition[]}
 type Binding=LifecycleBinding&{state:string;type:string}
 const spaces=ref<Workspace[]>([]),drivers=ref<Driver[]>([]),targets=ref<Target[]>([]),workspace=ref(''),selected=ref<Target|null>(null),binding=ref<Binding|null>(null)
@@ -75,7 +75,8 @@ onMounted(()=>{void init();timer=setInterval(()=>{if(!busy.value&&!loading.value
       <section class="panel" aria-label="Разделы сбора данных"><h2>{{active?active.name:'Выберите подключение'}}</h2><div class="inline-actions"><button v-for="v in allowed" :key="v" class="btn" :class="{primary:view===v}" :aria-pressed="view===v" :disabled="busy||loading" :data-testid="`collection-view-${v}`" @click="go(v)">{{labels[v]}}</button></div></section>
       <section v-if="view==='collectors'" class="panel" data-testid="collection-registry"><h2>Реестр коллекторов</h2><p class="muted">Доступные исполняемые коллекторы из Connector Registry. Выберите совместимое подключение для создания плана.</p><div class="table-wrap"><table class="table"><thead><tr><th>Коллектор</th><th>Провайдер</th><th>Операции</th><th>Ресурсы</th></tr></thead><tbody><template v-for="d in drivers" :key="d.provider"><tr v-for="c in d.collectors||[]" :key="c.name"><td>{{c.name}}</td><td>{{d.provider}}</td><td>{{c.operations.join(', ')}}</td><td>{{c.resource_types.join(', ')}}</td></tr></template></tbody></table></div><button v-if="active&&allowed.includes('plans')" class="btn primary" @click="go('plans')">Управлять планами выбранного подключения</button></section>
       <template v-if="active&&!loading">
-        <ConnectorLifecycle v-if="view==='plans'" :key="active.id+'-plans'" :target="active" :binding="binding" :operations="driver?.operations||[]" :collectors="driver?.collectors||[]" :actions="[]" :write-actions="false" :manage="manage" initial-tab="plans" v-model:busy="busy" @changed="refreshTarget" />
+        <ProxmoxClusterDiscovery v-if="view==='collectors'&&active.provider==='proxmox'&&auth.can('inventory.assets.read')" :key="active.id+'-cluster'" :target-id="active.id" :profile-configured="!!active.proxmox_profile" />
+        <ConnectorLifecycle v-if="view==='plans'" :key="active.id+'-plans'" :target="active" :binding="binding" :operations="driver?.operations||[]" :collectors="(driver?.collectors||[]).filter(c=>c.name!=='proxmox.cluster'||!!active?.proxmox_profile)" :actions="[]" :write-actions="false" :manage="manage" initial-tab="plans" v-model:busy="busy" @changed="refreshTarget" />
         <ConnectorMetrics v-if="view==='metrics'" :key="active.id+'-metrics'" :target-id="active.id" />
         <ConnectorIngestion v-if="view==='ingestion'" :key="active.id+'-ingestion'" :target-id="active.id" :target="active" :binding="binding" :can-manage="manager&&auth.can('ingestion.manage')" />
         <ConnectorDataExport v-if="view==='exports'" :key="active.id+'-exports'" :target-id="active.id" :can-ingestion="auth.can('ingestion.read')" />

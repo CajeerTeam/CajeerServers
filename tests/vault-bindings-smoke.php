@@ -70,7 +70,7 @@ putenv('APP_ENV=local');putenv('APP_URL=http://127.0.0.1:8080');
 $app=(new Application($root))->boot();
 try {
     $router=$app->container()->get(Router::class);$routes=$router->routes();
-    $ok(count($routes)===203,'new protected routes are registered');
+    $ok(count($routes)===204,'new protected routes are registered');
     $ok($app->container()->get(ConnectorBindingService::class) instanceof ConnectorBindingService,'connector service registered');
     $ok($app->container()->get(ConnectorBindingController::class) instanceof ConnectorBindingController,'connector controller registered');
     $ok($app->container()->get(CredentialBindingService::class) instanceof CredentialBindingService,'inventory binding service registered');

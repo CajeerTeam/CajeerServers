@@ -65,7 +65,7 @@ try{
     $ok($app->container()->get(CredentialStore::class) instanceof CredentialStore,'real service registered');
     $ok($app->container()->get(CredentialController::class) instanceof CredentialController,'REST controller registered');
     $routes=$app->container()->get(Router::class)->routes();
-    $ok(count($routes)===203,'registered Vault methods');
+    $ok(count($routes)===204,'registered Vault methods');
     $routesByPath=array_column($routes,'methods','path');
     foreach(['/api/v1/vault/credentials','/api/v1/vault/credentials/{id}','/api/v1/vault/credentials/{id}/secret'] as $path)
         $ok(isset($routesByPath[$path]),'Vault path '.$path);

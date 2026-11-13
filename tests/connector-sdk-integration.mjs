@@ -35,6 +35,8 @@ const server=createServer({key:readFileSync(`${dir}/key.pem`),cert:readFileSync(
     assert.equal(req.headers['x-csrf-token'],`csrf-${csrf}`);assert.equal(req.headers['idempotency-key'],'plan-redrive');assert.deepEqual(body,{redrive_of:id});return reply(202,{data:{id,deduplicated:false}})
   }
   if(req.url===`/api/v1/connectors/targets/${id}/runs?limit=50&offset=0&plan_id=${id}`&&req.method==='GET')return reply(200,{data:[{id,collection_plan_id:id}]})
+  if(req.url===`/api/v1/connectors/targets/${id}/runs?limit=50&offset=0&collector=proxmox.cluster`&&req.method==='GET')return reply(200,{data:[{id,collector_name:'proxmox.cluster'}]})
+  if(req.url===`/api/v1/connectors/targets/${id}/proxmox-cluster`&&req.method==='GET')return reply(200,{data:{state:'available',observed_at:'2026-11-13T10:00:00Z',snapshot:{cluster:{name:'prod',quorate:true},nodes:[{name:'pve-a',details:{memory_bytes:{total:'34359738368'}}}]}}})
   if(req.url===`/api/v1/connectors/targets/${id}/metric-series?limit=100&offset=0&metric=snmp.interface.receive`&&req.method==='GET')return reply(200,{data:[{id,metric:'snmp.interface.receive',kind:'counter',labels:{if_index:'1'}}]})
   if(req.url.startsWith(`/api/v1/connectors/targets/${id}/metric-series/${id}/samples?`)&&req.method==='GET'){
     const q=new URL(req.url,'https://fixture.test').searchParams;assert.equal(q.get('from'),'2026-11-12T00:00:00Z');assert.equal(q.get('to'),'2026-11-12T01:00:00Z');assert.equal(q.get('aggregation'),'rate');assert.equal(q.get('step'),'60');return reply(200,{data:{series:{id,kind:'counter',metric:'snmp.interface.receive'},aggregation:'rate',points:[{timestamp:'2026-11-12T00:01:00Z',value:'18446744073709551615'}]}})
@@ -88,6 +90,8 @@ try {
   assert.equal((await c.setCollectionPlanEnabled(id,id,false)).enabled,false)
   assert.equal((await c.runCollectionPlan(id,id,'plan-redrive',id)).id,id)
   assert.equal((await c.runs(id,50,0,id))[0].collection_plan_id,id)
+  assert.equal((await c.runs(id,50,0,undefined,'proxmox.cluster'))[0].collector_name,'proxmox.cluster')
+  assert.equal((await c.proxmoxCluster(id)).snapshot.nodes[0].details.memory_bytes.total,'34359738368')
   assert.equal((await c.metricSeries(id,100,0,'snmp.interface.receive'))[0].id,id)
   assert.equal((await c.metricQuery(id,id,'2026-11-12T00:00:00Z','2026-11-12T01:00:00Z','rate',60)).points[0].value,'18446744073709551615')
   assert.equal((await c.createIngestionSource(id,id,'External','metrics')).secret,'a'.repeat(64))

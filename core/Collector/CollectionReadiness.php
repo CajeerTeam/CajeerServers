@@ -26,14 +26,16 @@ final class CollectionReadiness
                 if(($rows[$provider.'.metrics']['operations']??null)!==['inspect'])return false;
                 if($provider!=='prometheus'&&!in_array('sync',$rows[$provider.'.inventory']['operations']??[],true))return false;
             }
+            if(($rows['proxmox.cluster']['operations']??null)!==['inspect','sync'])return false;
             $r=$c->get(ExporterRegistry::class);
             foreach(['json','csv','openmetrics'] as $f)$r->require($f,'metrics');
             return true;
         },'Required collectors and exporters must be registered.');
         $probe('collection_migrations',function()use($c):bool{
-            $v=$c->get(MigrationRunner::class)->validate();return $v['valid']&&count($v['rows'])>=36&&array_column($v['rows'],'status')!==[]&&!array_diff(array_column($v['rows'],'status'),['applied']);
-        },'All PostgreSQL migrations, including 0037, must be applied and checksum-valid.');
+            $v=$c->get(MigrationRunner::class)->validate();return $v['valid']&&count($v['rows'])>=38&&array_column($v['rows'],'status')!==[]&&!array_diff(array_column($v['rows'],'status'),['applied']);
+        },'All PostgreSQL migrations, including 0038, must be applied and checksum-valid.');
         $queries=[
+            'proxmox_cluster_scope'=>"SELECT 1 FROM proxmox_cluster_state s JOIN connector_targets t ON t.id=s.target_id WHERE t.provider<>'proxmox' OR s.workspace_id<>t.workspace_id OR s.target_version>t.version LIMIT 1",
             'collection_plan_scope'=>"SELECT 1 FROM collection_plans p JOIN connector_service_grants g ON g.id=p.grant_id WHERE g.interval_seconds IS NOT NULL OR g.operation NOT IN ('inspect','sync') UNION ALL SELECT 1 FROM connector_runs r JOIN collection_plans p ON p.grant_id=r.grant_id WHERE r.collection_plan_id IS DISTINCT FROM p.id OR r.collector_name IS DISTINCT FROM p.collector_name LIMIT 1",
             'collection_redrive_scope'=>"SELECT 1 FROM connector_runs r JOIN connector_runs old ON old.id=r.redrive_of WHERE r.target_id<>old.target_id OR r.workspace_id<>old.workspace_id OR r.collection_plan_id IS DISTINCT FROM old.collection_plan_id LIMIT 1",
             'collection_ingestion_scope'=>"SELECT 1 FROM data_ingestion_sources s JOIN connector_service_grants g ON g.id=s.grant_id WHERE s.workspace_id<>g.workspace_id OR s.target_id<>g.target_id OR s.actor_id<>g.actor_id OR g.operation<>'inspect' OR g.interval_seconds IS NOT NULL OR EXISTS(SELECT 1 FROM collection_plans p WHERE p.grant_id=g.id) LIMIT 1",

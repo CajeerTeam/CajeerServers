@@ -89,7 +89,17 @@ final class ConnectorBindingController
     }
     public function runs(HttpRequest $r):HttpResponse
     {
-        return HttpResponse::json(['data'=>$this->execution()->runs($this->actor($r,'connectors.targets.read'),self::id($r),self::integer($r,'limit',50,100),self::integer($r,'offset',0,10000),self::filter($r,'plan_id'))],200,['Cache-Control'=>'private, no-store']);
+        return HttpResponse::json(['data'=>$this->execution()->runs($this->actor($r,'connectors.targets.read'),self::id($r),self::integer($r,'limit',50,100),self::integer($r,'offset',0,10000),self::filter($r,'plan_id'),self::collectorFilter($r))],200,['Cache-Control'=>'private, no-store']);
+    }
+    private static function collectorFilter(HttpRequest $r):?string
+    {
+        $value=$r->query['collector']??null;
+        if($value!==null&&(!is_string($value)||!preg_match('/^[a-z][a-z0-9_.-]{0,63}$/D',$value)))throw new HttpException(422,'Invalid collector filter.','validation_failed');
+        return $value;
+    }
+    public function proxmoxCluster(HttpRequest $r):HttpResponse
+    {
+        return HttpResponse::json(['data'=>$this->runtime->proxmoxCluster($this->actor($r,'connectors.targets.read'),self::id($r))],200,['Cache-Control'=>'private, no-store']);
     }
     public function metricSeries(HttpRequest $r):HttpResponse
     {

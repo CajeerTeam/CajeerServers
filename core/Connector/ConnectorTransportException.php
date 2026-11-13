@@ -16,7 +16,7 @@ final class ConnectorTransportException extends RuntimeException
         'connector_trust_failed'=>'Remote server identity could not be verified.',
         'connector_dependency_missing'=>'Required connector transport dependency is unavailable.',
     ];
-    public function __construct(public readonly string $category)
+    public function __construct(public readonly string $category, public readonly ?int $httpStatus=null)
     {
         parent::__construct(self::MESSAGES[$category]??throw new \InvalidArgumentException('Unknown transport error category.'));
     }
@@ -27,6 +27,6 @@ final class ConnectorTransportException extends RuntimeException
             $status===429=>'connector_rate_limited',
             $status>=500&&$status<=599=>'connector_unavailable',
             default=>'connector_protocol_error',
-        });
+        },$status);
     }
 }

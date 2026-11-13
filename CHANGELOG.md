@@ -1,3 +1,9 @@
+## [0.6.2] — 2026-11-13 — Cluster & Node Discovery
+
+- Execute `proxmox.cluster` using verified PVE profiles, membership/quorum and allowlisted physical node status; standalone and partial visibility are explicit.
+- Persist scoped current snapshot and last-known node details transactionally with connector runs; reuse Inventory stable identities, preserve guests and manual data, and never infer absence from PVE ACL-filtered lists.
+- Add current cluster endpoint, filtered run history, admin display, typed SDK, migration 0038 and expanded TLS/PostgreSQL tests.
+
 ## [0.6.1] — 2026-11-12 — Connection Profiles & API Client
 
 - Persist optional PVE trust profiles in existing connector targets; owner/MFA configuration, immutable cluster identity and version fencing.

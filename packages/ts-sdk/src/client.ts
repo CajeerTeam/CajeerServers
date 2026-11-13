@@ -1,4 +1,4 @@
-import type { InfrastructureAsset, Driver, Target, TargetInput, ProxmoxProfile, ProxmoxConnection, ServiceGrant, Run, EnqueuedRun, Operation, PowerAction, Action, Problem, CollectionJobPlan, CollectionPlanInput, MetricSeries, MetricQuery, MetricAggregation, IngestionKind, IngestionSource, IngestionSourceSecret, IngestionBatch, IngestedEvent, DataExportInput, DataExportJob, DataExportList, ManualImportInput, ManualImportPreview, ManualImportResult } from './types.js'
+import type { InfrastructureAsset, Driver, Target, TargetInput, ProxmoxProfile, ProxmoxConnection, ProxmoxClusterState, ServiceGrant, Run, EnqueuedRun, Operation, PowerAction, Action, Problem, CollectionJobPlan, CollectionPlanInput, MetricSeries, MetricQuery, MetricAggregation, IngestionKind, IngestionSource, IngestionSourceSecret, IngestionBatch, IngestedEvent, DataExportInput, DataExportJob, DataExportList, ManualImportInput, ManualImportPreview, ManualImportResult } from './types.js'
 export class ApiError extends Error {
   constructor(public readonly status: number, public readonly problem: Problem) { super(problem.title || `HTTP ${status}`); this.name = 'ApiError' }
 }
@@ -70,7 +70,8 @@ export class CajeerServersClient {
   createCollectionPlan(id:string,etag:string,input:CollectionPlanInput):Promise<CollectionJobPlan> { return this.write('POST',`${this.target(id)}/collection-plans`,input,{'If-Match':etag}) }
   setCollectionPlanEnabled(id:string,planId:string,enabled:boolean):Promise<CollectionJobPlan> { return this.write('POST',`${this.target(id)}/collection-plans/${this.id(planId)}/state`,{enabled}) }
   runCollectionPlan(id:string,planId:string,key:string,redriveOf?:string):Promise<EnqueuedRun> { return this.write('POST',`${this.target(id)}/collection-plans/${this.id(planId)}/runs`,redriveOf?{redrive_of:redriveOf}:{},{'Idempotency-Key':key}) }
-  runs(id:string,limit=50,offset=0,planId?:string):Promise<Run[]> { return this.data(`${this.target(id)}/runs?limit=${limit}&offset=${offset}${planId?`&plan_id=${this.id(planId)}`:''}`) }
+  runs(id:string,limit=50,offset=0,planId?:string,collector?:string):Promise<Run[]> { return this.data(`${this.target(id)}/runs?limit=${limit}&offset=${offset}${planId?`&plan_id=${this.id(planId)}`:''}${collector?`&collector=${encodeURIComponent(collector)}`:''}`) }
+  proxmoxCluster(id:string):Promise<ProxmoxClusterState> { return this.data(`${this.target(id)}/proxmox-cluster`) }
   run(id:string,runId:string):Promise<Run> { return this.data(`${this.target(id)}/runs/${this.id(runId)}`) }
   cancel(id:string,runId:string):Promise<Run> { return this.write('POST',`${this.target(id)}/runs/${this.id(runId)}/cancel`) }
   resources(id:string,limit=50,offset=0):Promise<unknown> { return this.data(`${this.target(id)}/resources?limit=${limit}&offset=${offset}`) }

@@ -12,8 +12,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if self.headers.get('Authorization')!='PVEAPIToken=svc@pve!read=fixture-secret':self.send_error(401);return
         if self.server.mode=='auth':self.send_error(403);return
         if self.path=='/api2/json/version':self.reply({'version':'9.0.3'})
-        elif self.path=='/api2/json/cluster/status':self.reply([{'type':'cluster','name':'other' if self.server.mode=='wrong' else 'prod','quorate':1},{'type':'node','name':'pve-a','nodeid':1,'local':int(self.server.node=='pve-a')},{'type':'node','name':'pve-b','nodeid':2,'local':int(self.server.node=='pve-b')}])
-        elif self.path=='/api2/json/nodes':self.reply([{'node':'pve-a','status':'online'},{'node':'pve-b','status':'online'}])
+        elif self.path=='/api2/json/cluster/status':self.reply([{'type':'cluster','name':'other' if self.server.mode=='wrong' else 'prod','quorate':int(self.server.mode!='cluster-noquorum'),'nodes':2,'version':9},{'type':'node','name':'pve-a','nodeid':1,'online':1,'local':int(self.server.node=='pve-a')},{'type':'node','name':'pve-b','nodeid':2,'online':0,'local':int(self.server.node=='pve-b')}])
+        elif self.path=='/api2/json/nodes':
+            if self.server.mode=='cluster-failover':self.send_error(503);return
+            self.reply([{'node':'pve-a','status':'online'},{'node':'pve-b','status':'offline'}])
+        elif self.path=='/api2/json/nodes/pve-a/status':
+            if self.server.mode=='cluster-denied':self.send_error(403);return
+            if self.server.mode=='cluster-auth':self.send_error(401);return
+            if self.server.mode=='cluster-unavailable':self.send_error(503);return
+            self.reply({'pveversion':'pve-manager/9.0.3/test','cpuinfo':{'cpus':16,'cores':8,'sockets':1,'model':'TLS fixture CPU'},'memory':{'total':34359738368,'used':4294967296},'uptime':1000,'rootfs':{'total':100000,'used':20000},'swap':{'total':0,'used':0},'secret':'must-not-leak'})
         elif self.path=='/api2/json/access/permissions':self.reply({'/':{'Sys.Audit':1}})
         elif self.path=='/api2/json/cluster/resources?type=vm':
             if self.server.mode=='late':self.send_error(503);return
@@ -42,13 +49,20 @@ $ctx=new ConnectorContext('proxmox','pve-a.test',(int)$argv[2],'proxmox_api',$pr
 $d=new ProxmoxConnector(null,$argv[4],new HttpsTransport(new EndpointPolicy(['127.0.0.1/32'],static fn()=>['127.0.0.1']),2));
 $secret='{"token_id":"svc@pve!read","token_secret":"fixture-secret"}';
 try{
-if($mode==='post'){$r=$d->prepareAction($ctx,'vm.start','qemu:100',$secret);$upid=$d->dispatchAction($ctx,'vm.start',$r,$secret);if($d->actionStatus($ctx,'pve-a',$upid,$secret)!=='succeeded')throw new RuntimeException('task');}
+if(str_starts_with($mode,'cluster-')){
+    $r=$d->cluster($ctx,$secret);$s=$r->connection['cluster_discovery'];$node=$s['nodes'][0];
+    if($r->complete||count($r->items)!==3||$r->items[1]['parent_external_id']!=='cluster:prod'||$s['member_count']!==2||$s['nodes'][1]['status']!=='offline'||str_contains(json_encode($s),'must-not-leak'))throw new RuntimeException('cluster metadata');
+    if($mode==='cluster-denied'||$mode==='cluster-unavailable'){if($node['details']!==null||$node['details_state']!==($mode==='cluster-denied'?'permission_denied':'unavailable'))throw new RuntimeException('partial details');}
+    elseif($mode==='cluster-auth')throw new LogicException('auth unexpectedly accepted');
+    else{if($node['details']['cpu']['logical_cpus']!==16||$node['details']['memory_bytes']['total']!=='34359738368')throw new RuntimeException('hardware');if($mode==='cluster-noquorum'&&$s['cluster']['quorate'])throw new RuntimeException('quorum');if($mode==='cluster-failover'&&!$r->connection['failover'])throw new RuntimeException('cluster failover');}
+}
+elseif($mode==='post'){$r=$d->prepareAction($ctx,'vm.start','qemu:100',$secret);$upid=$d->dispatchAction($ctx,'vm.start',$r,$secret);if($d->actionStatus($ctx,'pve-a',$upid,$secret)!=='succeeded')throw new RuntimeException('task');}
 elseif($mode==='write-down'){$d->dispatchAction($ctx,'vm.start',['node'=>'pve-a','vmid'=>100],$secret);throw new LogicException('write unexpectedly succeeded');}
 else{$result=$d->execute($ctx,$mode==='health'?'health':'inspect',$secret);if($mode==='late'){if(!$result->connection['failover']||count($result->items)!==3||$result->complete)throw new RuntimeException('failover failed');}
 elseif($mode==='health'){if($result->connection['version']!=='9.0.3'||$result->connection['root_privileges']!==['Sys.Audit'])throw new RuntimeException('diagnostics');}
 elseif($mode==='down'){if(!$result->connection['failover'])throw new RuntimeException('connection failover');}
 else throw new LogicException('unexpected success');}
-}catch(ConnectorTransportException $e){$expected=match($mode){'pin','wrong'=>'connector_trust_failed','auth'=>'connector_auth_failed','write-down'=>'connector_transport_failed',default=>''};if($e->category!==$expected)throw $e;}
+}catch(ConnectorTransportException $e){$expected=match($mode){'pin','wrong'=>'connector_trust_failed','auth','cluster-auth'=>'connector_auth_failed','write-down'=>'connector_transport_failed',default=>''};if($e->category!==$expected)throw $e;}
 '''
         def run(mode,port=None):
             subprocess.run(['php','-r',code,str(ROOT),str(port or servers[0].server_port),str(servers[1].server_port),str(ca),*pins,mode],check=True,timeout=30)
@@ -58,10 +72,16 @@ else throw new LogicException('unexpected success');}
         servers[0].calls.clear();servers[0].mode='wrong';run('wrong');assert len(servers[0].calls)==2 and not servers[1].calls
         servers[0].calls.clear();servers[0].mode='late';run('late');assert len(servers[0].calls)==4 and len(servers[1].calls)==4
         servers[0].calls.clear();servers[1].calls.clear();servers[0].mode='ok';run('post');assert sum(m=='POST' for m,p in servers[0].calls)==1 and not servers[1].calls
+        # Full cluster collection on real TLS, including partial and non-quorate results.
+        for mode in ['cluster-ok','cluster-denied','cluster-unavailable','cluster-auth','cluster-noquorum','cluster-failover']:
+            servers[0].calls.clear();servers[1].calls.clear();servers[0].mode=mode;run(mode)
+            assert not any(m=='POST' or '/pve-b/status' in p for m,p in servers[0].calls+servers[1].calls)
+            if mode=='cluster-failover':assert len(servers[0].calls)==3 and len(servers[1].calls)==4
+            else:assert len(servers[0].calls)==4 and not servers[1].calls
         # A closed port is an actual connection failure; the configured fallback stays reachable.
         primary_port=servers[0].server_port;servers[0].shutdown();servers[0].server_close();threads[0].join(5)
         run('down',primary_port);before=len(servers[1].calls);run('write-down',primary_port);assert len(servers[1].calls)==before
-        print('Proxmox profile HTTPS: 8 scenarios PASS (pin before auth, identity, auth, failover, single POST, no write failover)')
+        print('Proxmox profile HTTPS: 14 scenarios PASS (pin before auth, identity, auth, failover, single POST, no write failover, hardware, partial details, quorum, cluster failover)')
     finally:
         for server,thread in zip(servers,threads):
             if thread.is_alive():server.shutdown();server.server_close();thread.join(5)
