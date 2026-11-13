@@ -82,6 +82,14 @@ final class ConnectorRegistry
         catch(ConnectorTransportException $e){throw new HttpException(502,$e->getMessage(),$e->category);}
         catch(\Throwable){throw new HttpException(502,'Invalid storage/network discovery result.','connector_protocol_error');}
     }
+    public function tasks(ConnectorContext $context,string $operation,string $purpose,#[\SensitiveParameter] string $secret,array $previous):ConnectorResult
+    {
+        $driver=$this->require($context->provider,$operation);
+        if(!$driver instanceof \Cajeer\Servers\Connector\ProxmoxConnector||$operation!=='inspect'||!$this->metadata['proxmox']->accepts($context->credentialType,$purpose))throw new HttpException(403,'Task collection not permitted.','permission_denied');
+        try{return $driver->tasks($context,$secret,$previous)->validated($this->metadata['proxmox']);}
+        catch(ConnectorTransportException $e){throw new HttpException(502,$e->getMessage(),$e->category);}
+        catch(\Throwable){throw new HttpException(502,'Invalid task history result.','connector_protocol_error');}
+    }
     public function supportsMetrics(string $provider):bool
     {return ($this->drivers[$provider]??null) instanceof \Cajeer\Servers\Metrics\MetricDriver;}
     public function metrics(ConnectorContext $context,string $purpose,#[\SensitiveParameter] string $secret):array

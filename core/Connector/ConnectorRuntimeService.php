@@ -161,12 +161,16 @@ final class ConnectorRuntimeService
                 $latest=$this->bindings->runtimeContext($actor,$targetId,$target['version'],$operation);
                 if ($latest['credential_id']!==$target['credential_id'] || $latest['credential_version']!==$target['credential_version']) throw new HttpException(409,'Connector binding changed.','conflict');
                 ConnectorHealthMonitor::record($pdo,$target,$elapsed,null);
-                if ($operation==='inspect' && $snapshot->metricSamples===[]) $result['preview']=$reconciliation->preview($pdo,$actor,$target,$snapshot);
+                if ($operation==='inspect' && $snapshot->metricSamples===[] && ($collection['collector']??null)!=='proxmox.tasks') $result['preview']=$reconciliation->preview($pdo,$actor,$target,$snapshot);
                 if ($collection!==null && $snapshot->metricSamples!==[]) {
                     $result['metrics']=\Cajeer\Servers\Metrics\MetricStore::ingest($pdo,$target,$collection['metric_samples'],$collection['observed_at']);
                     $this->audit->record($pdo,$actor,'collection.metrics.saved','success','connector_target',$targetId,$result['metrics'],$requestId);
                 }
                 if ($collection!==null) $result['collection']=$collection;
+                if(($collection['collector']??null)==='proxmox.tasks'){
+                    $result['connection']['task_discovery']=ProxmoxTaskStore::save($pdo,$target,$snapshot->connection['task_discovery'],$collection['observed_at']);
+                    $result['collection']['count']=$result['connection']['task_discovery']['observed_count'];
+                }
                 if(($collection['collector']??null)==='proxmox.cluster')ProxmoxClusterStore::save($pdo,$target,$snapshot->connection['cluster_discovery'],$collection['observed_at']);
                 if(($collection['collector']??null)==='proxmox.guests')ProxmoxGuestStore::save($pdo,$target,$snapshot->connection['guest_discovery'],$collection['observed_at']);
                 if(($collection['collector']??null)==='proxmox.storage-network')ProxmoxStorageNetworkStore::save($pdo,$target,$snapshot->connection['storage_network_discovery'],$collection['observed_at']);
@@ -222,6 +226,13 @@ final class ConnectorRuntimeService
         if($target['provider']!=='proxmox')throw new HttpException(404,'Proxmox target not found.','not_found');
         return ProxmoxStorageNetworkStore::read($this->db->connection(),$target);
     }
+    public function proxmoxTasks(string $actor,string $targetId,string $view,int $limit,?string $before,?string $state):array
+    {
+        (new Rbac($this->db,$this->audit))->requireUserPermission($actor,'inventory.assets.read');
+        $target=$this->bindings->show($actor,$targetId);
+        if($target['provider']!=='proxmox')throw new HttpException(404,'Proxmox target not found.','not_found');
+        return ProxmoxTaskStore::read($this->db->connection(),$target,$view,$limit,$before,$state);
+    }
     public function metricSeries(string $actor,string $targetId,int $limit,int $offset,?string $metric):array
     {
         (new Rbac($this->db,$this->audit))->requireUserPermission($actor,'inventory.assets.read');
@@ -257,7 +268,7 @@ final class ConnectorRuntimeService
         $result=null; $failure=null;
         try {
             $consume(function(#[\SensitiveParameter] string $secret,string $type)use($target,$operation,$plan,&$result,&$failure):void {
-                try { $result=$plan===null?$this->execute($target,$operation,$type,$secret):$this->collectionRuntime()->collect($plan,$target,$type,$secret); }
+                try { $result=$plan===null?$this->execute($target,$operation,$type,$secret):$this->collectionRuntime()->collect($plan,$target,$type,$secret,$plan->collector==='proxmox.tasks'?ProxmoxTaskStore::previous($this->db->connection(),$target):[]); }
                 catch (HttpException $e) {
                     $failure=[$e->status,$e->getMessage(),$e->errorCode];
                     throw $e; // Vault still audits the failed trusted consumer.

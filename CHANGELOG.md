@@ -1,3 +1,8 @@
+## [0.6.5] — 2026-11-13 — Task History & Events
+
+- Collect PVE node task archives and active tasks via verified HTTPS; durable UPID cursor, bounded backfill, archive head follow, pending status polling and explicit partial states.
+- Atomically persist scoped tasks and deduplicated discovery/completion/outcome events with job fencing; add keyset-paginated Admin UI/API/SDK and migration 0041.
+
 ## [0.6.4] — 2026-11-13 — Storage & Network Discovery
 
 - Execute `proxmox.storage-network` against verified PVE 8/9 profiles: cluster storage definitions, per-node storage status/capacity and volume content, configured network/SDN interfaces and guest disk/NIC attachments.

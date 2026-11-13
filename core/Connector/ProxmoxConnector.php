@@ -59,6 +59,14 @@ final class ProxmoxConnector implements ConnectorInterface, ConnectorActionDrive
         return $this->client()->read($context,$secret,static fn(callable $get,array $info):ConnectorResult=>ProxmoxStorageNetworkDiscovery::collect($get,$info,$deadline),false,false,true);
     }
 
+    /** Read-only task history, using the same verified endpoint for each attempt. */
+    public function tasks(ConnectorContext $context,#[\SensitiveParameter] string $secret,array $previous):ConnectorResult
+    {
+        if($context->provider!=='proxmox'||$context->proxmoxProfile===null)throw new ConnectorTransportException('connector_trust_failed');
+        $now=time();$deadline=hrtime(true)+60_000_000_000;
+        return $this->client()->read($context,$secret,static fn(callable $get,array $info):ConnectorResult=>ProxmoxTaskDiscovery::collect($get,$info,$previous,$now,$deadline),false,false,true);
+    }
+
     public function metrics(ConnectorContext $context,#[\SensitiveParameter] string $secret):array
     {
         [$nodes,$guests]=$this->client()->read($context,$secret,static fn(callable $get)=>[ProxmoxApiClient::rows($get('/api2/json/nodes')),ProxmoxApiClient::rows($get('/api2/json/cluster/resources?type=vm'))]);

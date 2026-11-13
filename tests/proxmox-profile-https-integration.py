@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Real independent TLS endpoints; verify no credential is sent on pin mismatch."""
-import hashlib, http.server, json, pathlib, ssl, subprocess, tempfile, threading, urllib.parse
+import hashlib, http.server, json, pathlib, ssl, subprocess, tempfile, threading, urllib.parse, time
 ROOT=pathlib.Path(__file__).resolve().parents[1]
 TASK='UPID:pve-a:00000001:00000002:00000003:qmstart:100:svc@pve!read:'
+START=int(time.time())-10
+HISTORY_TASK=f'UPID:pve-a:00000003:00000002:{START:08X}:qmstart:100:svc@pve!read:'
 class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self,*args): pass
     def reply(self,data):
@@ -44,6 +46,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
         elif self.path=='/api2/json/nodes/pve-a/qemu/100/status/current':self.reply({'vmid':100,'status':'running','cpu':0.25,'mem':4294967296})
         elif self.path=='/api2/json/nodes/pve-b/lxc/200/config':self.reply({'cores':2,'memory':2048,'rootfs':'local-lvm:vm-200-disk-0,size=8G','unprivileged':1,'net0':'name=eth0,bridge=vmbr0,ip=192.0.2.2/24'})
         elif self.path=='/api2/json/nodes/pve-b/lxc/200/status/current':self.reply({'vmid':200,'status':'stopped','uptime':0})
+        elif self.path.startswith('/api2/json/nodes/pve-a/tasks?'):
+            if self.server.mode=='tasks-denied':self.send_error(403);return
+            if self.server.mode=='tasks-failover':self.send_error(503);return
+            q=urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+            self.reply([{'upid':HISTORY_TASK,'node':'pve-a','type':'qmstart','starttime':START,'status':'RUNNING','secret':'must-not-leak'}] if q['source']==['active'] else [])
+        elif urllib.parse.unquote(self.path)==f'/api2/json/nodes/pve-a/tasks/{HISTORY_TASK}/status':self.reply({'status':'stopped','exitstatus':'OK','upid':HISTORY_TASK,'starttime':START})
         elif urllib.parse.unquote(self.path)==f'/api2/json/nodes/pve-a/tasks/{TASK}/status':self.reply({'status':'stopped','exitstatus':'OK'})
         else:self.send_error(404)
     def do_POST(self):
@@ -68,7 +76,14 @@ $ctx=new ConnectorContext('proxmox','pve-a.test',(int)$argv[2],'proxmox_api',$pr
 $d=new ProxmoxConnector(null,$argv[4],new HttpsTransport(new EndpointPolicy(['127.0.0.1/32'],static fn()=>['127.0.0.1']),2));
 $secret='{"token_id":"svc@pve!read","token_secret":"fixture-secret"}';
 try{
-if(str_starts_with($mode,'storage-')){
+if(str_starts_with($mode,'tasks-')){
+    $r=$d->tasks($ctx,$secret,[]);$s=$r->connection['task_discovery'];
+    if($mode==='tasks-denied'){if($s['nodes']->{'pve-a'}['active']!=='permission_denied'||$s['observed_count']!==0)throw new RuntimeException('tasks ACL');}
+    else{if($s['observed_count']!==1||$s['tasks'][0]['state']!=='running'||str_contains(json_encode($s),'must-not-leak'))throw new RuntimeException('task discovery');
+        $r2=$d->tasks($ctx,$secret,['cursor'=>$s['cursor'],'revision'=>1,'pending'=>[['upid'=>$s['tasks'][0]['upid']]]]);if($r2->connection['task_discovery']['tasks'][0]['state']!=='succeeded')throw new RuntimeException('status poll');
+        if($mode==='tasks-failover'&&!$r->connection['failover'])throw new RuntimeException('task failover');}
+}
+elseif(str_starts_with($mode,'storage-')){
     $r=$d->storageNetwork($ctx,$secret);$s=$r->connection['storage_network_discovery'];$n=$s['nodes'][0];$g=$s['guests'][0];
     if($r->complete||$n['storages'][0]['total']!=='9007199254740993'||!$g['disks'][0]['volume_resolved']||str_contains(json_encode($s),'must-not-leak'))throw new RuntimeException('storage discovery');
     if($mode==='storage-denied'){if($n['network_state']!=='permission_denied'||$g['nics'][0]['bridge_resolved'])throw new RuntimeException('network ACL');}
@@ -123,10 +138,15 @@ else throw new LogicException('unexpected success');}
             assert not any(m=='POST' for m,p in servers[0].calls+servers[1].calls)
             if mode=='storage-failover':assert any('/storage/local-lvm/content' in p for m,p in servers[1].calls)
             else:assert not servers[1].calls
+        for mode in ['tasks-ok','tasks-denied','tasks-failover']:
+            servers[0].calls.clear();servers[1].calls.clear();servers[0].mode=mode;run(mode)
+            assert not any(m=='POST' for m,p in servers[0].calls+servers[1].calls)
+            if mode=='tasks-failover':assert any('/tasks?' in p for m,p in servers[1].calls)
+            else:assert not servers[1].calls
         # A closed port is an actual connection failure; the configured fallback stays reachable.
         primary_port=servers[0].server_port;servers[0].shutdown();servers[0].server_close();threads[0].join(5)
         run('down',primary_port);before=len(servers[1].calls);run('write-down',primary_port);assert len(servers[1].calls)==before
-        print('Proxmox profile HTTPS: 23 scenarios PASS (pin before auth, identity, auth, failover, single POST, no write failover, hardware, partial details, quorum, cluster failover, guest configs, partial ACL, migration race, guest failover, storage/network ACL and failover)')
+        print('Proxmox profile HTTPS: 26 scenarios PASS (pin before auth, identity, auth, failover, single POST, no write failover, hardware, partial details, quorum, cluster failover, guest configs, partial ACL, migration race, guest failover, storage/network ACL and failover, task history/status ACL and failover)')
     finally:
         for server,thread in zip(servers,threads):
             if thread.is_alive():server.shutdown();server.server_close();thread.join(5)

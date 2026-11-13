@@ -23,6 +23,7 @@ final class CollectorRegistry
                 $registry->register(new ConnectorCollector('proxmox.cluster','proxmox',$connectors));
                 $registry->register(new ConnectorCollector('proxmox.guests','proxmox',$connectors));
                 $registry->register(new ConnectorCollector('proxmox.storage-network','proxmox',$connectors));
+                $registry->register(new ConnectorCollector('proxmox.tasks','proxmox',$connectors));
             }
             if($connectors->supportsMetrics($provider))$registry->register(new MetricsCollector($provider,$connectors));
         }
@@ -53,7 +54,7 @@ final class CollectorRegistry
         $collector=$this->collectors[$plan->collector]??null;
         if($collector===null || $this->providers[$name]!==$provider || $collector->name()!==$name || $collector->provider()!==$provider)
             throw new HttpException(422,'Collector is unavailable for this target.','collection_invalid');
-        if($collector instanceof MetricsCollector&&$operation!=='inspect')throw new HttpException(422,'Metrics require inspect.','collection_invalid');
+        if(($collector instanceof MetricsCollector||$name==='proxmox.tasks')&&$operation!=='inspect')throw new HttpException(422,'Metrics require inspect.','collection_invalid');
         $this->connectors->manifest($provider,$operation);
         return $collector;
     }

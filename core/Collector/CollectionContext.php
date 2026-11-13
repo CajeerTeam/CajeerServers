@@ -7,5 +7,5 @@ use Cajeer\Servers\Connector\ConnectorContext;
 /** Non-secret execution context; no mutable database or user-supplied endpoint override. */
 final readonly class CollectionContext
 {
-    public function __construct(public ConnectorContext $connector, public string $purpose, public CollectionPlan $plan) {}
+    public function __construct(public ConnectorContext $connector, public string $purpose, public CollectionPlan $plan, public array $previous=[]) {}
 }

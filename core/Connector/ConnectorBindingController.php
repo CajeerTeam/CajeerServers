@@ -105,6 +105,12 @@ final class ConnectorBindingController
     {
         return HttpResponse::json(['data'=>$this->runtime->proxmoxGuests($this->actor($r,'connectors.targets.read'),self::id($r))],200,['Cache-Control'=>'private, no-store']);
     }
+    public function proxmoxTasks(HttpRequest $r):HttpResponse
+    {
+        $actor=$this->actor($r,'connectors.targets.read');$view=$r->query['view']??'tasks';$before=$r->query['before']??null;$state=$r->query['state']??null;
+        if(!in_array($view,['tasks','events'],true)||($before!==null&&(!is_string($before)||!preg_match('/^[1-9][0-9]{0,17}$/D',$before)))||($state!==null&&!in_array($state,['running','succeeded','warning','failed','unknown'],true)))throw new HttpException(422,'Invalid task history filter.','validation_failed');
+        return HttpResponse::json(['data'=>$this->runtime->proxmoxTasks($actor,self::id($r),$view,self::integer($r,'limit',50,100),$before,$state)],200,['Cache-Control'=>'private, no-store']);
+    }
     public function proxmoxStorageNetwork(HttpRequest $r):HttpResponse
     {
         return HttpResponse::json(['data'=>$this->runtime->proxmoxStorageNetwork($this->actor($r,'connectors.targets.read'),self::id($r))],200,['Cache-Control'=>'private, no-store']);
