@@ -60,7 +60,7 @@ $previousEnv=getenv('APP_ENV');$previousUrl=getenv('APP_URL');putenv('APP_ENV=lo
 $app=(new Application(dirname(__DIR__)))->boot();
 try{
     $router=$app->container()->get(Router::class);$routes=$router->routes();
-    $ok(count($routes)===209,'209 executable method routes');
+    $ok(count($routes)===210,'210 executable method routes');
     foreach(['/api/v1/inventory/imports/preview','/api/v1/inventory/imports','/api/v1/inventory/imports/{id}',
         '/api/v1/inventory/imports/{id}/dispatch','/api/v1/inventory/exports','/api/v1/inventory/credentials/scopes',
         '/api/v1/inventory/assets/{id}/credential-bindings','/api/v1/inventory/assets/{id}/credential-bindings/{bindingId}'] as $path)

@@ -19,10 +19,21 @@ final class VmmanagerConnector implements ConnectorInterface, \Cajeer\Servers\Me
     public function manifest(): ConnectorManifest
     {
         return new ConnectorManifest('vmmanager','api',['vmmanager_api','api_token'],
-            ['inspect','sync','validate_rotation','health'],['hypervisor_node','virtual_machine','container'],'https');
+            ['inspect','sync','validate_rotation','health'],['hypervisor_node','virtual_machine','container','cluster'],'https');
     }
 
     public function execute(ConnectorContext $context, string $operation, #[\SensitiveParameter] string $secret): ConnectorResult
+    {
+        return $this->discover($context,$operation,$secret,false);
+    }
+
+    public function cluster(ConnectorContext $context,#[\SensitiveParameter] string $secret):ConnectorResult
+    {
+        if($context->vmmanagerProfile===null)throw new ConnectorTransportException('connector_trust_failed');
+        return $this->discover($context,'inspect',$secret,true);
+    }
+
+    private function discover(ConnectorContext $context,string $operation,#[\SensitiveParameter] string $secret,bool $clusterOnly):ConnectorResult
     {
         $manifest = $this->manifest();
         if ($context->provider !== $manifest->provider || !$manifest->supports($operation) || !$manifest->accepts($context->credentialType,'api')) {
@@ -62,6 +73,17 @@ final class VmmanagerConnector implements ConnectorInterface, \Cajeer\Servers\Me
                 if($this->api->identity($context,$token,$deadline)!==$identity) throw new ConnectorTransportException('connector_auth_failed');
                 return new ConnectorResult(self::observations($page,[]),false,connection:$connection);
             }
+            if($clusterOnly){
+                $clusters=$this->clusterPages($context,'clusters',$token,$deadline,self::LIMIT);
+                $nodes=$this->clusterPages($context,'nodes',$token,$deadline,self::LIMIT-count($clusters));
+                $visible=array_values(array_filter($nodes,static fn($r)=>VmmanagerApiClient::id($r->id??null)===$profile['anchor_id']));
+                VmmanagerProfile::verify($profile,array_map(static fn($r)=>['id'=>VmmanagerApiClient::id($r->id),'name'=>$r->name??null],$visible));
+                [$details,$items]=VmmanagerClusterDiscovery::build($clusters,$nodes,$identity['administrator']&&$identity['owner_id']===$identity['trustee_id']);
+                $this->anchor($context,$token,$deadline);
+                if($this->api->identity($context,$token,$deadline)!==$identity)throw new ConnectorTransportException('connector_auth_failed');
+                // This collector has no guests; never claim completeness for the target-wide reconciliation.
+                return new ConnectorResult($items,false,connection:$connection+['vmmanager_cluster_discovery'=>$details]);
+            }
             $nodes=$this->collect($context,'node',$token,$deadline,self::LIMIT);
             if ($nodes===[]) throw new RuntimeException('VMmanager returned no visible nodes.');
             $hosts=$this->collect($context,'host',$token,$deadline,self::LIMIT-count($nodes));
@@ -81,6 +103,17 @@ final class VmmanagerConnector implements ConnectorInterface, \Cajeer\Servers\Me
         $snapshot=$this->execute($context,'inspect',$secret);$out=[];
         foreach($snapshot->items as $item){$state=$item['fields']['status'];if(in_array($state,['online','offline'],true))$out[]=\Cajeer\Servers\Metrics\MetricBatch::sample('vmmanager.resource.up',$state==='online'?1:0,$item['external_id'],[],'gauge','boolean');}
         return $out;
+    }
+
+    private function clusterPages(ConnectorContext $context,string $resource,#[\SensitiveParameter] string $token,float $deadline,int $limit):array
+    {
+        $rows=[];$last=0;
+        for($page=0;$page<self::MAX_PAGES;$page++){
+            $batch=$this->api->page($context,$resource,$last,self::PAGE,$token,$deadline);
+            if($batch===[])return $rows;
+            foreach($batch as $row){$last=VmmanagerApiClient::id($row->id??null);$rows[]=$row;if(count($rows)>$limit)throw new ConnectorTransportException('connector_protocol_error');}
+        }
+        throw new ConnectorTransportException('connector_protocol_error');
     }
 
     private function anchor(ConnectorContext $context,#[\SensitiveParameter] string $token,float $deadline): array

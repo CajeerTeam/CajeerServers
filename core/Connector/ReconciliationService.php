@@ -126,13 +126,19 @@ ON CONFLICT(target_id,external_id) DO UPDATE SET asset_id=COALESCE(connector_dis
  parent_external_id=COALESCE(EXCLUDED.parent_external_id,connector_discovered_resources.parent_external_id)
 SQL,['id'=>$target['id'],'ws'=>$target['workspace_id'],'ext'=>$item['external_id'],'type'=>$item['type'],'asset'=>$assetId,'first'=>$observedAt,'last'=>$observedAt,'gen'=>$generation,'conflict'=>$conflict,'name'=>$item['fields']['name']??null,'parent'=>$item['parent_external_id']??null]);
         }
-        if ($snapshot->complete) {
+        // The cluster collector exhausts only cluster/node lists. Only cluster absence is
+        // authoritative here; the legacy inventory owns node/guest absence evidence.
+        $absenceScope=$snapshot->complete?($target['provider']==='vmmanager'?'vmmanager_inventory':'all'):null;
+        if($target['provider']==='vmmanager'&&($snapshot->connection['vmmanager_cluster_discovery']['complete']??false)===true)$absenceScope='vmmanager_cluster';
+        if ($absenceScope!==null) {
             $this->query($pdo,<<<'SQL'
 UPDATE connector_discovered_resources SET missed_complete=missed_complete+1, absent_since=COALESCE(absent_since,CAST(:since AS timestamptz)),
  presence=CASE WHEN missed_complete>=2 AND absent_since<=CAST(:missing_at AS timestamptz)-interval '72 hours' THEN 'missing'
  WHEN missed_complete>=1 AND absent_since<=CAST(:stale_at AS timestamptz)-interval '24 hours' THEN 'stale' ELSE presence END
 WHERE target_id=:id AND last_generation<:gen AND last_seen_at IS NOT NULL
-SQL,['id'=>$target['id'],'gen'=>$generation,'since'=>$observedAt,'missing_at'=>$observedAt,'stale_at'=>$observedAt]);
+ AND CASE CAST(:absence_scope AS text) WHEN 'vmmanager_inventory' THEN resource_type<>'cluster'
+ WHEN 'vmmanager_cluster' THEN resource_type='cluster' ELSE true END
+SQL,['id'=>$target['id'],'gen'=>$generation,'since'=>$observedAt,'missing_at'=>$observedAt,'stale_at'=>$observedAt,'absence_scope'=>$absenceScope]);
         }
         $presence=['unknown'=>0,'seen'=>0,'stale'=>0,'missing'=>0];
         foreach ($this->query($pdo,'SELECT presence,count(*) AS n FROM connector_discovered_resources WHERE target_id=:id GROUP BY presence',['id'=>$target['id']])->fetchAll(PDO::FETCH_ASSOC) as $row) $presence[$row['presence']]=(int)$row['n'];

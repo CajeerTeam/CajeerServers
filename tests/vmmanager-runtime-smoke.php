@@ -15,7 +15,7 @@ $nodes=[['id'=>1,'name'=>'node-a','state'=>'active'],['id'=>'2','name'=>'node-b'
 $hosts=[['id'=>123,'name'=>'guest','state'=>true,'node'=>['id'=>1],'cluster'=>['virtualization_type'=>'kvm']],['id'=>124,'name'=>'ct','state'=>false,'node'=>['id'=>2],'cluster'=>['virtualization_type'=>'lxd']]];
 $items=VmmanagerConnector::observations($nodes,$hosts);
 $r=(new ConnectorResult($items,true))->validated($manifest);
-$ok($r->complete && $r->summary($manifest)===['hypervisor_node'=>2,'virtual_machine'=>1,'container'=>1],'typed complete snapshot');
+$ok($r->complete && $r->summary($manifest)===['hypervisor_node'=>2,'virtual_machine'=>1,'container'=>1,'cluster'=>0],'typed complete snapshot');
 $ok($items[0]['external_id']==='node:1'&&$items[1]['fields']['status']==='maintenance','node identity and maintenance');
 $ok($items[2]['external_id']==='host:123'&&$items[2]['parent_external_id']==='node:1'&&$items[2]['fields']['status']==='online','KVM mapping');
 $ok($items[3]['type']==='container'&&$items[3]['fields']['status']==='offline','LXD mapping');

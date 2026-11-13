@@ -14,7 +14,9 @@ import threading
 from urllib.parse import parse_qs, urlsplit
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-NODES = [dict(id=1, name='vmm-node-a', state='active'), dict(id=2, name='vmm-node-b', state='active', maintenance_mode=True)]
+CLUSTERS = [dict(id=1, name='KVM production', virtualization_type='kvm'), dict(id=2, name='LXD production', virtualization_type='lxd')]
+NODES = [dict(id=1, name='vmm-node-a', state='active', cluster={'id': 1, 'name': 'KVM production'}, ip='192.0.2.11', cpu_number=32, ram_mib={'total': 65536, 'used': 16384}, storage_mib={'total': '9007199254740993', 'used': 1024}, host_count=5, host_limit=-1, password='remote-secret-marker'),
+         dict(id=2, name='vmm-node-b', state='active', maintenance_mode=True, cluster={'id': 2, 'name': 'LXD production'}, ipv6='2001:db8::2', cpu_number=16, ram_mib={'total': 32768, 'used': 4096})]
 HOSTS = [dict(id=21, name='vmm-guest-a', state=True, node={'id': 1}, cluster={'id': 1, 'virtualization_type': 'kvm'}),
          dict(id=22, name='vmm-container-b', state=False, node={'id': 2}, cluster={'id': 2, 'virtualization_type': 'lxd'})]
 
@@ -94,6 +96,24 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.reply({'error': {'code': 400}}, 400)
             return
         after, limit = int(match[1]), int(limit_match[1])
+        if path.path == '/vm/v3/cluster':
+            if token == 'fixture-vmm-cluster-denied':
+                self.reply({'error': {'code': 42}}, 403)
+                return
+            rows = CLUSTERS[:1] if token in ('fixture-vmm-scoped', 'fixture-vmm-cluster-orphan') else CLUSTERS
+            if token == 'fixture-vmm-cluster-many':
+                rows = [dict(id=i, name=f'cluster-{i}', virtualization_type='kvm') for i in range(1, 103)]
+            if token == 'fixture-vmm-cluster-midfail' and after > 0:
+                self.reply({'error': {'code': 42}}, 503)
+                return
+            if token == 'fixture-vmm-cap-revoked':
+                self.reply({'error': {'code': 3001}})
+                return
+            page = [row for row in rows if row['id'] > after][:limit]
+            if token == 'fixture-vmm-short':
+                page = page[:1]
+            self.reply({'list': page})
+            return
         if path.path not in ('/vm/v3/node', '/vm/v3/host'):
             if token == 'fixture-vmm-capabilities' and path.path == '/ip/v3/ipnet':
                 self.reply({'error': {'code': 42}}, 403)
@@ -112,6 +132,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
         rows = [dict(row) for row in (NODES if path.path.endswith('/node') else HOSTS)]
         if path.path.endswith('/node'):
+            if token == 'fixture-vmm-cluster-many':
+                rows = [dict(id=i, name=f'node-{i}', state='active', cluster={'id': i}) for i in range(1, 103)]
+                rows[0]['name'] = 'vmm-node-a'
+                rows[1]['name'] = 'vmm-node-b'
+            if token == 'fixture-vmm-cluster-move':
+                rows[0]['cluster'] = {'id': 2}
             if token == 'fixture-vmm-wrong-anchor':
                 rows[0]['name'] = 'other-platform'
             if token == 'fixture-vmm-no-name':
@@ -233,6 +259,22 @@ foreach([null,[],['primary_pin'=>$pin,'anchor_id'=>'1','anchor_node'=>'node'],['
  try{\Cajeer\Servers\Connector\VmmanagerProfile::normalize($bad);throw new LogicException('accepted invalid profile');}catch(HttpException $e){$ok($e->status===422,'invalid profile rejected');}
 }
 try{new ConnectorContext('proxmox','vmmanager.test',$port,'api_token',null,$profile);throw new LogicException('accepted cross provider');}catch(InvalidArgumentException){$ok(true,'provider scope');}
+$clusterPlan=new \Cajeer\Servers\Collector\CollectionPlan('vmmanager.cluster','sync');
+$catalog=array_column($collector->catalog(),null,'name');$ok($catalog['vmmanager.cluster']['resource_types']===['cluster','hypervisor_node']&&$catalog['vmmanager.cluster']['operations']===['inspect','sync'],'cluster collector actual types and operations');
+$cluster=static fn(string $token)=>$collector->collect($clusterPlan,$target,'api_token',$token);
+$r=$cluster('fixture-vmm-active');$d=$r->connection['vmmanager_cluster_discovery'];
+$ok(count($r->items)===4&&!$r->complete&&$d['complete']&&$d['counts']===['clusters'=>2,'nodes'=>2,'unlinked_nodes'=>0],'cluster-specific completeness never marks guests absent');
+$ok($r->items[2]['external_id']==='node:1'&&$r->items[2]['parent_external_id']==='cluster:1'&&$r->items[0]['type']==='cluster','stable CMDB parent identity');
+$ok($d['nodes'][0]['cpu_number']==='32'&&$d['nodes'][0]['storage_mib']['total']==='9007199254740993'&&$d['nodes'][0]['ram_mib']['used']==='16384'&&$d['nodes'][0]['host_limit']==='-1'&&!str_contains(json_encode($d),'remote-secret-marker'),'documented units, exact capacity and field allowlist');
+$ok($d['nodes'][1]['status']==='maintenance'&&$d['nodes'][1]['storage_mib']===null,'maintenance and absent capacity');
+$r=$cluster('fixture-vmm-scoped');$d=$r->connection['vmmanager_cluster_discovery'];$ok(!$d['complete']&&$d['counts']['unlinked_nodes']===1&&!isset($r->items[2]['parent_external_id']),'scoped visibility does not invent cluster');
+$r=$cluster('fixture-vmm-cluster-move');$ok($r->items[2]['parent_external_id']==='cluster:2'&&$r->items[2]['external_id']==='node:1','node reassignment preserves identity');
+$r=$cluster('fixture-vmm-cluster-many');$ok(count($r->items)===204&&$r->connection['vmmanager_cluster_discovery']['counts']['nodes']===102,'cluster and node pagination');
+$r=$cluster('fixture-vmm-short');$ok(count($r->items)===4,'short pages are not exhaustion');
+foreach(['cluster-denied'=>'connector_auth_failed','cluster-midfail'=>'connector_unavailable','cluster-orphan'=>'connector_protocol_error'] as $case=>$category){
+    try{$cluster('fixture-vmm-'.$case);throw new LogicException('accepted '.$case);}catch(HttpException $e){$ok($e->status===502&&$e->errorCode===$category,'cluster rejects '.$case);}
+}
+try{$collector->collect($clusterPlan,array_diff_key($target,['vmmanager_profile'=>true]),'api_token','fixture-vmm-active');throw new LogicException('missing profile');}catch(HttpException $e){$ok($e->errorCode==='collection_invalid','profile required for detailed collector');}
 echo "VMmanager HTTPS integration: $n PASS\n";
 '''
             subprocess.run(['php','-r',code,str(ROOT),str(server.server_port),str(cert)],check=True,timeout=60)

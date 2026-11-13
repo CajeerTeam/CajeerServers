@@ -1,3 +1,8 @@
+## [0.7.3] — 2026-11-14 — Cluster & Server Discovery
+
+- Реальный сбор VMmanager cluster/node через проверенный профиль, keyset pagination, нормализованные CPU/RAM/storage и membership.
+- Транзакционное сохранение текущего снимка и истории, Inspect/Sync, Admin UI и SDK. Защита от cross-collector absence.
+
 ## [0.7.2] — 2026-11-14 — API Authentication & Capabilities
 
 - VMmanager API client for auth/v4, vm/v3 and ip/v3 with bounded allowlisted read requests and safe error envelopes.

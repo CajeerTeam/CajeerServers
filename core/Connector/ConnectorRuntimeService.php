@@ -177,6 +177,7 @@ final class ConnectorRuntimeService
                     $result['collection']['count']=$result['connection']['task_discovery']['observed_count'];
                     $result['connection']['task_discovery']['actions_reconciled']=ConnectorActionService::reconcileTasks($pdo,$target,$this->audit,$actor);
                 }
+                if(($collection['collector']??null)==='vmmanager.cluster')VmmanagerClusterStore::save($pdo,$target,$snapshot->connection['vmmanager_cluster_discovery'],$observedAt);
                 if(($collection['collector']??null)==='proxmox.cluster')ProxmoxClusterStore::save($pdo,$target,$snapshot->connection['cluster_discovery'],$collection['observed_at']);
                 if(($collection['collector']??null)==='proxmox.guests')ProxmoxGuestStore::save($pdo,$target,$snapshot->connection['guest_discovery'],$collection['observed_at']);
                 if(($collection['collector']??null)==='proxmox.storage-network')ProxmoxStorageNetworkStore::save($pdo,$target,$snapshot->connection['storage_network_discovery'],$collection['observed_at']);
@@ -202,6 +203,7 @@ final class ConnectorRuntimeService
                 ['count'=>count($items),'complete'=>$snapshot->complete,'blocked'=>$delta['snapshot']['blocked']],$requestId);
             $result=['connector_id'=>$targetId,'mode'=>'sync','discovered'=>count($items),'types'=>$summary,...$delta];
             if ($collection!==null) $result['collection']=$collection;
+            if(($collection['collector']??null)==='vmmanager.cluster')VmmanagerClusterStore::save($pdo,$target,$snapshot->connection['vmmanager_cluster_discovery'],$observedAt);
             if(($collection['collector']??null)==='proxmox.cluster')ProxmoxClusterStore::save($pdo,$target,$snapshot->connection['cluster_discovery'],$observedAt);
             if(($collection['collector']??null)==='proxmox.guests')ProxmoxGuestStore::save($pdo,$target,$snapshot->connection['guest_discovery'],$observedAt);
             if(($collection['collector']??null)==='proxmox.storage-network')ProxmoxStorageNetworkStore::save($pdo,$target,$snapshot->connection['storage_network_discovery'],$observedAt);
@@ -210,6 +212,13 @@ final class ConnectorRuntimeService
             return $result;
         });
         return $result;
+    }
+    public function vmmanagerCluster(string $actor,string $targetId):array
+    {
+        (new Rbac($this->db,$this->audit))->requireUserPermission($actor,'inventory.assets.read');
+        $target=$this->bindings->show($actor,$targetId);
+        if($target['provider']!=='vmmanager')throw new HttpException(404,'VMmanager target not found.','not_found');
+        return VmmanagerClusterStore::read($this->db->connection(),$target);
     }
     public function proxmoxCluster(string $actor,string $targetId):array
     {

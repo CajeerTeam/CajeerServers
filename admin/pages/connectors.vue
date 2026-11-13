@@ -286,7 +286,7 @@ onMounted(init)
         <section v-if="vmmConnection?.action_capabilities" data-testid="vmmanager-action-capabilities">
           <h3>Объявленные права на операции</h3>
           <table><thead><tr><th>Операция</th><th>Объявлена API</th></tr></thead><tbody><tr v-for="(status, key) in vmmConnection.action_capabilities" :key="key"><td>{{key}}</td><td>{{status==='advertised'?'Да':status==='not_advertised'?'Нет':'Неизвестно'}}</td></tr></tbody></table>
-          <p class="muted small">Данные auth/v4/self/handles. Не являются подтверждением доступа к конкретной VM. Выполнение операций в 0.7.2 отключено.</p>
+          <p class="muted small">Данные auth/v4/self/handles. Не являются подтверждением доступа к конкретной VM. Выполнение операций в 0.7.3 отключено.</p>
         </section>
       </section>
       <section v-if="active&&canManage" class="panel"><h2>Настройки: {{active.name}}</h2><form @submit.prevent="editTarget"><div class="form-row"><label>Название подключения<input v-model="edit.name" required maxlength="120" data-testid="connector-edit-name" /></label><label>Адрес подключения<input v-model="edit.endpoint_host" required maxlength="253" /></label><label>Порт подключения<input v-model.number="edit.endpoint_port" type="number" min="1" max="65535" required /></label></div><button class="btn" :disabled="busy">Сохранить настройки</button><button class="btn" type="button" :disabled="busy" @click="open(active)">Загрузить текущие настройки</button></form></section>

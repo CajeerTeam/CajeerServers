@@ -399,6 +399,7 @@ return static function (Router $router, ServiceContainer $container): void {
                 ],'additionalProperties'=>false,
             ]);
             $connectors->delete('/targets/{id}/service-grants/{grantId}',static fn(HttpRequest $r):HttpResponse=>$handler()->revokeGrant($r));
+            $connectors->get('/targets/{id}/vmmanager-cluster',static fn(HttpRequest $r):HttpResponse=>$handler()->vmmanagerCluster($r));
             $connectors->get('/targets/{id}/proxmox-cluster',static fn(HttpRequest $r):HttpResponse=>$handler()->proxmoxCluster($r));
             $connectors->get('/targets/{id}/proxmox-guests',static fn(HttpRequest $r):HttpResponse=>$handler()->proxmoxGuests($r));
             $connectors->get('/targets/{id}/proxmox-tasks',static fn(HttpRequest $r):HttpResponse=>$handler()->proxmoxTasks($r));

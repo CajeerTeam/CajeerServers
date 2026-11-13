@@ -30,7 +30,7 @@ try {
     $pdo=$db->connection();$ok((int)$pdo->query("SELECT current_setting('server_version_num')")->fetchColumn()>=170000,'PostgreSQL 17+');
     $pdo->exec('CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public');
     $pdo->exec('CREATE SCHEMA "'.$schema.'"');$created=true;$pdo->exec('SET search_path TO "'.$schema.'", public');
-    foreach(glob($root.'/migrations/pgsql/*.sql')?:[] as $file)copy($file,$dir.'/migrations/'.basename($file));
+    foreach(glob($root.'/migrations/pgsql/*.sql')?:[] as $file)if(!str_starts_with(basename($file),'0047_'))copy($file,$dir.'/migrations/'.basename($file));
     (new MigrationRunner($db,$dir.'/migrations'))->run();
     $password='fixture-only-password-123!';$q=$pdo->prepare('INSERT INTO users(email,name,password_hash,two_factor_enabled) VALUES(:email,:name,:hash,true) RETURNING id::text');
     $q->execute(['email'=>'vmm-test@example.invalid','name'=>'VMM integration','hash'=>password_hash($password,PASSWORD_ARGON2ID)]);$actor=(string)$q->fetchColumn();
@@ -66,6 +66,7 @@ try {
     $reject(412,fn()=>$bindings->update($actor,$id,99,['vmmanager_profile'=>$profile]),'stale trust update');$bindings->bind($actor,$id,$cid,'api',1,null,true);
     $authorize=static function()use($pdo,$actor,$principal,$access,$asset,$cid,$password,$totpKey):void {
         // Test-only OTP reset; production never resets replay protection.
+        $pdo->exec('DELETE FROM security_rate_limits');
         $pdo->prepare('UPDATE user_mfa SET last_counter=NULL WHERE user_id=:id')->execute(['id'=>$actor]);
         $access->authorize($principal,$asset['id'],$cid,'api',$password,TwoFactorManager::totp($totpKey,time()));
     };
@@ -113,6 +114,24 @@ try {
     $authorize();$verified=$runtime->health($principal,$id,3);
     $ok($verified['connection']['identity_verified']===true,'updated profile health verified through Vault');
     $ok($verified['connection']['authentication']['owner_id']===7&&$verified['connection']['authentication']['expires_at']===$expiry&&$verified['connection']['capabilities']['guests']==='available','rotation expiry and remote authorization diagnostics through Vault');
+    copy($root.'/migrations/pgsql/0047_vmmanager_cluster_discovery.sql',$dir.'/migrations/0047_vmmanager_cluster_discovery.sql');
+    $runner=new MigrationRunner($db,$dir.'/migrations');$ok(count($runner->run()['applied'])===1&&$runner->run()['applied']===[],'upgrade from 0.7.2 and migration idempotency');
+    $ok($runtime->vmmanagerCluster($actor,$id)['state']==='not_collected','cluster current state initially absent');
+    $authorize();$plan=$execution->createPlan($principal,$id,3,['name'=>'Cluster discovery','collector'=>'vmmanager.cluster','operation'=>'sync','ttl_seconds'=>3600,'interval_seconds'=>300]);
+    $run=$execution->runPlan($actor,$id,$plan['id'],'cluster-sync');
+    $ok($execution->once()['status']==='succeeded','cluster collection worker succeeds');
+    $current=$runtime->vmmanagerCluster($actor,$id);
+    $ok($current['state']==='available'&&$current['snapshot']['counts']['clusters']===2&&$current['snapshot']['counts']['nodes']===2,'cluster persisted atomically');
+    $q=$pdo->prepare("SELECT external_id,parent_external_id,asset_id::text,presence FROM connector_discovered_resources WHERE target_id=:id ORDER BY external_id");$q->execute(['id'=>$id]);$mapped=array_column($q->fetchAll(PDO::FETCH_ASSOC),null,'external_id');
+    $ok($mapped['node:1']['parent_external_id']==='cluster:1'&&$mapped['cluster:1']['asset_id']!==null&&$mapped['host:21']['presence']==='seen','cluster membership and guest protection');
+    // Old absent cluster fixture, no CMDB object required for testing presence bookkeeping.
+    $pdo->prepare("INSERT INTO connector_discovered_resources(target_id,workspace_id,external_id,resource_type,presence,first_seen_at,last_seen_at,absent_since,missed_complete,last_generation) VALUES(:id,:ws,'cluster:999','cluster','seen',now()-interval '5 days',now()-interval '5 days',now()-interval '4 days',2,1)")->execute(['id'=>$id,'ws'=>$ws]);
+    $beforeClusterRepeat=$count();$run2=$execution->runPlan($actor,$id,$plan['id'],'cluster-repeat');$ok($execution->once()['status']==='succeeded'&&$count()===$beforeClusterRepeat,'repeat cluster sync no duplicates');
+    $q->execute(['id'=>$id]);$absent=array_column($q->fetchAll(PDO::FETCH_ASSOC),null,'external_id');$ok($absent['cluster:999']['presence']==='missing'&&$absent['host:21']['presence']==='seen','only missing clusters reconciled by full cluster scope');
+    $ok($execution->status($actor,$id,$run['id'])['result']['connection']['vmmanager_cluster_discovery']['counts']['nodes']===2,'run history retains full snapshot');
+    $authorize();$runtime->run($principal,$id,3,true);$q->execute(['id'=>$id]);$mapped2=array_column($q->fetchAll(PDO::FETCH_ASSOC),null,'external_id');
+    $ok($mapped2['cluster:1']['asset_id']===$mapped['cluster:1']['asset_id']&&$mapped2['cluster:1']['presence']==='seen'&&$mapped2['cluster:999']['presence']==='missing','legacy inventory keeps cluster identity');
+    $bindings->update($actor,$id,3,['vmmanager_profile'=>$profile]);$ok($runtime->vmmanagerCluster($actor,$id)['state']==='stale','profile revision invalidates current cluster snapshot');
     echo "VMmanager PostgreSQL/Vault/Queue/HTTPS integration: $n PASS\n";
 } catch(Throwable $e){$failed=true;fwrite(STDERR,'FAIL VMmanager PostgreSQL: '.$e::class.': '.$e->getMessage()."\n");}
 finally {
