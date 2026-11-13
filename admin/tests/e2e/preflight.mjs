@@ -22,8 +22,8 @@ if (url.hostname.startsWith('prod.')||url.hostname.startsWith('production.')) {
 }
 if(process.env.E2E_CONNECTOR_UI==='1') {
   const host=process.env.E2E_CONNECTOR_FIXTURE_HOST||'', port=Number(process.env.E2E_CONNECTOR_FIXTURE_PORT||8443)
-  if(!process.env.E2E_ADMIN_TOTP_SECRET||!host||!Number.isInteger(port)||port<1||port>65535) {
-    console.error('Connector E2E requires isolated fixture host/port and dedicated admin TOTP seed.');process.exit(2)
+  if(!process.env.E2E_ADMIN_TOTP_SECRET||!host||!(/^[a-f0-9]{64}$/.test(process.env.E2E_CONNECTOR_FIXTURE_PIN||''))||!Number.isInteger(port)||port<1||port>65535) {
+    console.error('Connector E2E requires isolated fixture host/port, certificate SHA-256 pin and dedicated admin TOTP seed.');process.exit(2)
   }
 }
 console.log('E2E preflight PASS — explicit disposable staging confirmation supplied. No deployment state was checked.')

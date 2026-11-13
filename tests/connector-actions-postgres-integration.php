@@ -85,6 +85,7 @@ try {
     $reject(409,fn()=>$actions->submit($principal,$id,2,$body,'test-idempotency-0003'),'unknown blocks repeat');
     $authorize();$ack=$disabled->refresh($principal,$id,$unknown['id'],2,true);$ok($ack['status']==='acknowledged'&&$driver->posts===2,'operator acknowledgement no write');
     $ok(count($actions->list($principal,$id))===2,'history persisted');
+    $ok(count($actions->list($principal,$id,0,'qemu:101'))===2&&$actions->list($principal,$id,0,'lxc:102')===[],'guest-filtered action history');
     $driver->fail=false;$driver->notSent=true;$ct=['action'=>'lxc.start','external_id'=>'lxc:102','confirm'=>'lxc.start lxc:102'];
     $authorize();$blocked=$actions->submit($principal,$id,2,$ct,'test-idempotency-0004');
     $ok($blocked['status']==='failed'&&$blocked['error_code']==='guest_state_conflict'&&$driver->posts===2,'known pre-POST rejection does not block future operations');

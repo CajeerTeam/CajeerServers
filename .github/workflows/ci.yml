@@ -43,6 +43,7 @@ jobs:
           python3 tests/data-export-https-integration.py
           python3 tests/connector-https-integration.py
           python3 tests/proxmox-profile-https-integration.py
+          python3 tests/proxmox-admin-fixture-integration.py
           python3 tests/connector-actions-https-integration.py
           python3 tests/vmmanager-https-integration.py
           python3 tests/host-transport-integration.py --ssh

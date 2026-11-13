@@ -68,4 +68,8 @@ ok(read('pages/connectors.vue').includes('/validate-rotation') && read('pages/co
   'pending rotation executes real MFA->connector validation without plaintext response')
 ok(read('pages/vault.vue').includes('activation_ready') && read('pages/vault.vue').includes('validated_targets'),
   'Vault Admin UI requires fresh server-side validation proof')
+ok(read('pages/proxmox.vue').includes('scopedProxmox')&&read('pages/proxmox.vue').includes('generation')&&read('layouts/default.vue').includes('/proxmox'),'Proxmox specialized console and scope fencing')
+ok(read('pages/proxmox.vue').includes('ProxmoxGuestDiscovery')&&read('pages/proxmox.vue').includes('PbsBackupDiscovery')&&read('pages/proxmox.vue').includes('ConnectorLifecycle'),'Proxmox console uses actual discovery and dispatch panels')
+ok(read('components/ConnectorLifecycle.vue').includes('external_id=')&&read('components/ConnectorLifecycle.vue').includes('initialResource'),'focused guest exact resource lookup')
+ok(existsSync(new URL('tests/e2e/proxmox-admin.spec.ts',root)),'real staging Proxmox/PBS browser scenario')
 console.log(`Admin static checks: ${passed} PASS`)

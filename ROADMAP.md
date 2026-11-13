@@ -272,6 +272,7 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 - [x] Snapshot metadata and safe snapshot actions (0.6.7).
 - [x] Native console hand-off (0.6.7).
 - [x] Proxmox Backup Server read-only inventory and jobs (0.6.8).
+- [x] Dedicated Proxmox/PBS Admin UI and critical isolated browser E2E scenario (0.6.9).
 
 ## 0.8.0 — VMmanager Integration
 

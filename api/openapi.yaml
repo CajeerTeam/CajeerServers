@@ -1,7 +1,7 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.6.8
+  version: 0.6.9
   description: 'CajeerServers 0.5.7: signed external data ingestion, durable inbox and time series.'
 servers:
 - url: /api/v1
@@ -6861,6 +6861,10 @@ paths:
       - name: offset
         in: query
         schema: {type: integer, minimum: 0, maximum: 10000, default: 0}
+      - name: external_id
+        in: query
+        description: Точное внешнее соответствие в данном target и Workspace
+        schema: {type: string, minLength: 1, maxLength: 180}
       responses:
         '200':
           description: Последнее состояние ресурсов без секретов
@@ -7512,6 +7516,10 @@ paths:
           type: integer
           minimum: 0
           maximum: 10000
+      - name: external_id
+        in: query
+        description: Exact QEMU/LXC guest identity within the target
+        schema: {type: string, pattern: '^(qemu|lxc):[1-9][0-9]{0,8}$'}
       responses:
         '200':
           description: Action metadata; submitted does not mean completed

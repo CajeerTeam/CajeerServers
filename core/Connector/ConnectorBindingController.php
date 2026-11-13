@@ -216,7 +216,9 @@ final class ConnectorBindingController
     {
         $actor=$this->actor($r,'connectors.targets.read');
         $this->rbac->requirePermission($this->auth->authenticate($r,sessionOnly:true),'inventory.assets.read');
-        return HttpResponse::json(['data'=>$this->runtime->resources($actor,self::id($r),self::integer($r,'limit',50,100),self::integer($r,'offset',0,10000))],200,['Cache-Control'=>'private, no-store']);
+        $external=$r->query['external_id']??null;
+        if ($external!==null && (!is_string($external) || $external==='' || strlen($external)>180 || preg_match('/[\x00-\x1f\x7f]/',$external))) throw new HttpException(422,'Invalid external identity.','validation_failed');
+        return HttpResponse::json(['data'=>$this->runtime->resources($actor,self::id($r),self::integer($r,'limit',50,100),self::integer($r,'offset',0,10000),$external)],200,['Cache-Control'=>'private, no-store']);
     }
     public function resolveResource(HttpRequest $r):HttpResponse
     {

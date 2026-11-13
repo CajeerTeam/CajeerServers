@@ -79,8 +79,8 @@ export class CajeerServersClient {
   proxmoxStorageNetwork(id:string):Promise<ProxmoxStorageNetworkState> { return this.data(`${this.target(id)}/proxmox-storage-network`) }
   run(id:string,runId:string):Promise<Run> { return this.data(`${this.target(id)}/runs/${this.id(runId)}`) }
   cancel(id:string,runId:string):Promise<Run> { return this.write('POST',`${this.target(id)}/runs/${this.id(runId)}/cancel`) }
-  resources(id:string,limit=50,offset=0):Promise<unknown> { return this.data(`${this.target(id)}/resources?limit=${limit}&offset=${offset}`) }
-  actions(id:string,offset=0):Promise<Action[]> { return this.data(`${this.target(id)}/actions?offset=${offset}`) }
+  resources(id:string,limit=50,offset=0,externalId?:string):Promise<unknown> { return this.data(`${this.target(id)}/resources?limit=${limit}&offset=${offset}${externalId?`&external_id=${encodeURIComponent(externalId)}`:''}`) }
+  actions(id:string,offset=0,externalId?:string):Promise<Action[]> { return this.data(`${this.target(id)}/actions?offset=${offset}${externalId?`&external_id=${encodeURIComponent(externalId)}`:''}`) }
   action(id:string,actionId:string):Promise<Action> { return this.data(`${this.target(id)}/actions/${this.id(actionId)}`) }
   power(id:string,etag:string,action:PowerAction,externalId:string,confirmation:string,key:string):Promise<Action> {
     if (!/^(qemu|lxc):[1-9][0-9]{0,8}$/.test(externalId) || !/^(vm|lxc)\.(start|shutdown|stop|reboot)$/.test(action) || (action.startsWith('vm.') !== externalId.startsWith('qemu:'))) throw new Error('Action and guest type must match')

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import {proxmoxUrl} from '~/composables/proxmoxNavigation'
 import { collectionUrl } from '~/composables/collectionNavigation'
 import { apiError } from '~/composables/useApi'
 import { inventoryContextUrl, selectWorkspace, queryUuid, inventoryAssetUrl } from '~/composables/inventoryNavigation'
@@ -249,7 +250,7 @@ onMounted(init)
         <dl v-if="pveConnection" class="kv-grid"><div><dt>PVE</dt><dd>{{pveConnection.version}}</dd></div><div><dt>Endpoint проверки</dt><dd>{{pveConnection.endpoint_host}}:{{pveConnection.endpoint_port}} {{pveConnection.failover?'(резервный)':'(основной)'}}</dd></div><div><dt>Quorum</dt><dd>{{pveConnection.quorate===null?'—':pveConnection.quorate?'Есть':'Нет'}}</dd></div><div><dt>Права на /</dt><dd>{{pveConnection.permissions_visible?(pveConnection.root_privileges||[]).join(', ')||'Нет видимых прав':'Не доступны'}}</dd></div></dl>
       </section>
       <section v-if="active&&canManage" class="panel"><h2>Настройки: {{active.name}}</h2><form @submit.prevent="editTarget"><div class="form-row"><label>Название подключения<input v-model="edit.name" required maxlength="120" data-testid="connector-edit-name" /></label><label>Адрес подключения<input v-model="edit.endpoint_host" required maxlength="253" /></label><label>Порт подключения<input v-model.number="edit.endpoint_port" type="number" min="1" max="65535" required /></label></div><button class="btn" :disabled="busy">Сохранить настройки</button><button class="btn" type="button" :disabled="busy" @click="open(active)">Загрузить текущие настройки</button></form></section>
-      <section v-if="active" class="panel"><h2>Credentials: {{active.name}}</h2>
+      <section v-if="active" class="panel"><h2>Credentials: {{active.name}}</h2><NuxtLink v-if="!busy&&auth.can('inventory.assets.read')&&['proxmox','pbs'].includes(active.provider)" class="btn" :to="proxmoxUrl(workspace,active.id,active.provider==='pbs'?'backups':'overview')">Открыть панель Proxmox</NuxtLink>
         <p>Выбрана конфигурация {{active.id}}. Версия {{active.version}}. Секреты не возвращаются из API.</p>
         <form v-if="canManage" @submit.prevent="saveAsset">
           <label>Целевой Inventory asset

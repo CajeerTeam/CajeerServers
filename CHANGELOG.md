@@ -1,3 +1,9 @@
+## [0.6.9] — 2026-11-13 — Proxmox Admin UI & E2E
+
+- Dedicated `/proxmox` workspace console with PVE/PBS target selection, scoped deep links, cluster/guest/storage/task/backup views and collection plans.
+- Focused guest management uses exact scoped Inventory lookup, the existing dispatcher, MFA, snapshot and native console operations; stale and historical guest rows cannot launch focused actions.
+- Critical browser scenario exercises real PHP APIs, Vault, workers and the isolated combined PVE/PBS HTTPS fixture. Release report requires the suite to execute successfully.
+
 ## [0.6.8] — 2026-11-13 — Backup Server Integration
 
 - Native read-only PBS 3/4 API token connector with TLS trust, Vault health/rotation validation and scheduled `pbs.backups` collection.

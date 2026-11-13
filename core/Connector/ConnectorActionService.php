@@ -56,11 +56,11 @@ final class ConnectorActionService
     }
     public function get(array $p,string $target,string $id):array
     { $actor=$this->actor($p,false);$this->bindings->show($actor,$target);return $this->row($this->db->connection(),$target,$id); }
-    public function list(array $p,string $target,int $offset=0):array
+    public function list(array $p,string $target,int $offset=0,?string $external=null):array
     {
         $actor=$this->actor($p,false);$this->bindings->show($actor,$target);
         if ($offset<0||$offset>10000) throw new HttpException(422,'Invalid offset.','validation_failed');
-        $q=$this->query($this->db->connection(),'SELECT id::text FROM connector_actions WHERE target_id=:t ORDER BY created_at DESC,id DESC LIMIT 50 OFFSET '.(int)$offset,['t'=>$target]);
+        $q=$this->query($this->db->connection(),'SELECT id::text FROM connector_actions WHERE target_id=:t'.($external===null?'':' AND external_id=:external').' ORDER BY created_at DESC,id DESC LIMIT 50 OFFSET '.(int)$offset,['t'=>$target]+($external===null?[]:['external'=>$external]));
         return array_map(fn($id)=>$this->row($this->db->connection(),$target,$id),$q->fetchAll(PDO::FETCH_COLUMN));
     }
     private function lock(array $t,callable $fn):array

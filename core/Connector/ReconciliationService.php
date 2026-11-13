@@ -138,10 +138,11 @@ SQL,['id'=>$target['id'],'gen'=>$generation,'since'=>$observedAt,'missing_at'=>$
         foreach ($this->query($pdo,'SELECT presence,count(*) AS n FROM connector_discovered_resources WHERE target_id=:id GROUP BY presence',['id'=>$target['id']])->fetchAll(PDO::FETCH_ASSOC) as $row) $presence[$row['presence']]=(int)$row['n'];
         return ['outcomes'=>$outcomes,'snapshot'=>['generation'=>$generation,'complete'=>$snapshot->complete,'blocked'=>$blocked,'presence'=>$presence]];
     }
-    public function resources(PDO $pdo,string $actor,array $target,int $limit,int $offset):array
+    public function resources(PDO $pdo,string $actor,array $target,int $limit,int $offset,?string $external=null):array
     {
         $this->inventory->workspaceRole($pdo,$target['workspace_id'],$actor);
-        $q=$pdo->prepare('SELECT external_id,resource_type,asset_id::text,presence,first_seen_at::text,last_seen_at::text,absent_since::text,missed_complete,conflict_code,observed_name,parent_external_id,allow_create,last_generation FROM connector_discovered_resources WHERE target_id=:id AND workspace_id=:ws ORDER BY external_id LIMIT :lim OFFSET :off');
+        $q=$pdo->prepare('SELECT external_id,resource_type,asset_id::text,presence,first_seen_at::text,last_seen_at::text,absent_since::text,missed_complete,conflict_code,observed_name,parent_external_id,allow_create,last_generation FROM connector_discovered_resources WHERE target_id=:id AND workspace_id=:ws'.($external===null?'':' AND external_id=:ext').' ORDER BY external_id LIMIT :lim OFFSET :off');
+        if ($external!==null) $q->bindValue('ext',$external);
         $q->bindValue('id',$target['id']); $q->bindValue('ws',$target['workspace_id']); $q->bindValue('lim',$limit,PDO::PARAM_INT); $q->bindValue('off',$offset,PDO::PARAM_INT); $q->execute();
         $data=$q->fetchAll(PDO::FETCH_ASSOC);
         foreach ($data as &$r) { $r['missed_complete']=(int)$r['missed_complete']; $r['last_generation']=(int)$r['last_generation']; $r['allow_create']=in_array($r['allow_create'],[true,'t','1',1],true); } unset($r);

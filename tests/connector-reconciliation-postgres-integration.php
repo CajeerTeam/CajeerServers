@@ -62,6 +62,7 @@ try{
     $ok((int)$pdo->query('SELECT count(*) FROM inventory_assets')->fetchColumn()===$before && count($rows())===1,'preview no writes');
     $out=$apply($snapshot([$node,$vm,$ambiguous]));
     $ok($out['snapshot']['blocked']===1&&$out['outcomes']['created']===1&&$rows()['qemu:42']['asset_id']===$legacy,'atomic sync and identity');
+    $ok(count($service->resources($pdo,$actor,$target,50,0,'qemu:42'))===1&&$service->resources($pdo,$actor,$target,50,0,'qemu:42')[0]['external_id']==='qemu:42'&&$service->resources($pdo,$actor,$target,50,0,'qemu:999')===[],'exact external identity lookup');
     $ok($rows()['qemu:43']['conflict_code']==='ambiguous_name'&&$rows()['qemu:43']['asset_id']===null,'name conflict no duplicate');
     $gen=$rows()['qemu:43']['last_generation'];
     $resolve=function(string $ext,int $generation,?string $asset)use($db,$repo,$service,$actor,$target):array{return $db->transaction(function(PDO $pdo)use($repo,$service,$actor,$target,$ext,$generation,$asset):array{$repo->lockWorkspace($pdo,$target['workspace_id']);return $service->resolve($pdo,$actor,$target,$ext,$generation,$asset,null);});};

@@ -61,6 +61,8 @@ $run('Connector lifecycle UI policy', ['node', '--experimental-strip-types', 'te
 $run('Browser release report policy', ['node','tests/e2e/report-contract.mjs'], $root . '/admin');
 $run('Data collection navigation and UI policy', ['node','--experimental-strip-types','tests/collection-navigation-contract.mjs'], $root . '/admin');
 
+$run('Proxmox Admin navigation policy', ['node','--experimental-strip-types','tests/proxmox-navigation-contract.mjs'], $root . '/admin');
+
 if ($strict) {
     $run('Script sandbox integration', [PHP_BINARY,'tests/script-sandbox-integration.php'], $root);
     $run('Connector stability HTTPS integration', ['python3','tests/connector-stability-https-integration.py'], $root);
@@ -69,6 +71,7 @@ if ($strict) {
     $run('Metrics HTTPS integration', ['python3','tests/metrics-https-integration.py'], $root);
     $run('Proxmox profile HTTPS integration', ['python3','tests/proxmox-profile-https-integration.py'], $root);
     $run('Proxmox HTTPS integration', ['python3','tests/connector-https-integration.py'], $root);
+    $run('Proxmox Admin staging fixture HTTPS integration', ['python3','tests/proxmox-admin-fixture-integration.py'], $root);
     $run('PBS HTTPS integration', ['python3','tests/pbs-backup-https-integration.py'], $root);
     $run('Proxmox snapshot HTTPS integration', ['python3','tests/proxmox-snapshots-https-integration.py'], $root);
     $run('Connector actions HTTPS integration', ['python3','tests/connector-actions-https-integration.py'], $root);

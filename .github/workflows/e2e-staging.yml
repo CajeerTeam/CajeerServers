@@ -1,4 +1,4 @@
-name: Admin + Vault + Connector E2E (disposable staging)
+name: Admin + Vault + Proxmox/PBS E2E (disposable staging)
 on:
   workflow_dispatch:
     inputs:
@@ -7,7 +7,7 @@ on:
         type: string
         required: true
       connector_fixture_host:
-        description: 'DNS/IP of the supplied isolated TLS Proxmox fixture, reachable from staging PHP'
+        description: 'DNS/IP of the supplied isolated TLS PVE/PBS fixture (PBS CA trusted by staging PHP), reachable from staging PHP'
         type: string
         required: true
       connector_fixture_port:
@@ -28,7 +28,7 @@ jobs:
   browser:
     if: ${{ inputs.confirm_disposable_environment == true }}
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 50
     environment: inventory-e2e-staging
     env:
       CI: 'true'

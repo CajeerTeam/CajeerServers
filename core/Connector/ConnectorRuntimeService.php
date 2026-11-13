@@ -258,10 +258,10 @@ final class ConnectorRuntimeService
         $target=$this->bindings->show($actor,$targetId);
         return \Cajeer\Servers\Metrics\MetricStore::query($this->db->connection(),$target,$series,$from,$to,$aggregation,$step);
     }
-    public function resources(string $actor,string $targetId,int $limit,int $offset):array
+    public function resources(string $actor,string $targetId,int $limit,int $offset,?string $external=null):array
     {
         $target=$this->bindings->show($actor,$targetId);
-        return $this->reconciliation()->resources($this->db->connection(),$actor,$target,$limit,$offset);
+        return $this->reconciliation()->resources($this->db->connection(),$actor,$target,$limit,$offset,$external);
     }
     public function resolveResource(string $actor,string $targetId,int $version,string $external,int $generation,?string $assetId,?string $requestId):array
     {

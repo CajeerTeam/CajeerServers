@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import {proxmoxUrl} from '~/composables/proxmoxNavigation'
 import { inventoryContextUrl, queryUuid, type InventorySection } from '~/composables/inventoryNavigation'
 const route = useRoute()
 const sections: InventorySection[] = ['inventory','catalog','history','transfer','ipam','topology','workspaces','connectors','vault','collections','scripts']
@@ -13,6 +14,7 @@ const links = computed(() => [
   { to: '/transfer', label: 'Импорт / Экспорт', permission: 'inventory.transfer.read' },
   { to: '/ipam', label: 'Сети и IPAM', permission: 'inventory.network.read' },
   { to: '/topology', label: 'Связи и топология', permission: 'inventory.relationships.read' },
+  { to: '/proxmox', label: 'Proxmox VE / PBS', permission: 'connectors.targets.read' },
   { to: '/connectors', label: 'Конфигурации подключений', permission: 'connectors.targets.read' },
   { to: '/vault', label: 'Хранилище учётных данных', permission: 'vault.credentials.read' },
   { to: '/collections', label: 'Сбор данных', permission: 'connectors.targets.read' },
@@ -24,8 +26,8 @@ const links = computed(() => [
   { to: '/audit', label: 'Аудит', permission: 'security.audit.read' },
   { to: '/system', label: 'Диагностика', permission: 'admin.dashboard.read' },
   { to: '/settings', label: 'Профиль и безопасность', permission: '' },
-].filter(item => (!item.permission || auth.can(item.permission)) && (item.to !== '/collections' || auth.can('workspaces.read')) && (item.to !== '/topology' || (auth.can('inventory.assets.read') && auth.can('inventory.network.read'))))
-  .map(item => ({...item, to: sections.includes(item.to.slice(1) as InventorySection)
+].filter(item => (!item.permission || auth.can(item.permission)) && (item.to !== '/collections' || auth.can('workspaces.read')) && (item.to !== '/proxmox' || (auth.can('workspaces.read') && auth.can('inventory.assets.read'))) && (item.to !== '/topology' || (auth.can('inventory.assets.read') && auth.can('inventory.network.read'))))
+  .map(item => ({...item, to: item.to==='/proxmox'?proxmoxUrl(route.query.workspace_id):sections.includes(item.to.slice(1) as InventorySection)
     ? inventoryContextUrl(item.to.slice(1) as InventorySection, queryUuid(route.query.workspace_id)) : item.to})))
 const loggingOut = ref(false)
 const error = ref('')
