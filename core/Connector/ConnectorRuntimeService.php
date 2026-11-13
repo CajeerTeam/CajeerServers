@@ -170,6 +170,7 @@ final class ConnectorRuntimeService
                 if(($collection['collector']??null)==='proxmox.tasks'){
                     $result['connection']['task_discovery']=ProxmoxTaskStore::save($pdo,$target,$snapshot->connection['task_discovery'],$collection['observed_at']);
                     $result['collection']['count']=$result['connection']['task_discovery']['observed_count'];
+                    $result['connection']['task_discovery']['actions_reconciled']=ConnectorActionService::reconcileTasks($pdo,$target,$this->audit,$actor);
                 }
                 if(($collection['collector']??null)==='proxmox.cluster')ProxmoxClusterStore::save($pdo,$target,$snapshot->connection['cluster_discovery'],$collection['observed_at']);
                 if(($collection['collector']??null)==='proxmox.guests')ProxmoxGuestStore::save($pdo,$target,$snapshot->connection['guest_discovery'],$collection['observed_at']);

@@ -126,12 +126,24 @@ try{
     $exec->setPlanEnabled($actor,$id,$storagePlan['id'],false);
     copy($root.'/migrations/pgsql/0041_proxmox_task_history.sql',$dir.'/0041_proxmox_task_history.sql');
     $ok($runner->run()['applied']===['0041_proxmox_task_history']&&$runner->validate()['valid']&&$runner->run()['applied']===[],'0.6.4 upgrade and replay');
+    // Model a 0.6.5 accepted action already waiting for its UPID before migration.
+    $actionInsert=$pdo->prepare("INSERT INTO connector_actions(target_id,workspace_id,actor_id,credential_id,credential_version,target_version,action,external_id,idempotency_key,status,node,remote_task) VALUES(:t,:w,:a,:c,1,2,'vm.start','qemu:100','pve-existing-action','submitted','pve-a',:task) RETURNING id::text");
+    $actionInsert->execute(['t'=>$id,'w'=>$ws,'a'=>$actor,'c'=>$cid,'task'=>$taskUpid]);$actionId=$actionInsert->fetchColumn();
+    copy($root.'/migrations/pgsql/0042_proxmox_safe_actions.sql',$dir.'/0042_proxmox_safe_actions.sql');
+    $ok($runner->run()['applied']===['0042_proxmox_safe_actions']&&$runner->validate()['valid']&&$runner->run()['applied']===[],'0.6.5 upgrade and replay');
+    $actionStatus=static function()use($pdo,$actionId):array{$q=$pdo->prepare('SELECT status,task_checked_at FROM connector_actions WHERE id=:id');$q->execute(['id'=>$actionId]);return $q->fetch(PDO::FETCH_ASSOC);};
+    $ok($actionStatus()['status']==='submitted','migration preserves accepted action');
+    $pending=\Cajeer\Servers\Connector\ProxmoxTaskStore::previous($pdo,['id'=>$id,'workspace_id'=>$ws,'version'=>2,'credential_id'=>$cid,'credential_version'=>1]);
+    $ok($pending['revision']===0&&$pending['pending']===[['upid'=>$taskUpid]],'accepted UPID polled before first archive collection');
+
     $guestMode='ok';$authorize();$taskPlan=$exec->createPlan($principal,$id,2,['name'=>'Task history','collector'=>'proxmox.tasks','operation'=>'inspect','ttl_seconds'=>3600,'interval_seconds'=>60]);
     $ok($runtime->proxmoxTasks($actor,$id,'tasks',50,null,null)['state']==='not_collected','initial history');
     $taskJob=$exec->runPlan($actor,$id,$taskPlan['id'],'pve-task-history-1');$ok($exec->once()['status']==='succeeded','running task collected');
     $tasks=$runtime->proxmoxTasks($actor,$id,'tasks',50,null,null);$ok(count($tasks['items'])===1&&$tasks['items'][0]['state']==='running','running UPID saved');
+    $ok($actionStatus()['status']==='submitted'&&$actionStatus()['task_checked_at']!==null,'running task retains action lock and polling timestamp');
     $taskMode='stopped';$taskJob2=$exec->runPlan($actor,$id,$taskPlan['id'],'pve-task-history-2');$ok($exec->once()['status']==='succeeded','completion collected');
     $tasks=$runtime->proxmoxTasks($actor,$id,'tasks',50,null,null);$ok(count($tasks['items'])===1&&$tasks['items'][0]['state']==='succeeded'&&$tasks['items'][0]['ended_at']===$taskStart+5,'UPID update and endtime enrichment');
+    $ok($actionStatus()['status']==='succeeded'&&$exec->status($actor,$id,$taskJob2['id'])['result']['connection']['task_discovery']['actions_reconciled']===1,'authorized task job settles action atomically');
     $events=$runtime->proxmoxTasks($actor,$id,'events',1,null,null);$ok(count($events['items'])===1&&$events['items'][0]['kind']==='task_completed'&&$events['next_before']!==null,'event keyset page');
     $next=$runtime->proxmoxTasks($actor,$id,'events',1,$events['next_before'],null);$ok(count($next['items'])===1&&$next['items'][0]['kind']==='task_discovered','next event page');
     $exec->runPlan($actor,$id,$taskPlan['id'],'pve-task-history-3');$ok($exec->once()['status']==='succeeded','replay collected');

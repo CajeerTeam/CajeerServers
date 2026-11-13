@@ -1,7 +1,7 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.6.5
+  version: 0.6.6
   description: 'CajeerServers 0.5.7: signed external data ingestion, durable inbox and time series.'
 servers:
 - url: /api/v1
@@ -7521,6 +7521,12 @@ paths:
                           enum:
                           - vm.start
                           - vm.shutdown
+                          - vm.stop
+                          - vm.reboot
+                          - lxc.start
+                          - lxc.shutdown
+                          - lxc.stop
+                          - lxc.reboot
                         status:
                           type: string
                           enum:
@@ -7556,7 +7562,7 @@ paths:
           description: Remote operation failed; never retry automatically
     post:
       operationId: submitConnectorAction
-      summary: MFA-confirmed Proxmox VM power action
+      summary: MFA-confirmed Proxmox VM/LXC power action
       security:
       - sessionAuth: []
       parameters:
@@ -7616,6 +7622,12 @@ paths:
                         enum:
                         - vm.start
                         - vm.shutdown
+                        - vm.stop
+                        - vm.reboot
+                        - lxc.start
+                        - lxc.shutdown
+                        - lxc.stop
+                        - lxc.reboot
                       status:
                         type: string
                         enum:
@@ -7666,9 +7678,15 @@ paths:
                   enum:
                   - vm.start
                   - vm.shutdown
+                  - vm.stop
+                  - vm.reboot
+                  - lxc.start
+                  - lxc.shutdown
+                  - lxc.stop
+                  - lxc.reboot
                 external_id:
                   type: string
-                  pattern: ^qemu:[1-9][0-9]{0,8}$
+                  pattern: ^(qemu|lxc):[1-9][0-9]{0,8}$
                 confirm:
                   type: string
                   description: Exact action + space + external_id
@@ -7723,6 +7741,12 @@ paths:
                         enum:
                         - vm.start
                         - vm.shutdown
+                        - vm.stop
+                        - vm.reboot
+                        - lxc.start
+                        - lxc.shutdown
+                        - lxc.stop
+                        - lxc.reboot
                       status:
                         type: string
                         enum:
@@ -7819,6 +7843,12 @@ paths:
                         enum:
                         - vm.start
                         - vm.shutdown
+                        - vm.stop
+                        - vm.reboot
+                        - lxc.start
+                        - lxc.shutdown
+                        - lxc.stop
+                        - lxc.reboot
                       status:
                         type: string
                         enum:
@@ -7915,6 +7945,12 @@ paths:
                         enum:
                         - vm.start
                         - vm.shutdown
+                        - vm.stop
+                        - vm.reboot
+                        - lxc.start
+                        - lxc.shutdown
+                        - lxc.stop
+                        - lxc.reboot
                       status:
                         type: string
                         enum:

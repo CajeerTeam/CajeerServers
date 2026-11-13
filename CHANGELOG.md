@@ -1,3 +1,9 @@
+## [0.6.6] — 2026-11-13 — Safe Action Dispatcher
+
+- Execute direct QEMU/LXC start, graceful shutdown, hard stop and reboot via the verified primary PVE endpoint; validate live guest state, node, config digest, locks, template and HA ownership before dispatch.
+- Preserve MFA, exact confirmation, durable intent, idempotency, workspace isolation and UPID validation; reconcile submitted actions from authorized task history collection without repeating POST.
+- Expand existing API, Admin UI and SDK; migration 0042 preserves prior history.
+
 ## [0.6.5] — 2026-11-13 — Task History & Events
 
 - Collect PVE node task archives and active tasks via verified HTTPS; durable UPID cursor, bounded backfill, archive head follow, pending status polling and explicit partial states.

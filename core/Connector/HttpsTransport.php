@@ -18,7 +18,7 @@ final class HttpsTransport
     {return $this->request('GET',$host,$port,$path,$authorization,$caFile,'Authorization','text/plain; version=0.0.4');}
     public function powerPost(string $host,int $port,string $path,#[\SensitiveParameter] string $authorization,?string $caFile=null,?string $pin=null):string
     {
-        if (!preg_match('~^/api2/json/nodes/[A-Za-z0-9][A-Za-z0-9._-]{0,119}/qemu/[1-9][0-9]{0,8}/status/(start|shutdown)$~D',$path)) throw new RuntimeException('Unsupported power request.');
+        if (!preg_match('~^/api2/json/nodes/[A-Za-z0-9][A-Za-z0-9._-]{0,119}/(?:qemu|lxc)/[1-9][0-9]{0,8}/status/(start|shutdown|stop|reboot)$~D',$path)) throw new RuntimeException('Unsupported power request.');
         return $this->request('POST',$host,$port,$path,$authorization,$caFile,'Authorization',pin:$pin);
     }
     /** Operator-configured delivery only. Signature and all extra headers are generated internally. */

@@ -2,7 +2,7 @@ export type AssetType = 'server' | 'hypervisor_node' | 'cluster' | 'virtual_mach
 export interface InfrastructureAsset { id: string; type: AssetType; name: string; status: string; source: string }
 export type Provider = 'proxmox' | 'vmmanager' | 'ssh' | 'winrm' | 'snmp' | 'custom' | 'prometheus'
 export type Operation = 'health' | 'inspect' | 'sync'
-export type PowerAction = 'vm.start' | 'vm.shutdown'
+export type PowerAction = 'vm.start' | 'vm.shutdown' | 'vm.stop' | 'vm.reboot' | 'lxc.start' | 'lxc.shutdown' | 'lxc.stop' | 'lxc.reboot'
 export interface CollectorDefinition { name:string; provider:Provider; operations:('inspect'|'sync')[]; resource_types:AssetType[] }
 export interface CollectionSnapshot { schema_version:1; collector:string; sink:'result'|'inventory'|'metrics'; metric_samples?:MetricSample[]; observed_at:string; complete:boolean; count:number; observations?:{type:AssetType;external_id:string;fields:Record<string,unknown>;parent_external_id?:string}[] }
 export interface Driver { collectors?:CollectorDefinition[]; provider: Provider; purpose: string; credentialTypes: string[]; operations: (Operation | 'validate_rotation')[]; resourceTypes: AssetType[]; transport: string; actions: PowerAction[]; write_actions_enabled: boolean }

@@ -60,11 +60,13 @@ final class ProxmoxApiClient
     }
     public static function rows(mixed $data):array
     {if(!is_array($data)||!array_is_list($data))throw new ConnectorTransportException('connector_protocol_error');return array_map(static function($r){if(!$r instanceof \stdClass)throw new ConnectorTransportException('connector_protocol_error');return (array)$r;},$data);}
-    public function power(ConnectorContext $ctx,string $path,#[\SensitiveParameter] string $secret):mixed
+    public function power(ConnectorContext $ctx,string $path,#[\SensitiveParameter] string $secret,?callable $preflight=null):mixed
     {
         // Probe primary identity before sending a single POST, outside the retry loop.
-        $this->read($ctx,$secret,static function(callable $get,array $info):void {if(($info['quorate']??null)===false)throw new ConnectorTransportException('connector_unavailable');},true);
-        $auth=self::authorization($ctx->credentialType,$secret);
+        try {
+            $this->read($ctx,$secret,static function(callable $get,array $info)use($preflight):void {if(($info['quorate']??null)===false)throw new ConnectorTransportException('connector_unavailable');if($preflight!==null)$preflight($get,$info);},true);
+            $auth=self::authorization($ctx->credentialType,$secret);
+        } catch (\Throwable $e) { throw new ConnectorActionNotSentException($e); }
         try{return HttpsTransport::jsonObject($this->https->powerPost($ctx->host,$ctx->port,$path,$auth,$this->caFile,$ctx->proxmoxProfile['primary_pin']??null))->data??null;}
         finally{sodium_memzero($auth);}
     }

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import {readFileSync} from 'node:fs'
-import {usableGrant,grantLimits,canPowerResource,isRunPending,canRedrive,canAcknowledge,actionConfirmation} from '../composables/connectorLifecycle.ts'
+import {usableGrant,grantLimits,canPowerResource,powerActionMatches,isRunPending,canRedrive,canAcknowledge,actionConfirmation} from '../composables/connectorLifecycle.ts'
 const now=Date.parse('2026-01-01T00:00:00Z'),t={id:'t',workspace_id:'w',name:'test',version:2,etag:'v2',state:'active',asset_id:'a'},b={credential_id:'c',purpose:'api',credential_version:4}
 const g={id:'g',actor_id:'u',operation:'sync',target_version:2,credential_id:'c',credential_version:4,expires_at:'2026-01-02T00:00:00Z',revoked_at:null,interval_seconds:300,next_due_at:'2026-01-01T00:05:00Z'}
 let n=0;function check(value,label){assert.ok(value,label);n++}
@@ -8,7 +8,7 @@ check(usableGrant(g,t,'u',b,now),'current own grant');check(!usableGrant({...g,c
 for(const bad of [{actor_id:'other'},{revoked_at:'2026-01-01T00:00:00Z'},{expires_at:'2026-01-01T00:00:00Z'},{target_version:1},{credential_version:3},{credential_id:'other'}])check(!usableGrant({...g,...bad},t,'u',b,now),'reject stale/foreign grant')
 check(!usableGrant(g,{...t,state:'disabled'},'u',b,now),'disabled target');check(!usableGrant(g,t,'u',null,now),'no binding')
 check(grantLimits(60,null)&&grantLimits(2592000,86400),'limits inclusive');check(!grantLimits(59,null)&&!grantLimits(2592001,null)&&!grantLimits(60,0)&&!grantLimits(60,86401)&&!grantLimits(60.5,60),'limits fail closed')
-const r={external_id:'qemu:101',resource_type:'virtual_machine',asset_id:'a',presence:'seen',conflict_code:null};check(canPowerResource(r),'mapped VM');for(const bad of [{presence:'missing'},{asset_id:null},{conflict_code:'ambiguous'},{external_id:'lxc:101'},{external_id:'qemu:../101'},{resource_type:'server'}])check(!canPowerResource({...r,...bad}),'unverified VM denied')
+const r={external_id:'qemu:101',resource_type:'virtual_machine',asset_id:'a',presence:'seen',conflict_code:null};check(canPowerResource(r),'mapped VM');check(canPowerResource({...r,external_id:'lxc:101',resource_type:'container'}),'mapped LXC');check(powerActionMatches('lxc.reboot','lxc:101')&&!powerActionMatches('vm.reboot','lxc:101'),'typed action matching');for(const bad of [{presence:'missing'},{asset_id:null},{conflict_code:'ambiguous'},{external_id:'lxc:101'},{external_id:'qemu:../101'},{resource_type:'server'}])check(!canPowerResource({...r,...bad}),'unverified VM denied')
 check(isRunPending('queued')&&isRunPending('running')&&!isRunPending('succeeded'),'run cancellation policy');check(canRedrive('dead_letter')&&canRedrive('cancelled')&&!canRedrive('succeeded'),'redrive policy');check(canAcknowledge('submitted')&&canAcknowledge('unknown')&&!canAcknowledge('succeeded'),'ack policy');check(actionConfirmation('vm.start','qemu:101')==='vm.start qemu:101','exact confirmation')
 const ui=readFileSync(new URL('../components/ConnectorLifecycle.vue',import.meta.url),'utf8'),page=readFileSync(new URL('../pages/connectors.vue',import.meta.url),'utf8'),api=readFileSync(new URL('../composables/useApi.ts',import.meta.url),'utf8')
 for(const path of ['/service-grants','/runs','/webhook-sources','/events','/actions','/authorize-use','/collection-plans'])check(ui.includes(path),'live API '+path)

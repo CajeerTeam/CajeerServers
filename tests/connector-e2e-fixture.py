@@ -41,7 +41,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
         path = urllib.parse.unquote(self.path)
         with self.lock:
-            if path == '/api2/json/nodes':
+            if path == '/api2/json/version':
+                self.reply({'version':'9.0.3'})
+            elif path == '/api2/json/cluster/status':
+                self.reply([{'type':'node','name':NODE,'local':1,'online':1}])
+            elif path == f'/api2/json/nodes/{NODE}/qemu/{VM}/config':
+                self.reply({'digest':'a'*40})
+            elif path == f'/api2/json/nodes/{NODE}/qemu/{VM}/status/current':
+                self.reply({'vmid':VM,'status':Handler.state,'qmpstatus':Handler.state,'ha':{'managed':0}})
+            elif path == '/api2/json/nodes':
                 self.reply([{'node': NODE, 'status': 'online', 'cpu': 0.25, 'mem': 4096, 'maxmem': 8192, 'uptime': 120}])
             elif path == '/api2/json/cluster/resources?type=vm':
                 self.reply([{'type': 'qemu', 'node': NODE, 'vmid': VM, 'name': 'cajeer-e2e-vm', 'status': Handler.state}])

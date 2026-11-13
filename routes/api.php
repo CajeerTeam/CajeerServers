@@ -360,7 +360,7 @@ return static function (Router $router, ServiceContainer $container): void {
             $connectors->get('/targets/{id}/actions',static fn(HttpRequest $r):HttpResponse=>$actions()->list($r));
             $connectors->post('/targets/{id}/actions',static fn(HttpRequest $r):HttpResponse=>$actions()->submit($r),[
                 'required'=>['action','external_id','confirm'],'properties'=>[
-                    'action'=>['type'=>'string','enum'=>['vm.start','vm.shutdown']],
+                    'action'=>['type'=>'string','enum'=>\Cajeer\Servers\Connector\ProxmoxPowerPolicy::ACTIONS],
                     'external_id'=>['type'=>'string','maxLength'=>180], 'confirm'=>['type'=>'string','maxLength'=>220],
                 ],'additionalProperties'=>false]);
             $connectors->get('/targets/{id}/actions/{actionId}',static fn(HttpRequest $r):HttpResponse=>$actions()->get($r));

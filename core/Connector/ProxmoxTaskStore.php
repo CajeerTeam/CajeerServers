@@ -16,9 +16,18 @@ final class ProxmoxTaskStore
     public static function previous(PDO $p,array $t):array
     {
         $a=self::args($t);$r=self::query($p,'SELECT revision,cursor FROM proxmox_task_cursor WHERE target_id=:id AND scope_hash=:scope',$a)->fetch(PDO::FETCH_ASSOC);
-        if(!$r)return ['revision'=>0,'pending'=>[]];
+        // Include accepted actions before their UPID appears in the archive. Separate quotas
+        // prevent a backlog of actions from starving ordinary history polling.
         $pending=self::query($p,"SELECT upid FROM proxmox_tasks WHERE target_id=:id AND scope_hash=:scope AND state='running' ORDER BY checked_at ASC NULLS FIRST,id LIMIT 20",$a)->fetchAll(PDO::FETCH_ASSOC);
-        return ['revision'=>(int)$r['revision'],'cursor'=>json_decode($r['cursor'],true,32,JSON_THROW_ON_ERROR),'pending'=>$pending];
+        $actions=self::query($p,<<<'SQL'
+SELECT a.remote_task AS upid FROM connector_actions a
+LEFT JOIN proxmox_tasks p ON p.target_id=a.target_id AND p.scope_hash=:scope AND p.upid=a.remote_task
+WHERE a.target_id=:id AND a.workspace_id=:ws AND a.target_version=:tv AND a.credential_id=:credential AND a.credential_version=:cv
+ AND a.status='submitted' AND a.remote_task IS NOT NULL AND (p.state IS NULL OR p.state IN ('running','unknown'))
+ORDER BY a.task_checked_at ASC NULLS FIRST,a.created_at,a.id LIMIT 10
+SQL,$a+['ws'=>$t['workspace_id'],'tv'=>$t['version'],'credential'=>$t['credential_id'],'cv'=>$t['credential_version']])->fetchAll(PDO::FETCH_ASSOC);
+        $pending=array_values(array_column([...$actions,...$pending],null,'upid'));
+        return ['revision'=>$r?(int)$r['revision']:0,'cursor'=>$r?json_decode($r['cursor'],true,32,JSON_THROW_ON_ERROR):['nodes'=>[],'next_node'=>null],'pending'=>$pending];
     }
     public static function summary(array $batch):array
     {return array_diff_key($batch,array_flip(['tasks','cursor','checked','expected_revision']));}
@@ -58,7 +67,10 @@ SQL,$key+['ws'=>$t['workspace_id'],'node'=>$task['node'],'type'=>$task['type'],'
                 self::query($p,'UPDATE proxmox_tasks SET state=:state,ended_at=:end,last_seen_at=:observed WHERE id=:task',['state'=>$state,'end'=>$end,'observed'=>$observed,'task'=>$id]);
             }
         }
-        foreach($batch['checked'] as $upid=>$status)self::query($p,'UPDATE proxmox_tasks SET checked_at=:observed,check_state=:status WHERE target_id=:id AND scope_hash=:scope AND upid=:upid',$a+['observed'=>$observed,'status'=>$status,'upid'=>$upid]);
+        foreach($batch['checked'] as $upid=>$status){
+            self::query($p,'UPDATE proxmox_tasks SET checked_at=:observed,check_state=:status WHERE target_id=:id AND scope_hash=:scope AND upid=:upid',$a+['observed'=>$observed,'status'=>$status,'upid'=>$upid]);
+            self::query($p,"UPDATE connector_actions SET task_checked_at=:observed WHERE target_id=:id AND workspace_id=:ws AND target_version=:tv AND credential_id=:credential AND credential_version=:cv AND remote_task=:upid AND status='submitted'",['observed'=>$observed,'id'=>$t['id'],'ws'=>$t['workspace_id'],'tv'=>$t['version'],'credential'=>$t['credential_id'],'cv'=>$t['credential_version'],'upid'=>$upid]);
+        }
         self::query($p,'UPDATE proxmox_task_cursor SET summary=CAST(:summary AS jsonb) WHERE target_id=:id AND scope_hash=:scope',$a+['summary'=>json_encode($summary,JSON_THROW_ON_ERROR)]);
         return $summary;
     }

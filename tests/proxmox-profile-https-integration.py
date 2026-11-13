@@ -29,7 +29,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if self.server.mode.startswith('guest-') or self.server.guest_fixture:
                 node='pve-b' if self.server.mode=='guest-race' and sum(p==self.path for m,p in self.server.calls)>1 else 'pve-a'
                 self.reply([{'type':'qemu','node':node,'vmid':100,'status':'running','pool':'prod'},{'type':'lxc','node':'pve-b','vmid':200,'status':'stopped'}])
-            else:self.reply([{'type':'qemu','node':'pve-a','vmid':100,'status':'running'}])
+            else:self.reply([{'type':'qemu','node':'pve-a','vmid':100,'status':'stopped' if self.server.mode=='ok' else 'running'}])
         elif self.path=='/api2/json/storage':self.reply([{'storage':'local-lvm','type':'lvmthin','content':'images,rootdir','path':'must-not-leak'}])
         elif self.path=='/api2/json/nodes/pve-a/storage':
             if self.server.mode=='storage-failover':self.send_error(503);return
@@ -42,8 +42,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if self.server.mode=='guest-denied':self.send_error(403);return
             if self.server.mode=='guest-auth':self.send_error(401);return
             if self.server.mode=='guest-rate':self.send_error(429);return
-            self.reply({'cores':4,'memory':8192,'scsi0':'local-lvm:vm-100-disk-0,size=32G','net0':'virtio=02:00:00:00:00:01,bridge=vmbr0,tag=20','smbios1':'uuid=11111111-1111-4111-8111-111111111111','cipassword':'must-not-leak'})
-        elif self.path=='/api2/json/nodes/pve-a/qemu/100/status/current':self.reply({'vmid':100,'status':'running','cpu':0.25,'mem':4294967296})
+            self.reply({'cores':4,'memory':8192,'scsi0':'local-lvm:vm-100-disk-0,size=32G','net0':'virtio=02:00:00:00:00:01,bridge=vmbr0,tag=20','smbios1':'uuid=11111111-1111-4111-8111-111111111111','cipassword':'must-not-leak','digest':'a'*40})
+        elif self.path=='/api2/json/nodes/pve-a/qemu/100/status/current':self.reply({'vmid':100,'status':'stopped' if self.server.mode=='ok' else 'running','qmpstatus':'stopped' if self.server.mode=='ok' else 'running','ha':{'managed':0},'cpu':0.25,'mem':4294967296})
         elif self.path=='/api2/json/nodes/pve-b/lxc/200/config':self.reply({'cores':2,'memory':2048,'rootfs':'local-lvm:vm-200-disk-0,size=8G','unprivileged':1,'net0':'name=eth0,bridge=vmbr0,ip=192.0.2.2/24'})
         elif self.path=='/api2/json/nodes/pve-b/lxc/200/status/current':self.reply({'vmid':200,'status':'stopped','uptime':0})
         elif self.path.startswith('/api2/json/nodes/pve-a/tasks?'):
@@ -106,12 +106,12 @@ elseif(str_starts_with($mode,'cluster-')){
     else{if($node['details']['cpu']['logical_cpus']!==16||$node['details']['memory_bytes']['total']!=='34359738368')throw new RuntimeException('hardware');if($mode==='cluster-noquorum'&&$s['cluster']['quorate'])throw new RuntimeException('quorum');if($mode==='cluster-failover'&&!$r->connection['failover'])throw new RuntimeException('cluster failover');}
 }
 elseif($mode==='post'){$r=$d->prepareAction($ctx,'vm.start','qemu:100',$secret);$upid=$d->dispatchAction($ctx,'vm.start',$r,$secret);if($d->actionStatus($ctx,'pve-a',$upid,$secret)!=='succeeded')throw new RuntimeException('task');}
-elseif($mode==='write-down'){$d->dispatchAction($ctx,'vm.start',['node'=>'pve-a','vmid'=>100],$secret);throw new LogicException('write unexpectedly succeeded');}
+elseif($mode==='write-down'){$d->dispatchAction($ctx,'vm.start',['node'=>'pve-a','vmid'=>100,'type'=>'qemu','state'=>'stopped','digest'=>str_repeat('a',40),'fingerprint'=>null],$secret);throw new LogicException('write unexpectedly succeeded');}
 else{$result=$d->execute($ctx,$mode==='health'?'health':'inspect',$secret);if($mode==='late'){if(!$result->connection['failover']||count($result->items)!==3||$result->complete)throw new RuntimeException('failover failed');}
 elseif($mode==='health'){if($result->connection['version']!=='9.0.3'||$result->connection['root_privileges']!==['Sys.Audit'])throw new RuntimeException('diagnostics');}
 elseif($mode==='down'){if(!$result->connection['failover'])throw new RuntimeException('connection failover');}
 else throw new LogicException('unexpected success');}
-}catch(ConnectorTransportException $e){$expected=match($mode){'pin','wrong'=>'connector_trust_failed','auth','cluster-auth','guest-auth'=>'connector_auth_failed','guest-race'=>'connector_protocol_error','write-down'=>'connector_transport_failed',default=>''};if($e->category!==$expected)throw $e;}
+}catch(\Cajeer\Servers\Connector\ConnectorActionNotSentException $e){if($mode!=='write-down'||$e->errorCode!=='connector_transport_failed')throw $e;}catch(ConnectorTransportException $e){$expected=match($mode){'pin','wrong'=>'connector_trust_failed','auth','cluster-auth','guest-auth'=>'connector_auth_failed','guest-race'=>'connector_protocol_error','write-down'=>'connector_transport_failed',default=>''};if($e->category!==$expected)throw $e;}
 '''
         def run(mode,port=None):
             subprocess.run(['php','-r',code,str(ROOT),str(port or servers[0].server_port),str(servers[1].server_port),str(ca),*pins,mode],check=True,timeout=30)

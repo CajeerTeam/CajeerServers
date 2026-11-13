@@ -80,32 +80,52 @@ final class ProxmoxConnector implements ConnectorInterface, ConnectorActionDrive
         return $out;
     }
 
-    public function actions(): array { return ['vm.start','vm.shutdown']; }
+    public function actions(): array { return ProxmoxPowerPolicy::ACTIONS; }
 
-    /** Resolve the live node by cluster-wide VMID; never accept a node/path from HTTP input. */
+    /** Resolve live location and verify the resource before any durable dispatch. */
     public function prepareAction(ConnectorContext $context,string $action,string $externalId,#[\SensitiveParameter] string $secret): array
     {
-        if ($context->provider!=='proxmox'||!in_array($action,$this->actions(),true)||!preg_match('/^qemu:([1-9][0-9]{0,8})$/D',$externalId,$m)) throw new RuntimeException('Unsupported VM action.');
-        $items=$this->client()->read($context,$secret,static function(callable $get,array $info):array {if(($info['quorate']??null)===false)throw new ConnectorTransportException('connector_unavailable');return self::observations(ProxmoxApiClient::rows($get('/api2/json/nodes')),ProxmoxApiClient::rows($get('/api2/json/cluster/resources?type=vm')));},true);
-        foreach ($items as $item) if ($item['external_id']===$externalId) {
-            $node=self::node(substr($item['parent_external_id'],5));
-            return ['node'=>$node,'vmid'=>(int)$m[1]];
+        if ($context->provider!=='proxmox'||!ProxmoxPowerPolicy::matches($action,$externalId)) throw new RuntimeException('Unsupported guest action.');
+        if($context->proxmoxProfile===null) throw new \Cajeer\Servers\Http\Exception\HttpException(409,'A verified Proxmox profile is required for power actions.','connector_trust_failed');
+        return $this->client()->read($context,$secret,fn(callable $get,array $info):array=>$this->liveAction($get,$info,$action,$externalId),true);
+    }
+    private function liveAction(callable $get,array $info,string $action,string $externalId):array
+    {
+        if(($info['quorate']??null)===false)ProxmoxPowerPolicy::deny('guest_quorum','Proxmox cluster has no quorum.');
+        [$type,$id]=explode(':',$externalId);$id=(int)$id;
+        $nodes=ProxmoxApiClient::rows($get('/api2/json/nodes'));
+        $guests=ProxmoxApiClient::rows($get('/api2/json/cluster/resources?type=vm'));
+        $items=self::observations($nodes,$guests);$node=null;$matches=0;
+        foreach($items as $item)if(in_array($item['external_id'],['qemu:'.$id,'lxc:'.$id],true)){
+            $matches++;if($item['external_id']===$externalId)$node=self::node(substr($item['parent_external_id'],5));
         }
-        throw new RuntimeException('VM is not visible in current cluster.');
+        if($matches!==1||$node===null)ProxmoxPowerPolicy::deny('guest_identity_conflict','Guest identity is not unique and visible in the cluster.');
+        if(!in_array($node,array_column(array_filter($nodes,static fn($r)=>($r['status']??null)==='online'),'node'),true))ProxmoxPowerPolicy::deny('guest_node_offline','Guest node is not online.');
+        $base='/api2/json/nodes/'.$node.'/'.$type.'/'.$id;
+        $config=$get($base.'/config');$status=$get($base.'/status/current');
+        // Cluster PVE status must reveal HA ownership; standalone has no HA services.
+        if(($info['cluster']??null)!==null&&!isset($status->ha))ProxmoxPowerPolicy::deny('guest_ha_managed','HA ownership could not be verified.');
+        $evidence=ProxmoxPowerPolicy::inspect($action,$type,$id,$config,$status);
+        return ['node'=>$node,'vmid'=>$id,'type'=>$type]+$evidence;
     }
     public function dispatchAction(ConnectorContext $context,string $action,array $resource,#[\SensitiveParameter] string $secret): string
     {
-        $node=self::node($resource['node']??null);$id=$resource['vmid']??null;
-        if ($context->provider!=='proxmox'||!is_int($id)||$id<1||$id>999999999||!in_array($action,$this->actions(),true)) throw new RuntimeException('Invalid power action.');
-        $path='/api2/json/nodes/'.$node.'/qemu/'.$id.'/status/'.($action==='vm.start'?'start':'shutdown');
-        $task=self::taskId($this->client()->power($context,$path,$secret),$node);
+        $node=self::node($resource['node']??null);$id=$resource['vmid']??null;$type=$resource['type']??null;
+        if ($context->provider!=='proxmox'||$context->proxmoxProfile===null||!is_int($id)||!is_string($type)||!ProxmoxPowerPolicy::matches($action,$type.':'.$id)) throw new RuntimeException('Invalid power action.');
+        $op=ProxmoxPowerPolicy::operation($action);$path='/api2/json/nodes/'.$node.'/'.$type.'/'.$id.'/status/'.$op;
+        $task=self::taskId($this->client()->power($context,$path,$secret,function(callable $get,array $info)use($resource,$action,$type,$id):void {
+            $fresh=$this->liveAction($get,$info,$action,$type.':'.$id);
+            if($fresh!==$resource)ProxmoxPowerPolicy::deny('guest_state_conflict','Guest location, configuration or state changed before dispatch.');
+        }),$node);
         $parts=explode(':',$task);
-        if ($parts[5]!==($action==='vm.start'?'qmstart':'qmshutdown') || $parts[6]!== (string)$id) throw new RuntimeException('Remote task does not match requested action.');
+        if ($parts[5]!==($type==='qemu'?'qm':'vz').$op || $parts[6]!== (string)$id) throw new RuntimeException('Remote task does not match requested action.');
         return $task;
     }
     private static function taskId(mixed $task,string $node):string
     {
         if (!is_string($task)||strlen($task)>512||!preg_match('/^UPID:'.preg_quote($node,'/').':[A-Fa-f0-9]+:[A-Fa-f0-9]+:[A-Fa-f0-9]+:[A-Za-z0-9_-]+:[A-Za-z0-9_.@!-]*:[A-Za-z0-9_.@!-]+:$/D',$task)) throw new RuntimeException('Invalid remote task identity.');
+        $identity=ProxmoxTaskDiscovery::identity($task);
+        if($identity['node']!==$node)throw new RuntimeException('Invalid remote task node.');
         return $task;
     }
     public function actionStatus(ConnectorContext $context,string $node,string $task,#[\SensitiveParameter] string $secret): string
@@ -113,10 +133,10 @@ final class ProxmoxConnector implements ConnectorInterface, ConnectorActionDrive
         $node=self::node($node);self::taskId($task,$node);
         return $this->client()->read($context,$secret,static function(callable $get)use($node,$task):string {
             $data=$get('/api2/json/nodes/'.$node.'/tasks/'.rawurlencode($task).'/status');
-            if (!$data instanceof \stdClass) throw new RuntimeException('Invalid task status.');
+            if (!$data instanceof \stdClass||(isset($data->upid)&&$data->upid!==$task)||(isset($data->node)&&$data->node!==$node)) throw new RuntimeException('Invalid task status.');
             return match($data->status??null) {
                 'running'=>'submitted',
-                'stopped'=>is_string($data->exitstatus??null)&&$data->exitstatus!==''?($data->exitstatus==='OK'?'succeeded':'failed'):throw new RuntimeException('Missing task result.'),
+                'stopped'=>is_string($data->exitstatus??null)&&$data->exitstatus!==''&&strtolower($data->exitstatus)!=='unknown'?($data->exitstatus==='OK'?'succeeded':'failed'):throw new RuntimeException('Missing task result.'),
                 default=>throw new RuntimeException('Invalid task state.'),
             };
         });

@@ -41,13 +41,13 @@ try {
     $keyRoot=new VaultMasterKey('base64:'.base64_encode(random_bytes(32)));$crypto=new VaultCrypto($keyRoot);$vault=new CredentialsVault($db,$crypto,$keyRoot);$vault->initialize();
     $store=new CredentialStore($db,$repo,$vault,$crypto,$audit);
     $driver=new class implements \Cajeer\Servers\Connector\ConnectorInterface, \Cajeer\Servers\Connector\ConnectorActionDriver {
-        public int $posts=0;public bool $fail=false;
-        public function manifest():\Cajeer\Servers\Connector\ConnectorManifest{return new \Cajeer\Servers\Connector\ConnectorManifest('proxmox','api',['proxmox_api'],['inspect','sync','health','validate_rotation'],['hypervisor_node','virtual_machine'],'https');}
-        public function execute(\Cajeer\Servers\Connector\ConnectorContext $c,string $op,string $secret):\Cajeer\Servers\Connector\ConnectorResult{return new \Cajeer\Servers\Connector\ConnectorResult([['type'=>'hypervisor_node','external_id'=>'node:pve','fields'=>['name'=>'pve','status'=>'online']],['type'=>'virtual_machine','external_id'=>'qemu:101','parent_external_id'=>'node:pve','fields'=>['name'=>'test-vm','status'=>'offline']]],true);}
-        public function actions():array{return ['vm.start','vm.shutdown'];}
-        public function prepareAction(\Cajeer\Servers\Connector\ConnectorContext $c,string $action,string $externalId,string $secret):array{return ['node'=>'pve','vmid'=>101];}
-        public function dispatchAction(\Cajeer\Servers\Connector\ConnectorContext $c,string $action,array $r,string $secret):string{$this->posts++;if($this->fail)throw new RuntimeException('fixture lost response');return 'UPID:pve:00000001:00000002:00000003:qmstart:101:svc@pve!test:';}
-        public function actionStatus(\Cajeer\Servers\Connector\ConnectorContext $c,string $node,string $task,string $secret):string{return 'succeeded';}
+        public int $posts=0;public bool $fail=false;public bool $notSent=false;public string $taskStatus='succeeded';
+        public function manifest():\Cajeer\Servers\Connector\ConnectorManifest{return new \Cajeer\Servers\Connector\ConnectorManifest('proxmox','api',['proxmox_api'],['inspect','sync','health','validate_rotation'],['hypervisor_node','virtual_machine','container'],'https');}
+        public function execute(\Cajeer\Servers\Connector\ConnectorContext $c,string $op,string $secret):\Cajeer\Servers\Connector\ConnectorResult{return new \Cajeer\Servers\Connector\ConnectorResult([['type'=>'hypervisor_node','external_id'=>'node:pve','fields'=>['name'=>'pve','status'=>'online']],['type'=>'virtual_machine','external_id'=>'qemu:101','parent_external_id'=>'node:pve','fields'=>['name'=>'test-vm','status'=>'offline']],['type'=>'container','external_id'=>'lxc:102','parent_external_id'=>'node:pve','fields'=>['name'=>'test-ct','status'=>'offline']]],true);}
+        public function actions():array{return \Cajeer\Servers\Connector\ProxmoxPowerPolicy::ACTIONS;}
+        public function prepareAction(\Cajeer\Servers\Connector\ConnectorContext $c,string $action,string $externalId,string $secret):array{[$type,$vmid]=explode(':',$externalId);return ['node'=>'pve','vmid'=>(int)$vmid,'type'=>$type,'fingerprint'=>null];}
+        public function dispatchAction(\Cajeer\Servers\Connector\ConnectorContext $c,string $action,array $r,string $secret):string{if($this->notSent)throw new \Cajeer\Servers\Connector\ConnectorActionNotSentException(new HttpException(409,'Fixture state changed.','guest_state_conflict'));$this->posts++;if($this->fail)throw new RuntimeException('fixture lost response');return sprintf('UPID:pve:%08X:00000002:00000003:%s:%d:svc@pve!test:',$this->posts,($r['type']==='qemu'?'qm':'vz').explode('.',$action)[1],$r['vmid']);}
+        public function actionStatus(\Cajeer\Servers\Connector\ConnectorContext $c,string $node,string $task,string $secret):string{return $this->taskStatus;}
     };
     $registry=new ConnectorRegistry($driver);
     $bindings=new ConnectorBindingService($db,$repo,$audit,$registry);
@@ -85,6 +85,18 @@ try {
     $reject(409,fn()=>$actions->submit($principal,$id,2,$body,'test-idempotency-0003'),'unknown blocks repeat');
     $authorize();$ack=$disabled->refresh($principal,$id,$unknown['id'],2,true);$ok($ack['status']==='acknowledged'&&$driver->posts===2,'operator acknowledgement no write');
     $ok(count($actions->list($principal,$id))===2,'history persisted');
+    $driver->fail=false;$driver->notSent=true;$ct=['action'=>'lxc.start','external_id'=>'lxc:102','confirm'=>'lxc.start lxc:102'];
+    $authorize();$blocked=$actions->submit($principal,$id,2,$ct,'test-idempotency-0004');
+    $ok($blocked['status']==='failed'&&$blocked['error_code']==='guest_state_conflict'&&$driver->posts===2,'known pre-POST rejection does not block future operations');
+    $driver->notSent=false;$authorize();$ctRow=$actions->submit($principal,$id,2,$ct,'test-idempotency-0005');
+    $ok($ctRow['status']==='submitted'&&str_contains($ctRow['remote_task'],':vzstart:102:')&&$driver->posts===3,'LXC mapping and durable dispatch');
+    $driver->taskStatus='submitted';$authorize();$reject(409,fn()=>$disabled->refresh($principal,$id,$ctRow['id'],2,true),'ack cannot unblock confirmed running task');
+    $reject(409,fn()=>$actions->submit($principal,$id,2,$ct,'test-idempotency-0006'),'LXC unresolved action blocks repeat');
+    $driver->taskStatus='succeeded';$authorize();$ok($disabled->refresh($principal,$id,$ctRow['id'],2)['status']==='succeeded','LXC completion');
+    $pdo->prepare("INSERT INTO proxmox_guest_identity(target_id,workspace_id,vmid,guest_type,fingerprint) VALUES(:t,:w,101,'qemu',:f)")->execute(['t'=>$id,'w'=>$ws,'f'=>str_repeat('a',64)]);
+    $authorize();$reject(409,fn()=>$actions->submit($principal,$id,2,$body,'test-idempotency-0007'),'known VM fingerprint cannot be lost');
+    $ok($driver->posts===3,'identity denial performs no POST');
+
     $pdo->exec("DELETE FROM role_permissions WHERE permission_id IN (SELECT id FROM permissions WHERE scope='connectors.actions.execute')");
     $reject(403,fn()=>$actions->submit($principal,$id,2,$body,'test-idempotency-0003'),'action scope revoked');
     echo "PostgreSQL connector actions: $n PASS\n";

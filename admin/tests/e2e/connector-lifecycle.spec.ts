@@ -4,6 +4,7 @@ import {freshAdminTotp} from './admin-totp'
 
 const api='/api/v1', enabled=process.env.E2E_CONNECTOR_UI==='1'
 const host=process.env.E2E_CONNECTOR_FIXTURE_HOST||'',port=Number(process.env.E2E_CONNECTOR_FIXTURE_PORT||8443)
+const fixturePin=process.env.E2E_CONNECTOR_FIXTURE_PIN||''
 const password=process.env.E2E_ADMIN_PASSWORD||''
 // Do not write credentials, TOTP or one-time webhook keys to traces/screenshots/videos.
 test.use({trace:'off',screenshot:'off',video:'off'})
@@ -16,7 +17,7 @@ async function login(page:Page){await page.goto('/login');await page.getByLabel(
 test('Connector lifecycle: real UI, Vault MFA, scheduled worker, signed event and verified power task',async({page,browser})=>{
   test.skip(!enabled,'Enable E2E_CONNECTOR_UI only for a disposable staging deployment with the supplied TLS fixture')
   test.setTimeout(480_000)
-  expect(process.env.E2E_ISOLATED_STAGING).toBe('1');expect(process.env.E2E_ALLOW_WRITES).toBe('1');expect(process.env.E2E_ADMIN_TOTP_SECRET).toBeTruthy();expect(host).toBeTruthy();expect(port).toBeGreaterThan(0)
+  expect(process.env.E2E_ISOLATED_STAGING).toBe('1');expect(process.env.E2E_ALLOW_WRITES).toBe('1');expect(process.env.E2E_ADMIN_TOTP_SECRET).toBeTruthy();expect(host).toBeTruthy();expect(port).toBeGreaterThan(0);expect(fixturePin).toMatch(/^[a-f0-9]{64}$/)
   await login(page);const r=page.request, label=`connector-e2e-${randomUUID().slice(0,8)}`
   const spaces=await get<{id:string;organization_id:string;role:string}[]>(r,'/workspaces');const owner=spaces.find(s=>s.role==='owner');expect(owner).toBeTruthy()
   // A new isolated workspace avoids matching or modifying existing infrastructure. It is discarded with the staging DB.
@@ -34,6 +35,7 @@ test('Connector lifecycle: real UI, Vault MFA, scheduled worker, signed event an
     await create.getByLabel('Название').fill(label);await create.getByLabel('Провайдер').selectOption('proxmox');await create.getByLabel(/Адрес \(DNS/).fill(host);await create.getByLabel('Порт',{exact:true}).fill(String(port));await create.getByLabel(/Inventory asset \(необязательно/).selectOption(asset)
     await create.getByRole('button',{name:'Создать конфигурацию'}).click();await expect(page.getByRole('heading',{name:`Credentials: ${label}`})).toBeVisible()
     target=(await get<{id:string}[]>(r,`/connectors/targets?workspace_id=${ws}&search=${label}`))[0]!.id
+    const profileTarget=await get<{etag:string}>(r,path());const profile=await r.patch(api+path(),{headers:{'X-CSRF-Token':await csrf(r),'If-Match':profileTarget.etag},data:{proxmox_profile:{cluster:null,anchor_node:'cajeer-e2e-pve',anchor_id:null,primary_pin:fixturePin,fallbacks:[]}}});expect(profile.ok()).toBe(true);await page.reload();await page.getByTestId('connector-search').fill(label);await page.getByRole('button',{name:'Найти подключения'}).click();await page.getByRole('button',{name:'Привязки',exact:true}).click();
     const bind=page.locator('form').filter({has:page.getByRole('button',{name:'Привязать credential'})});await bind.getByLabel('Credential ID').selectOption(credential);await bind.getByRole('button',{name:'Привязать credential'}).click();await expect(page.getByText('Credential привязан без чтения секрета.')).toBeVisible()
     // Edit through UI, then reject stale ETag and missing CSRF at actual backend.
     const old=await get<{etag:string}>(r,path());await page.getByTestId('connector-edit-name').fill(label+'-edited');page.once('dialog',d=>d.accept());await page.getByRole('button',{name:'Сохранить настройки'}).click();await expect(page.getByText('Конфигурация обновлена.')).toBeVisible()

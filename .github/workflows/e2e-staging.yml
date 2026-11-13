@@ -14,6 +14,10 @@ on:
         description: 'Fixture HTTPS port'
         type: string
         default: '8443'
+      connector_fixture_pin:
+        description: 'SHA-256 DER fingerprint of the supplied fixture certificate (64 lowercase hex characters)'
+        type: string
+        required: true
       confirm_disposable_environment:
         description: 'I confirm this endpoint is a disposable staging database, NOT production'
         type: boolean
@@ -34,6 +38,7 @@ jobs:
       E2E_ADMIN_TOTP_SECRET: ${{ secrets.E2E_ADMIN_TOTP_SECRET }}
       E2E_CONNECTOR_UI: '1'
       E2E_CONNECTOR_FIXTURE_HOST: ${{ inputs.connector_fixture_host }}
+      E2E_CONNECTOR_FIXTURE_PIN: ${{ inputs.connector_fixture_pin }}
       E2E_CONNECTOR_FIXTURE_PORT: ${{ inputs.connector_fixture_port }}
       E2E_VAULT_BINDINGS: '1'
       E2E_ISOLATED_STAGING: '1'

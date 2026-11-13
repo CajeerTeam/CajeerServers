@@ -267,8 +267,8 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 - [x] LXC discovery.
 - [x] Storage discovery.
 - [x] Network discovery.
-- [ ] Task history import.
-- [ ] Safe action dispatcher: start/stop/reboot.
+- [x] Task history import.
+- [x] Safe action dispatcher: start/stop/reboot.
 - [ ] Snapshot metadata.
 - [ ] Console URL placeholders.
 - [ ] Proxmox Backup Server integration draft.
