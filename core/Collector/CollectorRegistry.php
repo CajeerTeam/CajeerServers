@@ -22,6 +22,7 @@ final class CollectorRegistry
             if($provider==='proxmox'&&$connectors->supportsClusterDiscovery()){
                 $registry->register(new ConnectorCollector('proxmox.cluster','proxmox',$connectors));
                 $registry->register(new ConnectorCollector('proxmox.guests','proxmox',$connectors));
+                $registry->register(new ConnectorCollector('proxmox.storage-network','proxmox',$connectors));
             }
             if($connectors->supportsMetrics($provider))$registry->register(new MetricsCollector($provider,$connectors));
         }

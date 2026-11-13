@@ -28,6 +28,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 node='pve-b' if self.server.mode=='guest-race' and sum(p==self.path for m,p in self.server.calls)>1 else 'pve-a'
                 self.reply([{'type':'qemu','node':node,'vmid':100,'status':'running','pool':'prod'},{'type':'lxc','node':'pve-b','vmid':200,'status':'stopped'}])
             else:self.reply([{'type':'qemu','node':'pve-a','vmid':100,'status':'running'}])
+        elif self.path=='/api2/json/storage':self.reply([{'storage':'local-lvm','type':'lvmthin','content':'images,rootdir','path':'must-not-leak'}])
+        elif self.path=='/api2/json/nodes/pve-a/storage':
+            if self.server.mode=='storage-failover':self.send_error(503);return
+            self.reply([{'storage':'local-lvm','type':'lvmthin','active':1,'enabled':1,'shared':0,'total':9007199254740993,'used':100,'avail':200}])
+        elif self.path=='/api2/json/nodes/pve-a/network?type=include_sdn':
+            if self.server.mode=='storage-denied':self.send_error(403);return
+            self.reply([{'iface':'vmbr0','type':'bridge','bridge_ports':'eno1','bridge_vlan_aware':1},{'iface':'eno1','type':'eth'},{'iface':'vlan20','type':'vlan','vlan-raw-device':'eno1','vlan-id':20}])
+        elif self.path=='/api2/json/nodes/pve-a/storage/local-lvm/content':self.reply([{'volid':'local-lvm:vm-100-disk-0','size':34359738368,'format':'raw','vmid':100}])
         elif self.path=='/api2/json/nodes/pve-a/qemu/100/config':
             if self.server.mode=='guest-denied':self.send_error(403);return
             if self.server.mode=='guest-auth':self.send_error(401);return
@@ -60,7 +68,14 @@ $ctx=new ConnectorContext('proxmox','pve-a.test',(int)$argv[2],'proxmox_api',$pr
 $d=new ProxmoxConnector(null,$argv[4],new HttpsTransport(new EndpointPolicy(['127.0.0.1/32'],static fn()=>['127.0.0.1']),2));
 $secret='{"token_id":"svc@pve!read","token_secret":"fixture-secret"}';
 try{
-if(str_starts_with($mode,'guest-')){
+if(str_starts_with($mode,'storage-')){
+    $r=$d->storageNetwork($ctx,$secret);$s=$r->connection['storage_network_discovery'];$n=$s['nodes'][0];$g=$s['guests'][0];
+    if($r->complete||$n['storages'][0]['total']!=='9007199254740993'||!$g['disks'][0]['volume_resolved']||str_contains(json_encode($s),'must-not-leak'))throw new RuntimeException('storage discovery');
+    if($mode==='storage-denied'){if($n['network_state']!=='permission_denied'||$g['nics'][0]['bridge_resolved'])throw new RuntimeException('network ACL');}
+    else{if(!$g['nics'][0]['bridge_resolved']||$n['interfaces'][1]['links'][0]['iface']!=='eno1')throw new RuntimeException('network topology');}
+    if($mode==='storage-failover'&&!$r->connection['failover'])throw new RuntimeException('storage failover');
+}
+elseif(str_starts_with($mode,'guest-')){
     $r=$d->guests($ctx,$secret);$s=$r->connection['guest_discovery'];$g=array_column($s['guests'],null,'external_id');
     if($r->complete||$s['guest_count']!==2||str_contains(json_encode($s),'must-not-leak'))throw new RuntimeException('guest snapshot');
     if($mode==='guest-auth'||$mode==='guest-race')throw new LogicException('expected refusal');
@@ -103,10 +118,15 @@ else throw new LogicException('unexpected success');}
             if mode=='guest-failover':assert len(servers[0].calls)==4 and len(servers[1].calls)==9
             else:assert not servers[1].calls
         servers[1].guest_fixture=False
+        for mode in ['storage-ok','storage-denied','storage-failover']:
+            servers[0].calls.clear();servers[1].calls.clear();servers[0].mode=mode;run(mode)
+            assert not any(m=='POST' for m,p in servers[0].calls+servers[1].calls)
+            if mode=='storage-failover':assert any('/storage/local-lvm/content' in p for m,p in servers[1].calls)
+            else:assert not servers[1].calls
         # A closed port is an actual connection failure; the configured fallback stays reachable.
         primary_port=servers[0].server_port;servers[0].shutdown();servers[0].server_close();threads[0].join(5)
         run('down',primary_port);before=len(servers[1].calls);run('write-down',primary_port);assert len(servers[1].calls)==before
-        print('Proxmox profile HTTPS: 20 scenarios PASS (pin before auth, identity, auth, failover, single POST, no write failover, hardware, partial details, quorum, cluster failover, guest configs, partial ACL, migration race, guest failover)')
+        print('Proxmox profile HTTPS: 23 scenarios PASS (pin before auth, identity, auth, failover, single POST, no write failover, hardware, partial details, quorum, cluster failover, guest configs, partial ACL, migration race, guest failover, storage/network ACL and failover)')
     finally:
         for server,thread in zip(servers,threads):
             if thread.is_alive():server.shutdown();server.server_close();thread.join(5)

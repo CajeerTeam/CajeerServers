@@ -12,7 +12,7 @@ final readonly class CollectionRuntimeService
     public function catalog():array {return $this->registry->catalog();}
     public function validate(CollectionPlan $plan,array $target):void
     { $this->registry->require($plan->collector,$target['provider'],$plan->operation);
-      if(in_array($plan->collector,['proxmox.cluster','proxmox.guests'],true)&&empty($target['proxmox_profile']))throw new \Cajeer\Servers\Http\Exception\HttpException(422,'Detailed Proxmox discovery requires a verified Proxmox profile.','collection_invalid'); }
+      if(in_array($plan->collector,['proxmox.cluster','proxmox.guests','proxmox.storage-network'],true)&&empty($target['proxmox_profile']))throw new \Cajeer\Servers\Http\Exception\HttpException(422,'Detailed Proxmox discovery requires a verified Proxmox profile.','collection_invalid'); }
     public function collect(CollectionPlan $plan,array $target,string $type,#[\SensitiveParameter] string $secret):ConnectorResult
     {
         $this->validate($plan,$target);

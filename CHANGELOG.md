@@ -1,3 +1,9 @@
+## [0.6.4] — 2026-11-13 — Storage & Network Discovery
+
+- Execute `proxmox.storage-network` against verified PVE 8/9 profiles: cluster storage definitions, per-node storage status/capacity and volume content, configured network/SDN interfaces and guest disk/NIC attachments.
+- Resolve local/shared storage identity, volume and bridge references, bridge/bond/VLAN/OVS topology; retain exact byte counts and expose ACL/budget/size/offline partial states without deletion.
+- Persist scoped snapshots and immutable run history atomically, reuse guest identity guard and revision fencing; add Admin UI, SDK, migration 0040 and regression/TLS/PostgreSQL coverage.
+
 ## [0.6.3] — 2026-11-13 — VM & LXC Inventory
 
 - Execute `proxmox.guests` with verified PVE profiles, bounded QEMU/LXC configuration and runtime projection, migration recheck and partial ACL handling.

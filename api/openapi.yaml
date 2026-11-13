@@ -1,7 +1,7 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.6.3
+  version: 0.6.4
   description: 'CajeerServers 0.5.7: signed external data ingestion, durable inbox and time series.'
 servers:
 - url: /api/v1
@@ -5320,6 +5320,31 @@ paths:
                 required: [data]
                 properties:
                   data: {$ref: '#/components/schemas/ProxmoxGuestState'}
+        '401': {description: Authentication required}
+        '403': {description: Permission denied}
+        '404': {description: Target not found in Workspace}
+  /connectors/targets/{id}/proxmox-storage-network:
+    get:
+      operationId: getProxmoxStorageNetworkState
+      summary: Read the latest scoped PVE storage, volumes and network topology observation
+      description: Requires connectors.targets.read, inventory.assets.read and Workspace membership. A stale scope has no current snapshot. Historical runs remain available separately.
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Current saved observation, not live health
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: {$ref: '#/components/schemas/ProxmoxStorageNetworkState'}
         '401': {description: Authentication required}
         '403': {description: Permission denied}
         '404': {description: Target not found in Workspace}
@@ -10995,6 +11020,184 @@ components:
           - {$ref: '#/components/schemas/ProxmoxNodeDetails'}
           - {type: 'null'}
         last_details_observed_at: {type: [string, 'null'], format: date-time}
+    ProxmoxStorageNetworkState:
+      type: object
+      required: [state, observed_at, snapshot]
+      properties:
+        state: {type: string, enum: [not_collected, stale, available]}
+        observed_at: {type: [string, 'null'], format: date-time}
+        snapshot:
+          oneOf:
+            - allOf:
+              - {$ref: '#/components/schemas/ProxmoxStorageNetworkSnapshot'}
+              - {required: [nodes, guests, definitions]}
+            - {type: 'null'}
+    ProxmoxDiscoveryState:
+      type: string
+      enum: [available, permission_denied, unavailable, rate_limited, budget_exhausted, size_limited, inactive, offline]
+    ProxmoxStorageDefinition:
+      type: object
+      required: [storage, type]
+      properties:
+        storage: {type: string}
+        type: {type: string}
+        shared: {type: boolean}
+        active: {type: boolean}
+        enabled: {type: boolean}
+        disable: {type: boolean}
+        content: {type: array, items: {type: string}}
+        nodes: {type: array, items: {type: string}}
+        total: {type: string, pattern: '^[0-9]+$'}
+        used: {type: string, pattern: '^[0-9]+$'}
+        avail: {type: string, pattern: '^[0-9]+$'}
+    ProxmoxVolume:
+      type: object
+      required: [volume_id]
+      properties:
+        volume_id: {type: string}
+        content: {type: string}
+        format: {type: string}
+        size: {type: string, pattern: '^[0-9]+$'}
+        used: {type: string, pattern: '^[0-9]+$'}
+        ctime: {type: string, pattern: '^[0-9]+$'}
+        vmid: {type: string, pattern: '^[0-9]+$'}
+        protected: {type: boolean}
+        approximate_size: {type: string, pattern: '^[0-9]+$'}
+        parent_volume_id: {type: string}
+    ProxmoxNodeStorage:
+      allOf:
+      - {$ref: '#/components/schemas/ProxmoxStorageDefinition'}
+      - type: object
+        required: [storage_key, volume_state, volumes]
+        properties:
+          storage_key: {type: string}
+          volume_state: {$ref: '#/components/schemas/ProxmoxDiscoveryState'}
+          volumes: {type: array, items: {$ref: '#/components/schemas/ProxmoxVolume'}}
+    ProxmoxNetworkInterface:
+      type: object
+      required: [iface, type, links]
+      properties:
+        iface: {type: string}
+        type: {type: string}
+        active: {type: boolean}
+        exists: {type: boolean}
+        autostart: {type: boolean}
+        bridge_vlan_aware: {type: boolean}
+        bridge_vids: {type: string}
+        bridge_ports: {type: array, items: {type: string}}
+        slaves: {type: array, items: {type: string}}
+        ovs_ports: {type: array, items: {type: string}}
+        ovs_bonds: {type: array, items: {type: string}}
+        vlan_raw_device: {type: string}
+        vlan_id: {type: integer}
+        ovs_tag: {type: integer}
+        ovs_bridge: {type: string}
+        bond_mode: {type: string}
+        bond_primary: {type: string}
+        bond_xmit_hash_policy: {type: string}
+        bridge_access: {type: integer}
+        mtu: {type: integer}
+        vxlan_id: {type: integer}
+        vxlan_physdev: {type: string}
+        method: {type: string}
+        method6: {type: string}
+        cidr: {type: string}
+        cidr6: {type: string}
+        address: {type: string}
+        address6: {type: string}
+        gateway: {type: string}
+        gateway6: {type: string}
+        netmask: {type: string}
+        netmask6: {type: integer}
+        links:
+          type: array
+          items:
+            type: object
+            required: [kind, iface, resolved]
+            properties:
+              kind: {type: string}
+              iface: {type: string}
+              resolved: {type: boolean}
+    ProxmoxStorageNetworkNode:
+      type: object
+      required: [node, status, storage_state, network_state, storages, interfaces]
+      properties:
+        node: {type: string}
+        status: {type: string, enum: [online, offline, unknown]}
+        storage_state: {$ref: '#/components/schemas/ProxmoxDiscoveryState'}
+        network_state: {$ref: '#/components/schemas/ProxmoxDiscoveryState'}
+        storages: {type: array, items: {$ref: '#/components/schemas/ProxmoxNodeStorage'}}
+        interfaces: {type: array, items: {$ref: '#/components/schemas/ProxmoxNetworkInterface'}}
+    ProxmoxGuestDisk:
+      type: object
+      required: [device]
+      properties:
+        device: {type: string}
+        storage: {type: string}
+        volume_id: {type: string}
+        size: {type: string}
+        source: {type: string}
+        media: {type: string}
+        backup: {type: string}
+        readonly: {type: string}
+        ssd: {type: string}
+        discard: {type: string}
+    ProxmoxGuestNic:
+      type: object
+      required: [device]
+      properties:
+        device: {type: string}
+        mac: {type: string}
+        model: {type: string}
+        bridge: {type: string}
+        name: {type: string}
+        type: {type: string}
+        tag: {type: integer}
+        mtu: {type: integer}
+        trunks: {type: array, items: {type: integer}}
+        firewall: {type: boolean}
+        link_down: {type: boolean}
+        ip: {type: string}
+        ip6: {type: string}
+    ProxmoxStorageNetworkGuest:
+      type: object
+      required: [guest_id, node, state, disks, nics]
+      properties:
+        guest_id: {type: string}
+        node: {type: string}
+        state: {$ref: '#/components/schemas/ProxmoxDiscoveryState'}
+        identity_fingerprint: {type: string, pattern: '^[0-9a-f]{64}$'}
+        disks:
+          type: array
+          items:
+            allOf:
+            - {$ref: '#/components/schemas/ProxmoxGuestDisk'}
+            - type: object
+              required: [storage_resolved, volume_resolved]
+              properties:
+                storage_key: {type: string}
+                storage_resolved: {type: boolean}
+                volume_resolved: {type: boolean}
+        nics:
+          type: array
+          items:
+            allOf:
+            - {$ref: '#/components/schemas/ProxmoxGuestNic'}
+            - type: object
+              required: [bridge_resolved]
+              properties:
+                bridge_resolved: {type: boolean}
+    ProxmoxStorageNetworkSnapshot:
+      type: object
+      required: [schema_version, visibility, definitions_state, details_complete]
+      properties:
+        schema_version: {type: integer, const: 1}
+        visibility: {type: string, const: reported_only}
+        definitions_state: {$ref: '#/components/schemas/ProxmoxDiscoveryState'}
+        definitions: {type: array, items: {$ref: '#/components/schemas/ProxmoxStorageDefinition'}}
+        nodes: {type: array, items: {$ref: '#/components/schemas/ProxmoxStorageNetworkNode'}}
+        guests: {type: array, items: {$ref: '#/components/schemas/ProxmoxStorageNetworkGuest'}}
+        details_complete: {type: boolean}
     ProxmoxGuestState:
       type: object
       required: [state, observed_at, snapshot]
@@ -11132,6 +11335,7 @@ components:
         permissions_visible: {type: boolean}
         cluster_discovery: {$ref: '#/components/schemas/ProxmoxClusterSnapshot'}
         guest_discovery: {$ref: '#/components/schemas/ProxmoxGuestSnapshot'}
+        storage_network_discovery: {$ref: '#/components/schemas/ProxmoxStorageNetworkSnapshot'}
         root_privileges:
           type: array
           items: {type: string}

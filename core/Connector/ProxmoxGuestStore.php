@@ -34,7 +34,7 @@ final class ProxmoxGuestStore
         return $prior['guest_type']!==$guest['type']||($prior['fingerprint']!==null&&$fingerprint!==null&&$prior['fingerprint']!==$fingerprint);
     }
     /** Atomic generation guard. Never silently reassign a known VMID to a different guest type or SMBIOS identity. */
-    private static function guardIdentities(PDO $pdo,array $target,array $snapshot):void
+    public static function guardIdentities(PDO $pdo,array $target,array $snapshot):void
     {
         $q=$pdo->prepare('SELECT vmid,guest_type,fingerprint FROM proxmox_guest_identity WHERE target_id=:id AND workspace_id=:ws');
         $q->execute(['id'=>$target['id'],'ws'=>$target['workspace_id']]);$known=array_column($q->fetchAll(PDO::FETCH_ASSOC),null,'vmid');

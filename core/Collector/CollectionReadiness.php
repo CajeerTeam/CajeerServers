@@ -26,15 +26,16 @@ final class CollectionReadiness
                 if(($rows[$provider.'.metrics']['operations']??null)!==['inspect'])return false;
                 if($provider!=='prometheus'&&!in_array('sync',$rows[$provider.'.inventory']['operations']??[],true))return false;
             }
-            if(($rows['proxmox.cluster']['operations']??null)!==['inspect','sync']||($rows['proxmox.guests']['operations']??null)!==['inspect','sync'])return false;
+            if(($rows['proxmox.cluster']['operations']??null)!==['inspect','sync']||($rows['proxmox.guests']['operations']??null)!==['inspect','sync']||($rows['proxmox.storage-network']['operations']??null)!==['inspect','sync'])return false;
             $r=$c->get(ExporterRegistry::class);
             foreach(['json','csv','openmetrics'] as $f)$r->require($f,'metrics');
             return true;
         },'Required collectors and exporters must be registered.');
         $probe('collection_migrations',function()use($c):bool{
-            $v=$c->get(MigrationRunner::class)->validate();return $v['valid']&&count($v['rows'])>=38&&array_column($v['rows'],'status')!==[]&&!array_diff(array_column($v['rows'],'status'),['applied']);
-        },'All PostgreSQL migrations, including 0038, must be applied and checksum-valid.');
+            $v=$c->get(MigrationRunner::class)->validate();return $v['valid']&&count($v['rows'])>=40&&array_column($v['rows'],'status')!==[]&&!array_diff(array_column($v['rows'],'status'),['applied']);
+        },'All PostgreSQL migrations, including 0040, must be applied and checksum-valid.');
         $queries=[
+            'proxmox_storage_network_scope'=>"SELECT 1 FROM proxmox_storage_network_state s JOIN connector_targets t ON t.id=s.target_id WHERE t.provider<>'proxmox' OR s.workspace_id<>t.workspace_id OR s.target_version>t.version LIMIT 1",
             'proxmox_cluster_scope'=>"SELECT 1 FROM proxmox_cluster_state s JOIN connector_targets t ON t.id=s.target_id WHERE t.provider<>'proxmox' OR s.workspace_id<>t.workspace_id OR s.target_version>t.version LIMIT 1",
             'proxmox_guest_scope'=>"SELECT 1 FROM proxmox_guest_state s JOIN connector_targets t ON t.id=s.target_id WHERE t.provider<>'proxmox' OR s.workspace_id<>t.workspace_id OR s.target_version>t.version LIMIT 1",
             'proxmox_guest_identity_scope'=>"SELECT 1 FROM proxmox_guest_identity s JOIN connector_targets t ON t.id=s.target_id WHERE t.provider<>'proxmox' OR s.workspace_id<>t.workspace_id LIMIT 1",

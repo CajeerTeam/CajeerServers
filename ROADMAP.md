@@ -259,14 +259,14 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 
 Цель: первая основная интеграция виртуализации.
 
-- [ ] Proxmox connection profile.
-- [ ] Proxmox API token auth.
-- [ ] Cluster discovery.
-- [ ] Node discovery.
-- [ ] VM discovery.
-- [ ] LXC discovery.
-- [ ] Storage discovery.
-- [ ] Network discovery.
+- [x] Proxmox connection profile.
+- [x] Proxmox API token auth.
+- [x] Cluster discovery.
+- [x] Node discovery.
+- [x] VM discovery.
+- [x] LXC discovery.
+- [x] Storage discovery.
+- [x] Network discovery.
 - [ ] Task history import.
 - [ ] Safe action dispatcher: start/stop/reboot.
 - [ ] Snapshot metadata.

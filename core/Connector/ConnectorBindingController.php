@@ -105,6 +105,10 @@ final class ConnectorBindingController
     {
         return HttpResponse::json(['data'=>$this->runtime->proxmoxGuests($this->actor($r,'connectors.targets.read'),self::id($r))],200,['Cache-Control'=>'private, no-store']);
     }
+    public function proxmoxStorageNetwork(HttpRequest $r):HttpResponse
+    {
+        return HttpResponse::json(['data'=>$this->runtime->proxmoxStorageNetwork($this->actor($r,'connectors.targets.read'),self::id($r))],200,['Cache-Control'=>'private, no-store']);
+    }
     public function metricSeries(HttpRequest $r):HttpResponse
     {
         $metric=$r->query['metric']??null;if($metric!==null&&!is_string($metric))throw new HttpException(422,'Invalid metric filter.','validation_failed');
