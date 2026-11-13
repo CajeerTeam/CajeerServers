@@ -360,9 +360,10 @@ return static function (Router $router, ServiceContainer $container): void {
             $connectors->get('/targets/{id}/actions',static fn(HttpRequest $r):HttpResponse=>$actions()->list($r));
             $connectors->post('/targets/{id}/actions',static fn(HttpRequest $r):HttpResponse=>$actions()->submit($r),[
                 'required'=>['action','external_id','confirm'],'properties'=>[
-                    'action'=>['type'=>'string','enum'=>\Cajeer\Servers\Connector\ProxmoxPowerPolicy::ACTIONS],
-                    'external_id'=>['type'=>'string','maxLength'=>180], 'confirm'=>['type'=>'string','maxLength'=>220],
+                    'action'=>['type'=>'string','enum'=>\Cajeer\Servers\Connector\ProxmoxSnapshotPolicy::ALL_ACTIONS],
+                    'external_id'=>['type'=>'string','maxLength'=>180], 'confirm'=>['type'=>'string','maxLength'=>220], 'snapshot'=>['type'=>'string','maxLength'=>40], 'snapshot_revision'=>['type'=>'string','maxLength'=>64],
                 ],'additionalProperties'=>false]);
+            $connectors->post('/targets/{id}/guest-access',static fn(HttpRequest $r):HttpResponse=>$actions()->guestAccess($r),['required'=>['external_id','purpose'],'properties'=>['external_id'=>['type'=>'string','maxLength'=>180],'purpose'=>['type'=>'string','enum'=>['snapshots','console']]],'additionalProperties'=>false]);
             $connectors->get('/targets/{id}/actions/{actionId}',static fn(HttpRequest $r):HttpResponse=>$actions()->get($r));
             $connectors->post('/targets/{id}/actions/{actionId}/refresh',static fn(HttpRequest $r):HttpResponse=>$actions()->refresh($r));
             $connectors->post('/targets/{id}/actions/{actionId}/acknowledge',static fn(HttpRequest $r):HttpResponse=>$actions()->acknowledge($r),[

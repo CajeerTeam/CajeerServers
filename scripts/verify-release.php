@@ -50,7 +50,7 @@ $steps++;
 fwrite(STDOUT, sprintf("PHP lint: %d files, %d failures\n", count($phpFiles), $lintErrors));
 if ($lintErrors > 0 || $phpFiles === []) $failures++;
 
-foreach (['runtime', 'http', 'database', 'installer', 'auth', 'security', 'infrastructure', 'observability', 'admin', 'release', 'inventory-readiness', 'workspaces', 'inventory', 'ipam', 'topology', 'catalog', 'history', 'transfer', 'cmdb-integrity', 'import-dispatch', 'vault-crypto', 'vault-crud', 'vault-profiles', 'vault-access', 'vault-rotation', 'vault-bindings', 'vault-stable', 'proxmox-runtime', 'proxmox-profile', 'proxmox-cluster', 'proxmox-guests', 'proxmox-storage-network', 'proxmox-tasks', 'connector-runtime', 'connector-execution', 'connector-reconciliation', 'vmmanager-runtime', 'host-runtime', 'snmp-health', 'connector-events', 'connector-actions', 'connector-stability', 'collector-runtime', 'script-registry', 'script-execution', 'script-output', 'collection-plans', 'metrics', 'ingestion', 'data-exchange', 'collection-stability', 'backup'] as $suite) {
+foreach (['runtime', 'http', 'database', 'installer', 'auth', 'security', 'infrastructure', 'observability', 'admin', 'release', 'inventory-readiness', 'workspaces', 'inventory', 'ipam', 'topology', 'catalog', 'history', 'transfer', 'cmdb-integrity', 'import-dispatch', 'vault-crypto', 'vault-crud', 'vault-profiles', 'vault-access', 'vault-rotation', 'vault-bindings', 'vault-stable', 'proxmox-runtime', 'proxmox-profile', 'proxmox-cluster', 'proxmox-guests', 'proxmox-storage-network', 'proxmox-tasks', 'connector-runtime', 'connector-execution', 'connector-reconciliation', 'vmmanager-runtime', 'host-runtime', 'snmp-health', 'connector-events', 'connector-actions', 'proxmox-snapshots', 'connector-stability', 'collector-runtime', 'script-registry', 'script-execution', 'script-output', 'collection-plans', 'metrics', 'ingestion', 'data-exchange', 'collection-stability', 'backup'] as $suite) {
     $run($suite . ' smoke', [PHP_BINARY, 'tests/' . $suite . '-smoke.php'], $root);
 }
 $run('Admin frontend static', ['node', 'tests/static-check.mjs'], $root . '/admin');
@@ -69,6 +69,7 @@ if ($strict) {
     $run('Metrics HTTPS integration', ['python3','tests/metrics-https-integration.py'], $root);
     $run('Proxmox profile HTTPS integration', ['python3','tests/proxmox-profile-https-integration.py'], $root);
     $run('Proxmox HTTPS integration', ['python3','tests/connector-https-integration.py'], $root);
+    $run('Proxmox snapshot HTTPS integration', ['python3','tests/proxmox-snapshots-https-integration.py'], $root);
     $run('Connector actions HTTPS integration', ['python3','tests/connector-actions-https-integration.py'], $root);
     $run('TypeScript SDK integration', ['bash','tests/connector-sdk-integration.sh'], $root);
     $run('SNMP protocol integration', ['bash','tests/snmp-protocol-integration.sh'], $root);

@@ -131,6 +131,8 @@ try{
     $actionInsert->execute(['t'=>$id,'w'=>$ws,'a'=>$actor,'c'=>$cid,'task'=>$taskUpid]);$actionId=$actionInsert->fetchColumn();
     copy($root.'/migrations/pgsql/0042_proxmox_safe_actions.sql',$dir.'/0042_proxmox_safe_actions.sql');
     $ok($runner->run()['applied']===['0042_proxmox_safe_actions']&&$runner->validate()['valid']&&$runner->run()['applied']===[],'0.6.5 upgrade and replay');
+    copy($root.'/migrations/pgsql/0043_proxmox_snapshots.sql',$dir.'/0043_proxmox_snapshots.sql');
+    $ok($runner->run()['applied']===['0043_proxmox_snapshots']&&$runner->validate()['valid']&&$runner->run()['applied']===[],'0.6.6 snapshot upgrade and replay');
     $actionStatus=static function()use($pdo,$actionId):array{$q=$pdo->prepare('SELECT status,task_checked_at FROM connector_actions WHERE id=:id');$q->execute(['id'=>$actionId]);return $q->fetch(PDO::FETCH_ASSOC);};
     $ok($actionStatus()['status']==='submitted','migration preserves accepted action');
     $pending=\Cajeer\Servers\Connector\ProxmoxTaskStore::previous($pdo,['id'=>$id,'workspace_id'=>$ws,'version'=>2,'credential_id'=>$cid,'credential_version'=>1]);

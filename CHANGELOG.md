@@ -1,3 +1,9 @@
+## [0.6.7] — 2026-11-13 — Snapshots & Console Access
+
+- Live QEMU/LXC snapshot list and native console hand-off through verified PVE profiles; independent browser authentication, no token or ticket disclosure.
+- Execute disk snapshot create/delete/rollback through the existing durable dispatcher, exact snapshot confirmation, revision fencing, guest lock, MFA and UPID reconciliation. Rollback requires a stopped guest and rejects saved RAM state.
+- Admin UI, TypeScript SDK, OpenAPI and migration 0043; snapshot policy and HTTPS integration checks.
+
 ## [0.6.6] — 2026-11-13 — Safe Action Dispatcher
 
 - Execute direct QEMU/LXC start, graceful shutdown, hard stop and reboot via the verified primary PVE endpoint; validate live guest state, node, config digest, locks, template and HA ownership before dispatch.

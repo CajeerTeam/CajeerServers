@@ -32,9 +32,15 @@ final class ConnectorActionService
     }
     public static function validate(array $body,string $key):void
     {
-        if (array_diff(array_keys($body),['action','external_id','confirm']) || !is_string($body['action']??null) || !is_string($body['external_id']??null)||!ProxmoxPowerPolicy::matches($body['action'],$body['external_id'])
-            || ($body['confirm']??null)!==$body['action'].' '.$body['external_id'] || !preg_match('/^[A-Za-z0-9._:-]{16,128}$/D',$key))
-            throw new HttpException(422,'Action, exact resource confirmation and idempotency key are required.','validation_failed');
+        $action=$body['action']??null;$external=$body['external_id']??null;
+        $snap=is_string($action)&&is_string($external)&&ProxmoxSnapshotPolicy::matches($action,$external);
+        $name=$body['snapshot']??null;$revision=$body['snapshot_revision']??null;
+        $confirm=is_string($action)&&is_string($external)?$action.' '.$external:'';
+        if($snap&&is_string($name))$confirm.=' '.$name;
+        if(array_diff(array_keys($body),$snap?['action','external_id','confirm','snapshot','snapshot_revision']:['action','external_id','confirm'])||!is_string($action)||!is_string($external)||(!$snap&&!ProxmoxPowerPolicy::matches($action,$external))
+            ||($snap&&(!ProxmoxSnapshotPolicy::name($name)||(ProxmoxSnapshotPolicy::op($action)==='create'?$revision!==null:(!is_string($revision)||!preg_match('/^[a-f0-9]{64}$/D',$revision)))))
+            ||($body['confirm']??null)!==$confirm||!preg_match('/^[A-Za-z0-9._:-]{16,128}$/D',$key))
+            throw new HttpException(422,'Action, exact resource confirmation, snapshot revision and idempotency key are required.','validation_failed');
     }
     private function driver(array $t,string $action):ConnectorActionDriver
     {
@@ -44,7 +50,7 @@ final class ConnectorActionService
     }
     private function row(PDO $pdo,string $target,string $id):array
     {
-        $r=$this->query($pdo,'SELECT id::text,target_id::text,workspace_id::text,actor_id::text,credential_id::text,credential_version,target_version,action,external_id,status,node,remote_task,error_code,created_at::text,updated_at::text FROM connector_actions WHERE target_id=:t AND id=:id',['t'=>$target,'id'=>$id])->fetch(PDO::FETCH_ASSOC);
+        $r=$this->query($pdo,'SELECT id::text,target_id::text,workspace_id::text,actor_id::text,credential_id::text,credential_version,target_version,action,external_id,snapshot_name,snapshot_revision,status,node,remote_task,error_code,created_at::text,updated_at::text FROM connector_actions WHERE target_id=:t AND id=:id',['t'=>$target,'id'=>$id])->fetch(PDO::FETCH_ASSOC);
         if (!$r) throw new HttpException(404,'Action not found.','not_found');
         return $r;
     }
@@ -92,14 +98,41 @@ final class ConnectorActionService
             return $this->row($pdo,$t['id'],$id);
         });
     }
+    public function guestAccess(array $p,string $target,int $version,array $body):array
+    {
+        $external=$body['external_id']??null;$purpose=$body['purpose']??null;
+        if(!is_string($external)||!preg_match('/^(qemu|lxc):[1-9][0-9]{0,8}$/D',$external)||!in_array($purpose,['snapshots','console'],true)||array_diff(array_keys($body),['external_id','purpose']))throw new HttpException(422,'Invalid guest access request.','validation_failed');
+        $actor=$this->actor($p,true);$this->rbac->requirePermission($p,'connectors.actions.read');
+        if($purpose==='console')$this->rbac->requirePermission($p,'connectors.console.open');
+        $t=$this->bindings->runtimeContext($actor,$target,$version,'inspect');$driver=$this->registry->require($t['provider'],'inspect');
+        if(!$driver instanceof ProxmoxConnector)throw new HttpException(422,'Guest access is unavailable for this driver.','capability_unavailable');
+        return $this->lock($t,function()use($p,$t,$actor,$driver,$external,$purpose):array {
+            $pdo=$this->db->connection();$asset=$this->resource($pdo,$t,$external);$result=null;
+            try{$this->access->consumeForAsset($p,$t['asset_id'],$t['credential_id'],$t['purpose'],function(#[\SensitiveParameter] string $secret,string $type)use($p,$t,$driver,$external,$purpose,$asset,&$result):void {
+                $this->current($p,$t);
+                if($purpose==='console')$this->rbac->requirePermission($p,'connectors.console.open');
+                $remote=$driver->guestAccess(new ConnectorContext($t['provider'],$t['endpoint_host'],$t['endpoint_port'],$type,$t['proxmox_profile']??null),$external,$purpose,$secret);
+                $result=$this->db->transaction(function(PDO $pdo)use($p,$t,$external,$purpose,$asset,$remote):array {
+                    $this->inventory->lockWorkspace($pdo,$t['workspace_id']);$this->current($p,$t);
+                    if($purpose==='console')$this->rbac->requirePermission($p,'connectors.console.open',$pdo);
+                    if($this->resource($pdo,$t,$external)!==$asset)throw new HttpException(409,'Guest mapping changed.','conflict');
+                    $this->identity($pdo,$t,$remote);
+                    $this->audit->record($pdo,$p['user']['id'],'connector.guest.'.$purpose,'success','connector_target',$t['id'],['reason'=>$external]);
+                    unset($remote['fingerprint']);return $remote;
+                });
+            },expectedVersion:$t['credential_version']);}catch(\Throwable $e){throw $e instanceof HttpException?$e:new HttpException(502,'Live guest access unavailable.','connector_failed');}
+            if(!is_array($result))throw new HttpException(502,'Live guest access unavailable.','connector_failed');return $result;
+        });
+    }
     public function submit(array $p,string $target,int $version,array $body,string $key):array
     {
-        self::validate($body,$key);$actor=$this->actor($p,true,true);$t=$this->bindings->runtimeContext($actor,$target,$version,'inspect');$driver=$this->driver($t,$body['action']);
+        self::validate($body,$key);$actor=$this->actor($p,true,true);
+        if(isset($body['snapshot']))$this->rbac->requirePermission($p,'connectors.snapshots.execute');$t=$this->bindings->runtimeContext($actor,$target,$version,'inspect');$driver=$this->driver($t,$body['action']);
         return $this->lock($t,function()use($p,$t,$driver,$body,$key,$actor):array {
             $pdo=$this->db->connection();$existing=$this->query($pdo,'SELECT id::text FROM connector_actions WHERE target_id=:t AND idempotency_key=:k',['t'=>$t['id'],'k'=>$key])->fetchColumn();
             if ($existing) {
                 $r=$this->row($pdo,$t['id'],$existing);
-                if ($r['actor_id']!==$actor||$r['action']!==$body['action']||$r['external_id']!==$body['external_id']||(int)$r['target_version']!==$t['version']) throw new HttpException(409,'Idempotency key already used.','conflict');
+                if ($r['actor_id']!==$actor||$r['action']!==$body['action']||$r['external_id']!==$body['external_id']||$r['snapshot_name']!==($body['snapshot']??null)||$r['snapshot_revision']!==($body['snapshot_revision']??null)||(int)$r['target_version']!==$t['version']) throw new HttpException(409,'Idempotency key already used.','conflict');
                 return $r;
             }
             if (ConnectorHealthMonitor::isOpen($pdo,$t['id'])) throw new HttpException(423,'Connector circuit is open.','connector_circuit_open');
@@ -110,21 +143,24 @@ final class ConnectorActionService
                 $this->access->consumeForAsset($p,$t['asset_id'],$t['credential_id'],$t['purpose'],function(#[\SensitiveParameter] string $secret,string $type)use($p,$t,$driver,$body,$key,$actor,$resource,&$id,&$node,&$task,&$result,&$failure):void {
                     try {
                         $this->current($p,$t);
+                        if(isset($body['snapshot']))$this->rbac->requirePermission($p,'connectors.snapshots.execute');
                         $ctx=new ConnectorContext($t['provider'],$t['endpoint_host'],$t['endpoint_port'],$type,$t['proxmox_profile']??null);
-                        $remote=$driver->prepareAction($ctx,$body['action'],$body['external_id'],$secret);
+                        $remote=isset($body['snapshot'])&&$driver instanceof ProxmoxConnector?$driver->prepareSnapshot($ctx,$body['action'],$body['external_id'],$body['snapshot'],$body['snapshot_revision']??null,$secret):$driver->prepareAction($ctx,$body['action'],$body['external_id'],$secret);
                         $node=$remote['node'];
                         // Commit durable intent before the only POST. Crash after this point is ambiguous, never retried.
                         $id=$this->db->transaction(function(PDO $pdo)use($p,$t,$body,$key,$actor,$node,$resource,$remote):string {
                             $this->inventory->lockWorkspace($pdo,$t['workspace_id']);
                             $this->query($pdo,'SELECT id FROM credentials WHERE id=:id FOR SHARE',['id'=>$t['credential_id']]);$this->current($p,$t);
+                            if(isset($body['snapshot']))$this->rbac->requirePermission($p,'connectors.snapshots.execute',$pdo);
                             if ($this->resource($pdo,$t,$body['external_id'])!==$resource) throw new HttpException(409,'Guest mapping changed.','conflict');
                             $this->identity($pdo,$t,$remote);
-                            $id=$this->query($pdo,"INSERT INTO connector_actions(target_id,workspace_id,actor_id,credential_id,credential_version,target_version,action,external_id,idempotency_key,status,node) VALUES(:t,:w,:a,:c,:cv,:tv,:act,:ext,:k,'dispatching',:n) RETURNING id::text",['t'=>$t['id'],'w'=>$t['workspace_id'],'a'=>$actor,'c'=>$t['credential_id'],'cv'=>$t['credential_version'],'tv'=>$t['version'],'act'=>$body['action'],'ext'=>$body['external_id'],'k'=>$key,'n'=>$node])->fetchColumn();
-                            $this->audit->record($pdo,$actor,'connector.action.dispatching','success','connector_action',$id,['reason'=>$body['action'].' '.$body['external_id']]);return $id;
+                            $id=$this->query($pdo,"INSERT INTO connector_actions(target_id,workspace_id,actor_id,credential_id,credential_version,target_version,action,external_id,snapshot_name,snapshot_revision,idempotency_key,status,node) VALUES(:t,:w,:a,:c,:cv,:tv,:act,:ext,:snap,:rev,:k,'dispatching',:n) RETURNING id::text",['t'=>$t['id'],'w'=>$t['workspace_id'],'a'=>$actor,'c'=>$t['credential_id'],'cv'=>$t['credential_version'],'tv'=>$t['version'],'act'=>$body['action'],'ext'=>$body['external_id'],'snap'=>$body['snapshot']??null,'rev'=>$body['snapshot_revision']??null,'k'=>$key,'n'=>$node])->fetchColumn();
+                            $this->audit->record($pdo,$actor,'connector.action.dispatching','success','connector_action',$id,['reason'=>$body['confirm']]);return $id;
                         });
                         // Serialize configuration/credential changes during the actual bounded remote write.
                         $task=$this->db->transaction(function(PDO $pdo)use($p,$t,$driver,$ctx,$body,$remote,$secret,$resource):string {
                             $this->inventory->lockWorkspace($pdo,$t['workspace_id']);$this->query($pdo,'SELECT id FROM credentials WHERE id=:id FOR SHARE',['id'=>$t['credential_id']]);$this->current($p,$t);
+                            if(isset($body['snapshot']))$this->rbac->requirePermission($p,'connectors.snapshots.execute',$pdo);
                             if ($this->resource($pdo,$t,$body['external_id'])!==$resource) throw new HttpException(409,'Guest mapping changed.','conflict');
                             $this->identity($pdo,$t,$remote);
                             return $driver->dispatchAction($ctx,$body['action'],$remote,$secret);
@@ -172,6 +208,7 @@ SQL);
         return $this->lock($t,function()use($p,$t,$id,$ack):array {
             $r=$this->row($this->db->connection(),$t['id'],$id);
             if ($ack) {
+                if($r['snapshot_name']!==null)$this->rbac->requirePermission($p,'connectors.snapshots.execute');
                 if (!in_array($r['status'],['unknown','dispatching','submitted'],true)) throw new HttpException(409,'Only unresolved actions can be acknowledged.','conflict');
                 // A confirmed running UPID must not be unlocked by an acknowledgement.
                 // If the original scope is gone, external verification is the only recovery path.

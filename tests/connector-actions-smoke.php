@@ -29,7 +29,7 @@ foreach(['locked','template','offline','ha','running'] as $mode)$reject(fn()=>$d
 $mode='running';$ok($d->prepareAction($ctx,'vm.reboot','qemu:101',$secret)['state']==='running','reboot running');
 $mode='ok';$reject(fn()=>$d->prepareAction($ctx,'lxc.stop','lxc:102',$secret));
 foreach(ProxmoxPowerPolicy::ACTIONS as $a){$external=str_starts_with($a,'vm.')?'qemu:101':'lxc:102';ConnectorActionService::validate(['action'=>$a,'external_id'=>$external,'confirm'=>$a.' '.$external],'1234567890123456');$ok(true,'allow '.$a);}
-$registry=new ConnectorRegistry($d);$ok($registry->actions('proxmox')===ProxmoxPowerPolicy::ACTIONS,'actions published');
+$registry=new ConnectorRegistry($d);$ok($registry->actions('proxmox')===\Cajeer\Servers\Connector\ProxmoxSnapshotPolicy::ALL_ACTIONS,'actions published');
 $ok($registry->actions('ssh')===[],'no unsupported actions');
 $transport=new HttpsTransport(new EndpointPolicy(['127.0.0.1/32']));
 $reject(fn()=>$transport->powerPost('127.0.0.1',1,'/api2/json/nodes/pve/qemu/101/status/reset','test'));

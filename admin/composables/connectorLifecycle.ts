@@ -10,7 +10,7 @@ export interface CollectionJobPlan { id:string; grant_id:string; name:string; co
 export interface ConnectorRun { collection_plan_id?:string|null; redrive_of?:string|null; attempt_history?:{attempt:number;started_at:string;finished_at:string|null;outcome:string;error_code:string|null}[]; collector_name?:string|null; id:string; grant_id:string; operation:string; status:string; attempts:number|string; created_at:string; finished_at:string|null; error_code:string|null; result:unknown }
 export interface WebhookSource { id:string; grant_id:string; actor_id:string; key_version:number|string; revoked_at:string|null; created_at:string }
 export interface ConnectorEvent { id:string; event_id:string; event_type:string; resource_id:string|null; source_id:string; status:string; run_id:string; received_at:string; error_code:string|null; dispatch_count:number; dispatches:{run_id:string;dispatched_at:string}[] }
-export interface ConnectorAction { id:string; action:string; external_id:string; status:string; remote_task:string|null; node:string|null; error_code:string|null; created_at:string; updated_at:string }
+export interface ConnectorAction { id:string; action:string; external_id:string; status:string; remote_task:string|null; snapshot_name?:string|null; snapshot_revision?:string|null; node:string|null; error_code:string|null; created_at:string; updated_at:string }
 export interface LifecycleResource { external_id:string; resource_type:string; asset_id:string|null; presence:string; conflict_code:string|null }
 export function usableGrant(g:ServiceGrant,t:LifecycleTarget,actor:string, binding:LifecycleBinding|null,now:number):boolean {
   return !g.collection_plan_id && t.state==='active' && !!t.asset_id && !!binding && g.actor_id===actor && !g.revoked_at && Date.parse(g.expires_at)>now
@@ -27,4 +27,4 @@ export function canRedrive(status:string):boolean {return ['dead_letter','cancel
 export function canAcknowledge(status:string):boolean {return ['unknown','dispatching','submitted'].includes(status)}
 export function actionConfirmation(action:string,external:string):string {return `${action} ${external}`}
 
-export function powerActionMatches(action:string,external:string):boolean { return /^(vm|lxc)\.(start|shutdown|stop|reboot)$/.test(action)&&/^(qemu|lxc):[1-9][0-9]{0,8}$/.test(external)&&(action.startsWith('vm.')===external.startsWith('qemu:')) }
+export function powerActionMatches(action:string,external:string):boolean { return /^(vm|lxc)\.(start|shutdown|stop|reboot|snapshot\.(create|delete|rollback))$/.test(action)&&/^(qemu|lxc):[1-9][0-9]{0,8}$/.test(external)&&(action.startsWith('vm.')===external.startsWith('qemu:')) }

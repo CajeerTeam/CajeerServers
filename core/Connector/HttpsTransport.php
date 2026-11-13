@@ -21,6 +21,14 @@ final class HttpsTransport
         if (!preg_match('~^/api2/json/nodes/[A-Za-z0-9][A-Za-z0-9._-]{0,119}/(?:qemu|lxc)/[1-9][0-9]{0,8}/status/(start|shutdown|stop|reboot)$~D',$path)) throw new RuntimeException('Unsupported power request.');
         return $this->request('POST',$host,$port,$path,$authorization,$caFile,'Authorization',pin:$pin);
     }
+    /** Only explicit snapshot operations; no arbitrary body or force flags. */
+    public function snapshotWrite(string $host,int $port,string $base,string $op,string $name,#[\SensitiveParameter] string $authorization,?string $caFile=null,?string $pin=null):string
+    {
+        if(!preg_match('~^/api2/json/nodes/[A-Za-z0-9][A-Za-z0-9._-]{0,119}/(?:qemu|lxc)/[1-9][0-9]{0,8}/snapshot$~D',$base)||!ProxmoxSnapshotPolicy::name($name)||!in_array($op,['create','delete','rollback'],true))throw new RuntimeException('Unsupported snapshot request.');
+        $path=$base.($op==='create'?'':('/'.$name.($op==='rollback'?'/rollback':'')));
+        $payload=$op==='create'?http_build_query(['snapname'=>$name]):'';
+        return $this->request($op==='delete'?'DELETE':'POST',$host,$port,$path,$authorization,$caFile,'Authorization',payload:$payload,extraHeaders:$op==='create'?"Content-Type: application/x-www-form-urlencoded\r\n":'',pin:$pin);
+    }
     /** Operator-configured delivery only. Signature and all extra headers are generated internally. */
     public function postArtifact(string $host,int $port,string $path,string $deliveryId,string $body,string $mime,#[\SensitiveParameter] string $secret,?string $caFile=null):string
     {

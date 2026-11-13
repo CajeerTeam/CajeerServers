@@ -80,7 +80,7 @@ final class ProxmoxConnector implements ConnectorInterface, ConnectorActionDrive
         return $out;
     }
 
-    public function actions(): array { return ProxmoxPowerPolicy::ACTIONS; }
+    public function actions(): array { return ProxmoxSnapshotPolicy::ALL_ACTIONS; }
 
     /** Resolve live location and verify the resource before any durable dispatch. */
     public function prepareAction(ConnectorContext $context,string $action,string $externalId,#[\SensitiveParameter] string $secret): array
@@ -89,7 +89,7 @@ final class ProxmoxConnector implements ConnectorInterface, ConnectorActionDrive
         if($context->proxmoxProfile===null) throw new \Cajeer\Servers\Http\Exception\HttpException(409,'A verified Proxmox profile is required for power actions.','connector_trust_failed');
         return $this->client()->read($context,$secret,fn(callable $get,array $info):array=>$this->liveAction($get,$info,$action,$externalId),true);
     }
-    private function liveAction(callable $get,array $info,string $action,string $externalId):array
+    private function liveAction(callable $get,array $info,string $action,string $externalId,?string $snapshot=null,?string $revision=null):array
     {
         if(($info['quorate']??null)===false)ProxmoxPowerPolicy::deny('guest_quorum','Proxmox cluster has no quorum.');
         [$type,$id]=explode(':',$externalId);$id=(int)$id;
@@ -105,13 +105,26 @@ final class ProxmoxConnector implements ConnectorInterface, ConnectorActionDrive
         $config=$get($base.'/config');$status=$get($base.'/status/current');
         // Cluster PVE status must reveal HA ownership; standalone has no HA services.
         if(($info['cluster']??null)!==null&&!isset($status->ha))ProxmoxPowerPolicy::deny('guest_ha_managed','HA ownership could not be verified.');
-        $evidence=ProxmoxPowerPolicy::inspect($action,$type,$id,$config,$status);
+        $snap=ProxmoxSnapshotPolicy::matches($action,$externalId);
+        $policyAction=$snap?($type==='qemu'?'vm.':'lxc.').(($status->status??null)==='stopped'?'start':'shutdown'):$action;
+        $evidence=ProxmoxPowerPolicy::inspect($policyAction,$type,$id,$config,$status);
+        if($snap){
+            if(!ProxmoxSnapshotPolicy::name($snapshot))throw new \InvalidArgumentException('Invalid snapshot name.');
+            $rows=ProxmoxSnapshotPolicy::rows($get($base.'/snapshot'));
+            ProxmoxSnapshotPolicy::check($action,$snapshot,$revision,$rows,$evidence['state']);
+            if(ProxmoxSnapshotPolicy::op($action)==='rollback'&&$type==='qemu'){
+                $saved=$get($base.'/snapshot/'.$snapshot.'/config');
+                if(!$saved instanceof \stdClass||!empty($saved->vmstate))ProxmoxPowerPolicy::deny('snapshot_ram_state','RAM snapshots cannot be rolled back by this dispatcher.');
+            }
+            $evidence+=['snapshot'=>$snapshot,'snapshot_revision'=>$revision,'snapshot_tree'=>hash('sha256',json_encode($rows,JSON_THROW_ON_ERROR))];
+        }
         return ['node'=>$node,'vmid'=>$id,'type'=>$type]+$evidence;
     }
     public function dispatchAction(ConnectorContext $context,string $action,array $resource,#[\SensitiveParameter] string $secret): string
     {
         $node=self::node($resource['node']??null);$id=$resource['vmid']??null;$type=$resource['type']??null;
-        if ($context->provider!=='proxmox'||$context->proxmoxProfile===null||!is_int($id)||!is_string($type)||!ProxmoxPowerPolicy::matches($action,$type.':'.$id)) throw new RuntimeException('Invalid power action.');
+        if ($context->provider!=='proxmox'||$context->proxmoxProfile===null||!is_int($id)||!is_string($type)||!(ProxmoxPowerPolicy::matches($action,$type.':'.$id)||ProxmoxSnapshotPolicy::matches($action,$type.':'.$id))) throw new RuntimeException('Invalid guest action.');
+        if(ProxmoxSnapshotPolicy::matches($action,$type.':'.$id))return $this->dispatchSnapshot($context,$action,$resource,$secret);
         $op=ProxmoxPowerPolicy::operation($action);$path='/api2/json/nodes/'.$node.'/'.$type.'/'.$id.'/status/'.$op;
         $task=self::taskId($this->client()->power($context,$path,$secret,function(callable $get,array $info)use($resource,$action,$type,$id):void {
             $fresh=$this->liveAction($get,$info,$action,$type.':'.$id);
@@ -120,6 +133,36 @@ final class ProxmoxConnector implements ConnectorInterface, ConnectorActionDrive
         $parts=explode(':',$task);
         if ($parts[5]!==($type==='qemu'?'qm':'vz').$op || $parts[6]!== (string)$id) throw new RuntimeException('Remote task does not match requested action.');
         return $task;
+    }
+    public function prepareSnapshot(ConnectorContext $context,string $action,string $external,string $name,?string $revision,#[\SensitiveParameter] string $secret):array
+    {
+        if($context->provider!=='proxmox'||$context->proxmoxProfile===null||!ProxmoxSnapshotPolicy::matches($action,$external))throw new RuntimeException('Invalid snapshot action.');
+        return $this->client()->read($context,$secret,fn(callable $get,array $info)=>$this->liveAction($get,$info,$action,$external,$name,$revision),true);
+    }
+    private function dispatchSnapshot(ConnectorContext $ctx,string $action,array $resource,#[\SensitiveParameter] string $secret):string
+    {
+        $node=$resource['node'];$type=$resource['type'];$id=$resource['vmid'];$op=ProxmoxSnapshotPolicy::op($action);
+        $task=self::taskId($this->client()->snapshot($ctx,"/api2/json/nodes/$node/$type/$id/snapshot",$op,$resource['snapshot'],$secret,function(callable $get,array $info)use($resource,$action,$type,$id):void {
+            if($this->liveAction($get,$info,$action,$type.':'.$id,$resource['snapshot'],$resource['snapshot_revision'])!==$resource)ProxmoxPowerPolicy::deny('snapshot_conflict','Guest or snapshot tree changed before dispatch.');
+        }),$node);
+        $parts=explode(':',$task);$worker=($type==='qemu'?'qm':'vz').match($op){'create'=>'snapshot','delete'=>'delsnapshot','rollback'=>'rollback'};
+        if($parts[5]!==$worker||$parts[6]!== (string)$id)throw new RuntimeException('Remote task does not match snapshot action.');
+        return $task;
+    }
+    /** Live read for snapshot inventory and native console hand-off, no remote mutation. */
+    public function guestAccess(ConnectorContext $ctx,string $external,string $purpose,#[\SensitiveParameter] string $secret):array
+    {
+        if($ctx->provider!=='proxmox'||$ctx->proxmoxProfile===null||!preg_match('/^(qemu|lxc):[1-9][0-9]{0,8}$/D',$external)||!in_array($purpose,['snapshots','console'],true))throw new RuntimeException('Invalid guest access.');
+        return $this->client()->read($ctx,$secret,function(callable $get,array $info)use($ctx,$external,$purpose):array {
+            [$type,$id]=explode(':',$external);$id=(int)$id;
+            $nodes=ProxmoxApiClient::rows($get('/api2/json/nodes'));$items=self::observations($nodes,ProxmoxApiClient::rows($get('/api2/json/cluster/resources?type=vm')));
+            $node=null;$count=0;foreach($items as $item)if(in_array($item['external_id'],['qemu:'.$id,'lxc:'.$id],true)){$count++;if($item['external_id']===$external)$node=self::node(substr($item['parent_external_id'],5));}
+            if($count!==1||$node===null||!in_array($node,array_column(array_filter($nodes,static fn($r)=>($r['status']??null)==='online'),'node'),true))ProxmoxPowerPolicy::deny('resource_unavailable','Guest is not uniquely visible on an online node.');
+            $base="/api2/json/nodes/$node/$type/$id";$config=$get($base.'/config');if(!$config instanceof \stdClass)throw new ConnectorTransportException('connector_protocol_error');
+            $remote=['node'=>$node,'type'=>$type,'vmid'=>$id,'fingerprint'=>ProxmoxGuestDiscovery::config($config,$type)['identity_fingerprint']??null];
+            if($purpose==='snapshots')return $remote+['snapshots'=>ProxmoxSnapshotPolicy::rows($get($base.'/snapshot'))];
+            return $remote+['url'=>ProxmoxSnapshotPolicy::consoleUrl($ctx,$node,$type,$id)];
+        },true);
     }
     private static function taskId(mixed $task,string $node):string
     {

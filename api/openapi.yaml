@@ -1,7 +1,7 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.6.6
+  version: 0.6.7
   description: 'CajeerServers 0.5.7: signed external data ingestion, durable inbox and time series.'
 servers:
 - url: /api/v1
@@ -7527,6 +7527,16 @@ paths:
                           - lxc.shutdown
                           - lxc.stop
                           - lxc.reboot
+                          - vm.snapshot.create
+                          - vm.snapshot.delete
+                          - vm.snapshot.rollback
+                          - lxc.snapshot.create
+                          - lxc.snapshot.delete
+                          - lxc.snapshot.rollback
+                        snapshot_name:
+                          type: [string, 'null']
+                        snapshot_revision:
+                          type: [string, 'null']
                         status:
                           type: string
                           enum:
@@ -7562,7 +7572,7 @@ paths:
           description: Remote operation failed; never retry automatically
     post:
       operationId: submitConnectorAction
-      summary: MFA-confirmed Proxmox VM/LXC power action
+      summary: MFA-confirmed Proxmox VM/LXC power or snapshot action
       security:
       - sessionAuth: []
       parameters:
@@ -7628,6 +7638,16 @@ paths:
                         - lxc.shutdown
                         - lxc.stop
                         - lxc.reboot
+                        - vm.snapshot.create
+                        - vm.snapshot.delete
+                        - vm.snapshot.rollback
+                        - lxc.snapshot.create
+                        - lxc.snapshot.delete
+                        - lxc.snapshot.rollback
+                      snapshot_name:
+                        type: [string, 'null']
+                      snapshot_revision:
+                        type: [string, 'null']
                       status:
                         type: string
                         enum:
@@ -7684,12 +7704,97 @@ paths:
                   - lxc.shutdown
                   - lxc.stop
                   - lxc.reboot
+                  - vm.snapshot.create
+                  - vm.snapshot.delete
+                  - vm.snapshot.rollback
+                  - lxc.snapshot.create
+                  - lxc.snapshot.delete
+                  - lxc.snapshot.rollback
                 external_id:
                   type: string
                   pattern: ^(qemu|lxc):[1-9][0-9]{0,8}$
                 confirm:
                   type: string
-                  description: Exact action + space + external_id
+                  description: Exact action + space + external_id; snapshot actions append space + snapshot name
+                snapshot:
+                  type: string
+                  maxLength: 40
+                  description: Required for snapshot actions; reserved names forbidden
+                snapshot_revision:
+                  type: string
+                  pattern: ^[a-f0-9]{64}$
+                  description: Required for delete and rollback; from live snapshot list
+  /connectors/targets/{id}/guest-access:
+    post:
+      operationId: proxmoxGuestAccess
+      summary: Live snapshot list or native console link (MFA, one-time Vault authorization)
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema: {type: string}
+      - name: If-Match
+        in: header
+        required: true
+        schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [external_id, purpose]
+              properties:
+                external_id: {type: string, pattern: '^(qemu|lxc):[1-9][0-9]{0,8}$'}
+                purpose: {type: string, enum: [snapshots, console]}
+      responses:
+        '200':
+          description: Live resource and projected snapshot metadata or native HTTPS URL; never a PVE ticket
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [node, type, vmid]
+                    properties:
+                      node: {type: string}
+                      type: {type: string, enum: [qemu, lxc]}
+                      vmid: {type: integer}
+                      url: {type: string, format: uri}
+                      snapshots:
+                        type: array
+                        items:
+                          type: object
+                          required: [name, parent, created_at, state, description, revision]
+                          properties:
+                            name: {type: string}
+                            parent: {type: [string, 'null']}
+                            created_at: {type: [integer, 'null']}
+                            state: {type: [string, 'null']}
+                            description: {type: string}
+                            revision: {type: string}
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Target not found
+        '409':
+          description: Resource or binding conflict
+        '412':
+          description: Target revision changed
+        '422':
+          description: Invalid request
+        '502':
+          description: Remote access unavailable
   /connectors/targets/{id}/actions/{actionId}:
     get:
       operationId: getConnectorAction
@@ -7747,6 +7852,16 @@ paths:
                         - lxc.shutdown
                         - lxc.stop
                         - lxc.reboot
+                        - vm.snapshot.create
+                        - vm.snapshot.delete
+                        - vm.snapshot.rollback
+                        - lxc.snapshot.create
+                        - lxc.snapshot.delete
+                        - lxc.snapshot.rollback
+                      snapshot_name:
+                        type: [string, 'null']
+                      snapshot_revision:
+                        type: [string, 'null']
                       status:
                         type: string
                         enum:
@@ -7849,6 +7964,16 @@ paths:
                         - lxc.shutdown
                         - lxc.stop
                         - lxc.reboot
+                        - vm.snapshot.create
+                        - vm.snapshot.delete
+                        - vm.snapshot.rollback
+                        - lxc.snapshot.create
+                        - lxc.snapshot.delete
+                        - lxc.snapshot.rollback
+                      snapshot_name:
+                        type: [string, 'null']
+                      snapshot_revision:
+                        type: [string, 'null']
                       status:
                         type: string
                         enum:
@@ -7951,6 +8076,16 @@ paths:
                         - lxc.shutdown
                         - lxc.stop
                         - lxc.reboot
+                        - vm.snapshot.create
+                        - vm.snapshot.delete
+                        - vm.snapshot.rollback
+                        - lxc.snapshot.create
+                        - lxc.snapshot.delete
+                        - lxc.snapshot.rollback
+                      snapshot_name:
+                        type: [string, 'null']
+                      snapshot_revision:
+                        type: [string, 'null']
                       status:
                         type: string
                         enum:

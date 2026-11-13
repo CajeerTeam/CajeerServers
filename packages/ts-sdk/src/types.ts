@@ -3,6 +3,10 @@ export interface InfrastructureAsset { id: string; type: AssetType; name: string
 export type Provider = 'proxmox' | 'vmmanager' | 'ssh' | 'winrm' | 'snmp' | 'custom' | 'prometheus'
 export type Operation = 'health' | 'inspect' | 'sync'
 export type PowerAction = 'vm.start' | 'vm.shutdown' | 'vm.stop' | 'vm.reboot' | 'lxc.start' | 'lxc.shutdown' | 'lxc.stop' | 'lxc.reboot'
+export type SnapshotAction = `${'vm'|'lxc'}.snapshot.${'create'|'delete'|'rollback'}`
+export interface ProxmoxSnapshot { name:string; parent:string|null; created_at:number|null; state:string|null; description:string; revision:string }
+export interface ProxmoxGuestAccess { node:string; type:'qemu'|'lxc'; vmid:number; snapshots?:ProxmoxSnapshot[]; url?:string }
+
 export interface CollectorDefinition { name:string; provider:Provider; operations:('inspect'|'sync')[]; resource_types:AssetType[] }
 export interface CollectionSnapshot { schema_version:1; collector:string; sink:'result'|'inventory'|'metrics'; metric_samples?:MetricSample[]; observed_at:string; complete:boolean; count:number; observations?:{type:AssetType;external_id:string;fields:Record<string,unknown>;parent_external_id?:string}[] }
 export interface Driver { collectors?:CollectorDefinition[]; provider: Provider; purpose: string; credentialTypes: string[]; operations: (Operation | 'validate_rotation')[]; resourceTypes: AssetType[]; transport: string; actions: PowerAction[]; write_actions_enabled: boolean }
@@ -41,7 +45,7 @@ export interface CollectionAttempt { attempt:number; started_at:string; finished
 export interface ServiceGrant { collection_plan_id?:string|null; id: string; target_id: string; operation: Operation; expires_at: string; revoked_at: string | null }
 export interface EnqueuedRun { id:string; deduplicated:boolean }
 export interface Run { collection_plan_id?:string|null; redrive_of?:string|null; attempt_history?:CollectionAttempt[]; collector_name?:string|null; id: string; target_id: string; status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'; operation: Operation; result?: ({collection?:CollectionSnapshot;connection?:ProxmoxConnection;[key:string]:unknown})|null; error_code?: string | null }
-export interface Action { id: string; target_id: string; external_id: string; action: PowerAction; status: 'dispatching' | 'submitted' | 'succeeded' | 'failed' | 'unknown' | 'acknowledged'; remote_task: string | null; error_code: string | null; created_at: string; updated_at: string }
+export interface Action { id: string; target_id: string; external_id: string; action: PowerAction | SnapshotAction; snapshot_name?:string|null; snapshot_revision?:string|null; status: 'dispatching' | 'submitted' | 'succeeded' | 'failed' | 'unknown' | 'acknowledged'; remote_task: string | null; error_code: string | null; created_at: string; updated_at: string }
 export interface Problem { title?: string; code?: string; request_id?: string; status?: number }
 
 export interface MetricSample {metric:string;value:string;resource_external_id:string;labels:Record<string,string>;kind:'gauge'|'counter';unit:string|null;observed_at:string|null}

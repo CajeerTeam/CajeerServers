@@ -1,4 +1,4 @@
-import type { InfrastructureAsset, Driver, Target, TargetInput, ProxmoxProfile, ProxmoxConnection, ProxmoxClusterState, ProxmoxGuestState, ProxmoxStorageNetworkState, ProxmoxTaskPage, ProxmoxTaskEvent, ProxmoxTaskStatus, ServiceGrant, Run, EnqueuedRun, Operation, PowerAction, Action, Problem, CollectionJobPlan, CollectionPlanInput, MetricSeries, MetricQuery, MetricAggregation, IngestionKind, IngestionSource, IngestionSourceSecret, IngestionBatch, IngestedEvent, DataExportInput, DataExportJob, DataExportList, ManualImportInput, ManualImportPreview, ManualImportResult } from './types.js'
+import type { InfrastructureAsset, Driver, Target, TargetInput, ProxmoxProfile, ProxmoxConnection, ProxmoxClusterState, ProxmoxGuestState, ProxmoxStorageNetworkState, ProxmoxTaskPage, ProxmoxTaskEvent, ProxmoxTaskStatus, ServiceGrant, Run, EnqueuedRun, Operation, PowerAction, SnapshotAction, ProxmoxGuestAccess, Action, Problem, CollectionJobPlan, CollectionPlanInput, MetricSeries, MetricQuery, MetricAggregation, IngestionKind, IngestionSource, IngestionSourceSecret, IngestionBatch, IngestedEvent, DataExportInput, DataExportJob, DataExportList, ManualImportInput, ManualImportPreview, ManualImportResult } from './types.js'
 export class ApiError extends Error {
   constructor(public readonly status: number, public readonly problem: Problem) { super(problem.title || `HTTP ${status}`); this.name = 'ApiError' }
 }
@@ -85,6 +85,13 @@ export class CajeerServersClient {
     if (!/^(qemu|lxc):[1-9][0-9]{0,8}$/.test(externalId) || !/^(vm|lxc)\.(start|shutdown|stop|reboot)$/.test(action) || (action.startsWith('vm.') !== externalId.startsWith('qemu:'))) throw new Error('Action and guest type must match')
     if (confirmation!==`${action} ${externalId}`) throw new Error('Explicit resource confirmation required')
     return this.write('POST',`${this.target(id)}/actions`,{action,external_id:externalId,confirm:confirmation},{'If-Match':etag,'Idempotency-Key':key})
+  }
+  guestAccess(id:string,etag:string,externalId:string,purpose:'snapshots'|'console'):Promise<ProxmoxGuestAccess> {
+    return this.write('POST',`${this.target(id)}/guest-access`,{external_id:externalId,purpose},{'If-Match':etag})
+  }
+  snapshot(id:string,etag:string,action:SnapshotAction,externalId:string,name:string,confirmation:string,key:string,revision?:string):Promise<Action> {
+    if (!/^(qemu|lxc):[1-9][0-9]{0,8}$/.test(externalId)||!/^(vm|lxc)\.snapshot\.(create|delete|rollback)$/.test(action)||(action.startsWith('vm.')!==externalId.startsWith('qemu:'))||!/^[A-Za-z][A-Za-z0-9_-]{0,39}$/.test(name)||['current','vzdump','pending'].includes(name.toLowerCase())||confirmation!==`${action} ${externalId} ${name}`||(action.endsWith('.create')?revision!==undefined:!revision||!/^[a-f0-9]{64}$/.test(revision))) throw new Error('Invalid snapshot intent')
+    return this.write('POST',`${this.target(id)}/actions`,{action,external_id:externalId,snapshot:name,confirm:confirmation,...(revision?{snapshot_revision:revision}:{})},{'If-Match':etag,'Idempotency-Key':key})
   }
   refreshAction(id:string,etag:string,actionId:string):Promise<Action> { return this.write('POST',`${this.target(id)}/actions/${this.id(actionId)}/refresh`,undefined,{'If-Match':etag}) }
   acknowledgeAction(id:string,etag:string,actionId:string,confirmation:string):Promise<Action> {
