@@ -42,4 +42,14 @@ $seen=[];for($i=0;$i<4;$i++){$r=$run(['cursor'=>$c]);$c=$r['cursor'];foreach($r[
 $ok(!isset($c['nodes'][$node]['head_scan'])&&$c['nodes'][$node]['head']===$arch[0]['upid']&&count($seen)>=250,'head pagination resumes and reaches anchor');
 $nodes=[];$r=$run();$ok($r['observed_count']===0&&(array)$r['nodes']===[],'empty visibility safe');
 $ok(count((new Cajeer\Servers\Database\SqlStatementParser())->split(file_get_contents(dirname(__DIR__).'/migrations/pgsql/0041_proxmox_task_history.sql')))===6,'migration statements');
+$identity=D::identity($active['upid']);
+$ok(D::status((object)['status'=>'stopped','exitstatus'=>'unknown'],$identity)['state']==='unknown','unknown is not success');
+$ok(D::status((object)['status'=>'stopped','exitstatus'=>'WARNINGS: 1'],$identity)['state']==='warning','status warning');
+$ok(D::status((object)['status'=>'running'],$identity)['state']==='running','running status');
+foreach([(object)['status'=>'stopped','upid'=>$arch[0]['upid']],(object)['status'=>'stopped','starttime'=>$identity['started_at']+1],(object)['status'=>'stopped','endtime'=>$identity['started_at']-1],(object)['status'=>'stopped','node'=>'other'],(object)['status'=>'stopped','type'=>'qmstop']] as $bad){try{D::status($bad,$identity);throw new RuntimeException('accepted wrong task evidence');}catch(ConnectorTransportException){$ok(true,'invalid task evidence rejected');}}
+$ok(D::mergeState('unknown','running')==='unknown'&&D::mergeState('unknown','succeeded')==='succeeded','recover unknown without stale regression');
+$ok(D::mergeState('succeeded','failed')==='succeeded'&&D::mergeState('failed','running')==='failed'&&D::mergeState('warning','unknown')==='warning','confirmed terminal evidence immutable');
+$tilde=D::identity(str_replace('root@pam!svc','root@pam!svc~test',$active['upid']));$ok(str_contains(D::statusPath($tilde),'%7E')&&!str_contains(D::statusPath($tilde),'~'),'opaque UPID tilde encoded');
+$expected=['vm.start'=>'qmstart','vm.shutdown'=>'qmshutdown','vm.stop'=>'qmstop','vm.reboot'=>'qmreboot','lxc.start'=>'vzstart','lxc.shutdown'=>'vzshutdown','lxc.stop'=>'vzstop','lxc.reboot'=>'vzreboot','vm.snapshot.create'=>'qmsnapshot','vm.snapshot.delete'=>'qmdelsnapshot','vm.snapshot.rollback'=>'qmrollback','lxc.snapshot.create'=>'vzsnapshot','lxc.snapshot.delete'=>'vzdelsnapshot','lxc.snapshot.rollback'=>'vzrollback'];
+$workers=Cajeer\Servers\Connector\ProxmoxSnapshotPolicy::taskWorkers();$ok(count($workers)===14&&$workers==$expected,'all fourteen action workers match');
 echo "Proxmox task history: $n PASS\n";

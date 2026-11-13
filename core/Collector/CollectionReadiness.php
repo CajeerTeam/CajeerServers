@@ -34,8 +34,8 @@ final class CollectionReadiness
             return true;
         },'Required collectors and exporters must be registered.');
         $probe('collection_migrations',function()use($c):bool{
-            $v=$c->get(MigrationRunner::class)->validate();return $v['valid']&&count($v['rows'])>=44&&array_column($v['rows'],'status')!==[]&&!array_diff(array_column($v['rows'],'status'),['applied']);
-        },'All PostgreSQL migrations, including 0044, must be applied and checksum-valid.');
+            $v=$c->get(MigrationRunner::class)->validate();return $v['valid']&&count($v['rows'])>=45&&array_column($v['rows'],'status')!==[]&&!array_diff(array_column($v['rows'],'status'),['applied']);
+        },'All PostgreSQL migrations, including 0045, must be applied and checksum-valid.');
         $queries=[
             'pbs_backup_scope'=>"SELECT 1 FROM pbs_backup_state s JOIN connector_targets t ON t.id=s.target_id WHERE t.provider<>'pbs' OR s.workspace_id<>t.workspace_id OR s.target_version>t.version LIMIT 1",
             'proxmox_task_scope'=>"SELECT 1 FROM proxmox_task_cursor s JOIN connector_targets t ON t.id=s.target_id WHERE t.provider<>'proxmox' OR s.workspace_id<>t.workspace_id LIMIT 1",

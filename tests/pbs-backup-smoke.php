@@ -34,6 +34,15 @@ reject(fn()=>PbsDiscovery::collect($get,$rows([['store'=>'backup'],['store'=>'ba
 reject(fn()=>PbsDiscovery::collect(static function($p)use($get,$rows){return str_contains($p,'/snapshots')?$rows([['backup-type'=>'vm','backup-id'=>'1','backup-time'=>1],['backup-type'=>'vm','backup-id'=>'1','backup-time'=>1]]):$get($p);},$stores,'4.0'),'connector_protocol_error');
 $big=PbsDiscovery::collect(static function($p)use($get,$rows){if($p==='/admin/sync')return $rows(array_map(fn($i)=>['id'=>'job-'.$i,'store'=>'backup'],range(1,3000)));return $get($p);},$stores,'4.0');
 ok(!$big['complete']&&$big['counts']['jobs']<=2500,'bounded result');
+ok($big['counts']['jobs']===131&&$big['counts']['snapshots']===2&&$big['datastores'][0]['capacity_visible'],'job cap preserves backup and capacity discovery');
+$many=PbsDiscovery::collect(static function($p)use($get,$rows){
+    if($p==='/admin/datastore/second/status')return (object)['total'=>100,'used'=>1,'avail'=>99];
+    if($p==='/admin/datastore/second/gc')return (object)['store'=>'second'];
+    if(str_contains($p,'/snapshots'))return $rows(array_map(fn($i)=>['backup-type'=>'vm','backup-id'=>(string)$i,'backup-time'=>1700000000],range(1,3000)));
+    return $get($p);
+},$rows([['store'=>'backup'],['store'=>'second']]),'4.0');
+ok(!$many['complete']&&$many['counts']['datastores']===2&&$many['datastores'][1]['capacity_visible']&&$many['datastores'][1]['available']==='99','large first backup namespace preserves second datastore capacity');
+
 ok(PbsConnector::authorization('svc@pbs!read:fixture-secret')==='PBSAPIToken=svc@pbs!read:fixture-secret','PBS auth');
 foreach(['svc@pbs!read=secret','svc@pbs!read:bad secret',"svc@pbs!read:bad\r\nheader",'root@pam:secret'] as $v)reject(fn()=>PbsConnector::authorization($v),'connector_auth_failed');
 $r=CollectorRegistry::forConnectors(new ConnectorRegistry(new PbsConnector(new HttpsTransport())));ok($r->catalog()[0]['name']==='pbs.backups'&&$r->catalog()[0]['operations']===['inspect'],'registered inspect-only');

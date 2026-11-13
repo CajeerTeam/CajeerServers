@@ -189,15 +189,16 @@ final class ConnectorActionService
 UPDATE connector_actions a SET status=CASE WHEN p.state='succeeded' THEN 'succeeded' ELSE 'failed' END,
  error_code=CASE p.state WHEN 'succeeded' THEN NULL WHEN 'warning' THEN 'remote_task_warning' ELSE 'remote_task_failed' END,
  updated_at=clock_timestamp()
-FROM proxmox_tasks p
+FROM proxmox_tasks p, jsonb_each_text(CAST(:workers AS jsonb)) AS w(action,worker)
 WHERE a.target_id=:target AND a.workspace_id=:workspace AND a.target_version=:tv
  AND a.credential_id=:credential AND a.credential_version=:cv AND a.status='submitted'
  AND p.target_id=a.target_id AND p.workspace_id=a.workspace_id AND p.scope_hash=:scope AND p.upid=a.remote_task AND p.node=a.node
- AND p.task_type=((CASE WHEN a.external_id LIKE 'qemu:%' THEN 'qm' ELSE 'vz' END)||split_part(a.action,'.',2))
+ AND a.action=w.action AND p.task_type=w.worker
+ AND ((a.external_id LIKE 'qemu:%' AND w.action LIKE 'vm.%') OR (a.external_id LIKE 'lxc:%' AND w.action LIKE 'lxc.%'))
  AND p.resource_id=split_part(a.external_id,':',2) AND p.state IN ('succeeded','warning','failed')
 RETURNING a.id::text,a.status,a.error_code
 SQL);
-        $q->execute(['target'=>$t['id'],'workspace'=>$t['workspace_id'],'tv'=>$t['version'],'credential'=>$t['credential_id'],'cv'=>$t['credential_version'],'scope'=>$scope]);
+        $q->execute(['target'=>$t['id'],'workspace'=>$t['workspace_id'],'tv'=>$t['version'],'credential'=>$t['credential_id'],'cv'=>$t['credential_version'],'scope'=>$scope,'workers'=>json_encode(ProxmoxSnapshotPolicy::taskWorkers(),JSON_THROW_ON_ERROR)]);
         $rows=$q->fetchAll(PDO::FETCH_ASSOC);
         foreach($rows as $r)$audit->record($pdo,$collectorActor,'connector.action.'.$r['status'],$r['status']==='succeeded'?'success':'failure','connector_action',$r['id'],['source'=>'proxmox.tasks','reason'=>$r['error_code']??'succeeded']);
         return count($rows);

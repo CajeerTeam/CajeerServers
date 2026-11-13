@@ -1,6 +1,6 @@
 {
   "name": "CajeerServers",
-  "version": "0.6.9",
+  "version": "0.7.0",
   "channel": "development",
   "language": "ru",
   "php": ">=8.4",

@@ -273,6 +273,9 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 - [x] Native console hand-off (0.6.7).
 - [x] Proxmox Backup Server read-only inventory and jobs (0.6.8).
 - [x] Dedicated Proxmox/PBS Admin UI and critical isolated browser E2E scenario (0.6.9).
+- [x] Correct action reconciliation, bounded unknown-task recovery, terminal-state consistency and PBS budget fairness (0.7.0).
+- [x] Executable expected-resource PVE/PBS live acceptance and strict release integration (0.7.0).
+- [ ] Full strict gate against isolated deployment and real PVE/PBS lab; stable channel promotion only after evidence.
 
 ## 0.8.0 — VMmanager Integration
 

@@ -19,6 +19,7 @@ final class ProxmoxTaskStore
         // Include accepted actions before their UPID appears in the archive. Separate quotas
         // prevent a backlog of actions from starving ordinary history polling.
         $pending=self::query($p,"SELECT upid FROM proxmox_tasks WHERE target_id=:id AND scope_hash=:scope AND state='running' ORDER BY checked_at ASC NULLS FIRST,id LIMIT 20",$a)->fetchAll(PDO::FETCH_ASSOC);
+        $unknown=self::query($p,"SELECT upid FROM proxmox_tasks WHERE target_id=:id AND scope_hash=:scope AND state='unknown' ORDER BY checked_at ASC NULLS FIRST,id LIMIT 5",$a)->fetchAll(PDO::FETCH_ASSOC);
         $actions=self::query($p,<<<'SQL'
 SELECT a.remote_task AS upid FROM connector_actions a
 LEFT JOIN proxmox_tasks p ON p.target_id=a.target_id AND p.scope_hash=:scope AND p.upid=a.remote_task
@@ -26,7 +27,12 @@ WHERE a.target_id=:id AND a.workspace_id=:ws AND a.target_version=:tv AND a.cred
  AND a.status='submitted' AND a.remote_task IS NOT NULL AND (p.state IS NULL OR p.state IN ('running','unknown'))
 ORDER BY a.task_checked_at ASC NULLS FIRST,a.created_at,a.id LIMIT 10
 SQL,$a+['ws'=>$t['workspace_id'],'tv'=>$t['version'],'credential'=>$t['credential_id'],'cv'=>$t['credential_version']])->fetchAll(PDO::FETCH_ASSOC);
-        $pending=array_values(array_column([...$actions,...$pending],null,'upid'));
+        // Interleave quotas so slow status reads cannot starve ordinary or unknown tasks.
+        $poll=[];
+        for($i=0;$i<max(count($actions),count($pending),count($unknown));$i++){
+            foreach([$actions,$pending,$unknown] as $list)if(isset($list[$i]))$poll[$list[$i]['upid']]=$list[$i];
+        }
+        $pending=array_values($poll);
         return ['revision'=>$r?(int)$r['revision']:0,'cursor'=>$r?json_decode($r['cursor'],true,32,JSON_THROW_ON_ERROR):['nodes'=>[],'next_node'=>null],'pending'=>$pending];
     }
     public static function summary(array $batch):array
@@ -60,7 +66,7 @@ SQL,$key+['ws'=>$t['workspace_id'],'node'=>$task['node'],'type'=>$task['type'],'
             }else{
                 $id=$old['id'];$before=$old['state'];
                 // Terminal evidence is never replaced by stale active responses. Unknown can resolve later.
-                if($before!=='running'&&($before!=='unknown'||in_array($state,['running','unknown'],true)))$state=$before;
+                $state=ProxmoxTaskDiscovery::mergeState($before,$state);
                 if($old['ended_at']!==null)$end=(int)$old['ended_at'];
                 if($before==='running'&&$state!=='running'){self::event($p,$a,$id,'task_completed',$state,$end,$observed);$summary['completed_tasks']++;}
                 elseif($before==='unknown'&&!in_array($state,['unknown','running'],true))self::event($p,$a,$id,'task_outcome_resolved',$state,$end,$observed);

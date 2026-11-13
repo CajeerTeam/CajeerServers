@@ -131,7 +131,7 @@ final class ProxmoxConnector implements ConnectorInterface, ConnectorActionDrive
             if($fresh!==$resource)ProxmoxPowerPolicy::deny('guest_state_conflict','Guest location, configuration or state changed before dispatch.');
         }),$node);
         $parts=explode(':',$task);
-        if ($parts[5]!==($type==='qemu'?'qm':'vz').$op || $parts[6]!== (string)$id) throw new RuntimeException('Remote task does not match requested action.');
+        if ($parts[5]!==ProxmoxSnapshotPolicy::taskWorkers()[$action] || $parts[6]!== (string)$id) throw new RuntimeException('Remote task does not match requested action.');
         return $task;
     }
     public function prepareSnapshot(ConnectorContext $context,string $action,string $external,string $name,?string $revision,#[\SensitiveParameter] string $secret):array
@@ -145,7 +145,7 @@ final class ProxmoxConnector implements ConnectorInterface, ConnectorActionDrive
         $task=self::taskId($this->client()->snapshot($ctx,"/api2/json/nodes/$node/$type/$id/snapshot",$op,$resource['snapshot'],$secret,function(callable $get,array $info)use($resource,$action,$type,$id):void {
             if($this->liveAction($get,$info,$action,$type.':'.$id,$resource['snapshot'],$resource['snapshot_revision'])!==$resource)ProxmoxPowerPolicy::deny('snapshot_conflict','Guest or snapshot tree changed before dispatch.');
         }),$node);
-        $parts=explode(':',$task);$worker=($type==='qemu'?'qm':'vz').match($op){'create'=>'snapshot','delete'=>'delsnapshot','rollback'=>'rollback'};
+        $parts=explode(':',$task);$worker=ProxmoxSnapshotPolicy::taskWorkers()[$action];
         if($parts[5]!==$worker||$parts[6]!== (string)$id)throw new RuntimeException('Remote task does not match snapshot action.');
         return $task;
     }
@@ -175,12 +175,11 @@ final class ProxmoxConnector implements ConnectorInterface, ConnectorActionDrive
     {
         $node=self::node($node);self::taskId($task,$node);
         return $this->client()->read($context,$secret,static function(callable $get)use($node,$task):string {
-            $data=$get('/api2/json/nodes/'.$node.'/tasks/'.rawurlencode($task).'/status');
-            if (!$data instanceof \stdClass||(isset($data->upid)&&$data->upid!==$task)||(isset($data->node)&&$data->node!==$node)) throw new RuntimeException('Invalid task status.');
-            return match($data->status??null) {
-                'running'=>'submitted',
-                'stopped'=>is_string($data->exitstatus??null)&&$data->exitstatus!==''&&strtolower($data->exitstatus)!=='unknown'?($data->exitstatus==='OK'?'succeeded':'failed'):throw new RuntimeException('Missing task result.'),
-                default=>throw new RuntimeException('Invalid task state.'),
+            $identity=ProxmoxTaskDiscovery::identity($task);
+            $result=ProxmoxTaskDiscovery::status($get(ProxmoxTaskDiscovery::statusPath($identity)), $identity);
+            return match($result['state']) {
+                'running'=>'submitted', 'succeeded'=>'succeeded', 'warning','failed'=>'failed',
+                default=>throw new ConnectorTransportException('connector_protocol_error'),
             };
         });
     }

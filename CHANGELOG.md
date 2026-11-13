@@ -1,3 +1,11 @@
+## [0.7.0] — 2026-11-13 — Proxmox Integration Stable
+
+- Fix automatic snapshot delete/rollback reconciliation using a shared map of all 14 PVE action workers.
+- Recover unknown UPIDs with bounded independent polling; preserve confirmed terminal results and first end time. Validate remote task status identities in history and action refresh.
+- Reserve PBS discovery budget for datastore identities, capacities and all supported job types before deep backup enumeration. Partial coverage remains explicit.
+- Add executable read-only PVE/PBS live acceptance, strict release gate and TLS fixture tests; include missing snapshot/PBS tests in CI.
+- Migration 0045 adds an index for unknown task recovery. Existing migration checksums unchanged. Development channel until full deployment verification.
+
 ## [0.6.9] — 2026-11-13 — Proxmox Admin UI & E2E
 
 - Dedicated `/proxmox` workspace console with PVE/PBS target selection, scoped deep links, cluster/guest/storage/task/backup views and collection plans.

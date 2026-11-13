@@ -7,6 +7,17 @@ final class ProxmoxSnapshotPolicy
 {
     public const ACTIONS=['vm.snapshot.create','vm.snapshot.delete','vm.snapshot.rollback','lxc.snapshot.create','lxc.snapshot.delete','lxc.snapshot.rollback'];
     public const ALL_ACTIONS=[...ProxmoxPowerPolicy::ACTIONS,...self::ACTIONS];
+    /** One canonical mapping for dispatch validation and persisted UPID reconciliation. */
+    public static function taskWorkers():array
+    {
+        $workers=[];
+        foreach(self::ALL_ACTIONS as $action){
+            $parts=explode('.',$action);
+            $worker=count($parts)===2?$parts[1]:match($parts[2]){'create'=>'snapshot','delete'=>'delsnapshot','rollback'=>'rollback'};
+            $workers[$action]=($parts[0]==='vm'?'qm':'vz').$worker;
+        }
+        return $workers;
+    }
     public static function name(mixed $name):bool
     {return is_string($name)&&preg_match('/^[A-Za-z][A-Za-z0-9_-]{0,39}$/D',$name)===1&&!in_array(strtolower($name),['current','vzdump','pending'],true);}
     public static function matches(string $action,string $external):bool

@@ -152,6 +152,38 @@ try{
     $ok(count($runtime->proxmoxTasks($actor,$id,'events',50,null,null)['items'])===2,'deduplicated transition events');
     $ok($exec->status($actor,$id,$taskJob['id'])['result']['connection']['task_discovery']['new_tasks']===1,'immutable run summary');
     $reject(404,fn()=>$runtime->proxmoxTasks($other,$id,'tasks',50,null,null));
+    // Upgrade an existing 0.6.9 installation, preserving the task cursor and events.
+    copy($root.'/migrations/pgsql/0044_pbs_backup_integration.sql',$dir.'/0044_pbs_backup_integration.sql');$runner->run();
+    copy($root.'/migrations/pgsql/0045_proxmox_task_recovery.sql',$dir.'/0045_proxmox_task_recovery.sql');
+    $ok($runner->run()['applied']===['0045_proxmox_task_recovery']&&$runner->validate()['valid']&&$runner->run()['applied']===[],'0.6.9 upgrade and replay');
+    $scope=['id'=>$id,'workspace_id'=>$ws,'version'=>2,'credential_id'=>$cid,'credential_version'=>1];
+    $persist=static function(array $task)use($db,$scope,$audit,$actor):int {
+        return $db->transaction(function(PDO $p)use($task,$scope,$audit,$actor):int {
+            $prev=\Cajeer\Servers\Connector\ProxmoxTaskStore::previous($p,$scope);
+            \Cajeer\Servers\Connector\ProxmoxTaskStore::save($p,$scope,['expected_revision'=>$prev['revision'],'cursor'=>$prev['cursor'],'tasks'=>[$task],'checked'=>[],'observed_count'=>1],gmdate('Y-m-d\TH:i:s\Z'));
+            return \Cajeer\Servers\Connector\ConnectorActionService::reconcileTasks($p,$scope,$audit,$actor);
+        });
+    };
+    $insert=$pdo->prepare("INSERT INTO connector_actions(target_id,workspace_id,actor_id,credential_id,credential_version,target_version,action,external_id,snapshot_name,snapshot_revision,idempotency_key,status,node,remote_task) VALUES(:t,:w,:a,:c,1,2,:action,:external,'stable_test',:revision,:key,'submitted','pve-a',:upid) RETURNING id::text");
+    $status=$pdo->prepare('SELECT status FROM connector_actions WHERE id=:id');
+    $workers=['vm.snapshot.create'=>'qmsnapshot','vm.snapshot.delete'=>'qmdelsnapshot','vm.snapshot.rollback'=>'qmrollback','lxc.snapshot.create'=>'vzsnapshot','lxc.snapshot.delete'=>'vzdelsnapshot','lxc.snapshot.rollback'=>'vzrollback'];
+    $i=0;
+    foreach($workers as $action=>$worker){
+        ++$i;$external=str_starts_with($action,'vm.')?'qemu:100':'lxc:101';$resource=explode(':',$external)[1];
+        $upid=sprintf('UPID:pve-a:%08X:00000002:%08X:%s:%s:svc@pve!read:',100+$i,$taskStart,$worker,$resource);
+        $insert->execute(['t'=>$id,'w'=>$ws,'a'=>$actor,'c'=>$cid,'action'=>$action,'external'=>$external,'revision'=>str_ends_with($action,'.create')?null:str_repeat('a',64),'key'=>'stable-snapshot-'.$i,'upid'=>$upid]);$aid=$insert->fetchColumn();
+        $task=\Cajeer\Servers\Connector\ProxmoxTaskDiscovery::identity($upid)+['state'=>'unknown','ended_at'=>$taskStart+5];
+        $ok($persist($task)===0,'unknown does not reconcile '.$action);
+        $prev=\Cajeer\Servers\Connector\ProxmoxTaskStore::previous($pdo,$scope);$ok(in_array($upid,array_column($prev['pending'],'upid'),true),'unknown retained in polling '.$action);
+        $task['state']='succeeded';$ok($persist($task)===1,'automatic snapshot completion '.$action);
+        $status->execute(['id'=>$aid]);$ok($status->fetchColumn()==='succeeded'&&$persist($task)===0,'idempotent completion '.$action);
+    }
+    // Ordinary unknown UPIDs (no dispatcher row) must also be rechecked.
+    $upid=sprintf('UPID:pve-a:000000FF:00000002:%08X:vzdump:100:svc@pve!read:',$taskStart);
+    $task=\Cajeer\Servers\Connector\ProxmoxTaskDiscovery::identity($upid)+['state'=>'unknown','ended_at'=>$taskStart+5];$persist($task);
+    $ok(in_array($upid,array_column(\Cajeer\Servers\Connector\ProxmoxTaskStore::previous($pdo,$scope)['pending'],'upid'),true),'ordinary unknown UPID polled');
+    $task['state']='succeeded';$persist($task);$task['state']='failed';$persist($task);
+    $q=$pdo->prepare('SELECT state FROM proxmox_tasks WHERE target_id=:t AND upid=:u');$q->execute(['t'=>$id,'u'=>$upid]);$ok($q->fetchColumn()==='succeeded','terminal evidence cannot regress');
     $exec->setPlanEnabled($actor,$id,$taskPlan['id'],false);
     $changed=$bindings->update($actor,$id,2,['proxmox_profile'=>array_replace($profile,['primary_pin'=>str_repeat('b',64)])]);$ok($changed['version']===3,'pin update fences grants');$ok($runtime->proxmoxCluster($actor,$id)['state']==='stale'&&$runtime->proxmoxGuests($actor,$id)['state']==='stale'&&$runtime->proxmoxStorageNetwork($actor,$id)['state']==='stale','profile revision invalidates current state');
     $ok($runtime->proxmoxTasks($actor,$id,'tasks',50,null,null)['state']==='stale','task history fenced after profile revision');

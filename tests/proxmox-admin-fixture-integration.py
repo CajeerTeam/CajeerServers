@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Exercise the exact staging fixture through the production PVE/PBS PHP drivers."""
 import hashlib
+import json
 import http.server
 import importlib.util
 import pathlib
@@ -35,7 +36,7 @@ $s=$pbs->execute($ctx,'inspect','cajeer-e2e@pbs!fixture:fixture-only-pbs-token')
 '''
 with tempfile.TemporaryDirectory() as tmp:
     key, cert = pathlib.Path(tmp)/'key.pem', pathlib.Path(tmp)/'cert.pem'
-    subprocess.run(['openssl','req','-x509','-newkey','rsa:2048','-nodes','-days','1','-keyout',str(key),'-out',str(cert),'-subj','/CN=fixture.test','-addext','subjectAltName=DNS:fixture.test'],check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+    subprocess.run(['openssl','req','-x509','-newkey','rsa:2048','-nodes','-days','1','-keyout',str(key),'-out',str(cert),'-subj','/CN=fixture.test','-addext','subjectAltName=DNS:fixture.test,IP:127.0.0.1'],check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
     pin=hashlib.sha256(ssl.PEM_cert_to_DER_cert(cert.read_text())).hexdigest()
     server=http.server.ThreadingHTTPServer(('127.0.0.1',0),fixture.Handler)
     ctx=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER);ctx.load_cert_chain(cert,key);server.socket=ctx.wrap_socket(server.socket,server_side=True)
@@ -44,5 +45,22 @@ with tempfile.TemporaryDirectory() as tmp:
         subprocess.run(['php','-r',PHP,str(server.server_port),str(cert),pin],cwd=ROOT,check=True,timeout=90)
         assert not fixture.Handler.snapshots
         print('Proxmox admin fixture HTTPS: 9 PASS')
+        pve_secret=pathlib.Path(tmp)/'pve.secret'; pbs_secret=pathlib.Path(tmp)/'pbs.secret'
+        pve_secret.write_text(json.dumps({'token_id':'cajeer-e2e@pve!fixture','token_secret':'fixture-only-cajeer-token'})); pve_secret.chmod(0o600)
+        pbs_secret.write_text('cajeer-e2e@pbs!fixture:fixture-only-pbs-token'); pbs_secret.chmod(0o600)
+        config={'allowed_networks':['127.0.0.1/32'],'pve':{'host':'127.0.0.1','port':server.server_port,'ca_file':str(cert),'credential_type':'proxmox_api','secret_file':str(pve_secret),'profile':{'cluster':None,'anchor_node':fixture.NODE,'anchor_id':None,'primary_pin':pin,'fallbacks':[]}},'pbs':{'host':'127.0.0.1','port':server.server_port,'ca_file':str(cert),'secret_file':str(pbs_secret)},'expect':{'node':fixture.NODE,'guest':'qemu:101','storage':'local-lvm','bridge':'vmbr0','datastore':'e2e-store','namespace':'e2e','backup_type':'vm','backup_id':'101','job_kinds':['sync','verify','prune','gc']}}
+        config_file=pathlib.Path(tmp)/'acceptance.json'
+        def acceptance(expected):
+            config_file.write_text(json.dumps(config))
+            result=subprocess.run(['php','scripts/verify-proxmox-live.php',str(config_file)],cwd=ROOT,capture_output=True,text=True,timeout=90)
+            assert 'fixture-only-' not in result.stdout+result.stderr
+            assert result.returncode==expected, (result.returncode,result.stdout,result.stderr)
+            return json.loads(result.stdout) if expected!=2 else None
+        report=acceptance(0); assert report['ok'] and len(report['checks'])==11 and all(c['ok'] for c in report['checks'])
+        config['expect']['backup_id']='999'; report=acceptance(1); assert not next(c for c in report['checks'] if c['name']=='pbs.backup')['ok']
+        config['expect']['backup_id']='101'; config['pve']['profile']['primary_pin']='a'*64; report=acceptance(1); assert not next(c for c in report['checks'] if c['name']=='pve.cluster')['ok']
+        config['pve']['profile']['primary_pin']=pin; pve_secret.chmod(0o644); acceptance(2)
+        assert not fixture.Handler.snapshots
+        print('Proxmox live acceptance CLI fixture: 4 PASS')
     finally:
         server.shutdown();server.server_close();thread.join()

@@ -44,6 +44,8 @@ jobs:
           python3 tests/connector-https-integration.py
           python3 tests/proxmox-profile-https-integration.py
           python3 tests/proxmox-admin-fixture-integration.py
+          python3 tests/proxmox-snapshots-https-integration.py
+          python3 tests/pbs-backup-https-integration.py
           python3 tests/connector-actions-https-integration.py
           python3 tests/vmmanager-https-integration.py
           python3 tests/host-transport-integration.py --ssh
@@ -134,6 +136,7 @@ jobs:
           php tests/script-execution-postgres-integration.php
           python3 tests/connector-actions-https-integration.py
           python3 tests/vmmanager-https-integration.py --postgres
+          python3 tests/pbs-backup-https-integration.py --postgres
       - name: Redis integration
         env:
           CAJEER_REDIS_TEST: '1'

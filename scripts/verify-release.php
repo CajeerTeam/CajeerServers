@@ -72,6 +72,9 @@ if ($strict) {
     $run('Proxmox profile HTTPS integration', ['python3','tests/proxmox-profile-https-integration.py'], $root);
     $run('Proxmox HTTPS integration', ['python3','tests/connector-https-integration.py'], $root);
     $run('Proxmox Admin staging fixture HTTPS integration', ['python3','tests/proxmox-admin-fixture-integration.py'], $root);
+    $acceptance = getenv('CAJEER_PROXMOX_ACCEPTANCE_CONFIG');
+    if (!$acceptance) { fwrite(STDERR, "FAIL: strict verification requires CAJEER_PROXMOX_ACCEPTANCE_CONFIG for operator-owned PVE/PBS acceptance.\n"); $failures++; }
+    else { $run('Proxmox live acceptance', [PHP_BINARY,'scripts/verify-proxmox-live.php',$acceptance], $root, null, 600); }
     $run('PBS HTTPS integration', ['python3','tests/pbs-backup-https-integration.py'], $root);
     $run('Proxmox snapshot HTTPS integration', ['python3','tests/proxmox-snapshots-https-integration.py'], $root);
     $run('Connector actions HTTPS integration', ['python3','tests/connector-actions-https-integration.py'], $root);

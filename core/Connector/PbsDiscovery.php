@@ -67,22 +67,42 @@ final class PbsDiscovery
                 $issue($section,$e->httpStatus===403?'permission_denied':'not_available',$store,$ns);return null;
             }
         };
-        // Discover job state even when a datastore contains many backups.
-        foreach(['sync','verify','prune'] as $kind){
-            $data=$read('/admin/'.$kind,'jobs:'.$kind);if($data===null)continue;
-            foreach(self::rows($data) as $r){$job=self::job($kind,$r);if(!$append('jobs',$job,[$kind,$job['id']]))break;}
-        }
+        // Reserve visible datastore identities and capacities before deep backup enumeration.
+        // A large first namespace or thousands of jobs must not hide other datastores.
         $names=[];foreach($stores as $r){$store=self::id($r->store??null);if(isset($names[$store]))self::invalid();$names[$store]=$store;}
         ksort($names,SORT_STRING);
-        foreach(array_values($names) as $store){
+        if(count($names)>256){$issue('datastores','result_limit');$names=array_slice($names,0,256,true);}
+        foreach($names as $store){
+            $row=['store'=>$store,'total'=>null,'used'=>null,'available'=>null,'capacity_visible'=>false];
+            if(!$append('datastores',$row,[$store]))break;
+            // Reserve the maximum additional bytes of three uint64 decimal strings.
+            $bytes+=64;
+        }
+        // Independent cap per job category leaves the budget for datastore/backup evidence.
+        foreach(['sync','verify','prune'] as $kind){
+            $data=$read('/admin/'.$kind,'jobs:'.$kind);if($data===null)continue;
+            $jobRows=self::rows($data);
+            if(count($jobRows)>128){$issue('jobs:'.$kind,'result_limit');$jobRows=array_slice($jobRows,0,128);}
+            foreach($jobRows as $r){$job=self::job($kind,$r);if(!$append('jobs',$job,[$kind,$job['id']]))break;}
+        }
+        foreach($out['datastores'] as &$row){
             if($limited)break;
-            $base='/admin/datastore/'.rawurlencode($store);
+            $store=$row['store'];$base='/admin/datastore/'.rawurlencode($store);
             $status=$read($base.'/status','capacity',$store);
             if($status!==null&&(!$status instanceof \stdClass||!isset($status->total,$status->used,$status->avail)))self::invalid();
-            $row=['store'=>$store,'total'=>self::number($status->total??null),'used'=>self::number($status->used??null),'available'=>self::number($status->avail??null),'capacity_visible'=>$status!==null];
-            if(!$append('datastores',$row,[$store]))break;
+            $row['total']=self::number($status->total??null);$row['used']=self::number($status->used??null);
+            $row['available']=self::number($status->avail??null);$row['capacity_visible']=$status!==null;
+        }
+        unset($row);
+        foreach($names as $store){
+            if($limited)break;
+            $base='/admin/datastore/'.rawurlencode($store);
             $gc=$read($base.'/gc','jobs:gc',$store);
             if($gc!==null){if(!$gc instanceof \stdClass)self::invalid();$job=self::job('gc',$gc,$store);if(!$append('jobs',$job,['gc',$store]))break;}
+        }
+        foreach($names as $store){
+            if($limited)break;
+            $base='/admin/datastore/'.rawurlencode($store);
             $list=$read($base.'/namespace?max-depth=7','namespaces',$store);
             $namespaces=[''=>''];
             if($list!==null)foreach(self::rows($list) as $r){$ns=self::ns($r->ns??null);$namespaces[$ns]=$ns;}

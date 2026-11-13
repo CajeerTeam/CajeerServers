@@ -19,6 +19,32 @@ final class ProxmoxTaskDiscovery
         if(!preg_match('/^[\x21-\x7e]+$/D',$upid))self::invalid();
         return ['upid'=>$upid,'node'=>$m[1],'started_at'=>(int)hexdec($m[4]),'type'=>$m[5],'resource_id'=>$m[6],'user'=>$m[7]];
     }
+    /** Encode the complete opaque UPID as one path segment, including RFC3986 unreserved tilde. */
+    public static function statusPath(array $identity):string
+    {
+        $id=self::identity($identity['upid']??null);
+        return '/api2/json/nodes/'.$id['node'].'/tasks/'.str_replace('~','%7E',rawurlencode($id['upid'])).'/status';
+    }
+    /** The same status interpretation is used by history and manual action refresh. */
+    public static function status(mixed $raw,array $identity):array
+    {
+        $id=self::identity($identity['upid']??null);
+        if(!$raw instanceof \stdClass||!in_array($raw->status??null,['running','stopped'],true))self::invalid();
+        foreach(['upid'=>'upid','node'=>'node','type'=>'type'] as $remote=>$local){
+            if(isset($raw->{$remote})&&$raw->{$remote}!==$id[$local])self::invalid();
+        }
+        if(isset($raw->starttime)&&self::integer($raw->starttime)!==$id['started_at'])self::invalid();
+        $end=isset($raw->endtime)?self::integer($raw->endtime):null;
+        if($end!==null&&$end<$id['started_at'])self::invalid();
+        return $id+['state'=>$raw->status==='running'?'running':self::outcome($raw->exitstatus??'unknown'),'ended_at'=>$end];
+    }
+    /** A confirmed terminal outcome cannot be regressed or replaced by conflicting stale evidence. */
+    public static function mergeState(string $before,string $after):string
+    {
+        if(in_array($before,['succeeded','warning','failed'],true))return $before;
+        if($before==='unknown'&&$after==='running')return $before;
+        return $after;
+    }
     private static function outcome(mixed $status):string
     {
         if(!is_string($status)||$status===''||strlen($status)>8192)self::invalid();
@@ -40,8 +66,8 @@ final class ProxmoxTaskDiscovery
     {
         $old=$rows[$task['upid']]??null;
         if($old!==null){
-            if($old['state']!=='running'&&($task['state']==='running'||($old['state']!=='unknown'&&$task['state']==='unknown')))$task['state']=$old['state'];
-            if($task['ended_at']===null)$task['ended_at']=$old['ended_at'];
+            $task['state']=self::mergeState($old['state'],$task['state']);
+            if($old['ended_at']!==null)$task['ended_at']=$old['ended_at'];
         }
         $rows[$task['upid']]=$task;
     }
@@ -113,13 +139,7 @@ final class ProxmoxTaskDiscovery
             if($limited||hrtime(true)>=$pollDeadline)break;
             $id=self::identity($p['upid']);$node=$id['node'];if(!isset($visible[$node])||$visible[$node]==='offline'){$checked[$id['upid']]='offline';continue;}
             if(isset($rows[$id['upid']])&&$rows[$id['upid']]['state']!=='running')continue;
-            $r=self::fetch($get,'/api2/json/nodes/'.$node.'/tasks/'.rawurlencode($id['upid']).'/status',static function($raw)use($id):array{
-                if(!$raw instanceof \stdClass||!in_array($raw->status??null,['running','stopped'],true))self::invalid();
-                if(isset($raw->upid)&&$raw->upid!==$id['upid'])self::invalid();
-                if(isset($raw->starttime)&&self::integer($raw->starttime)!==$id['started_at'])self::invalid();
-                $end=isset($raw->endtime)?self::integer($raw->endtime):null;if($end!==null&&$end<$id['started_at'])self::invalid();
-                return $id+['state'=>$raw->status==='running'?'running':self::outcome($raw->exitstatus??'unknown'),'ended_at'=>$end];
-            });
+            $r=self::fetch($get,self::statusPath($id),static fn($raw):array=>self::status($raw,$id));
             $checked[$id['upid']]=$r['state'];if($r['state']==='available')$rows[$id['upid']]=$r['data'];if($r['state']==='rate_limited')$limited=true;
         }
         // Persist fairness across runs; keep cursors for temporarily invisible nodes.
