@@ -1,7 +1,7 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.6.7
+  version: 0.6.8
   description: 'CajeerServers 0.5.7: signed external data ingestion, durable inbox and time series.'
 servers:
 - url: /api/v1
@@ -5349,6 +5349,31 @@ paths:
         '403': {description: Permission denied}
         '404': {description: Target not found in Workspace}
         '422': {description: Invalid filter or pagination}
+  /connectors/targets/{id}/pbs-backups:
+    get:
+      operationId: getPbsBackupState
+      summary: Read the latest scoped PBS datastores, backup snapshots and job status observation
+      description: Requires connectors.targets.read, inventory.assets.read and Workspace membership. A stale scope has no current snapshot. Historical runs remain available separately.
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Current saved observation, not live health
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: {$ref: '#/components/schemas/PbsBackupState'}
+        '401': {description: Authentication required}
+        '403': {description: Permission denied}
+        '404': {description: Target not found in Workspace}
   /connectors/targets/{id}/proxmox-storage-network:
     get:
       operationId: getProxmoxStorageNetworkState
@@ -6398,7 +6423,7 @@ paths:
         description: Literal case-insensitive substring of name or endpoint host
       - name: provider
         in: query
-        schema: {type: string, enum: [proxmox, vmmanager, ssh, winrm, snmp, custom, prometheus]}
+        schema: {type: string, enum: [proxmox, vmmanager, ssh, winrm, snmp, custom, prometheus, pbs]}
       - name: state
         in: query
         schema: {type: string, enum: [active, disabled]}
@@ -11286,6 +11311,124 @@ components:
             - $ref: '#/components/schemas/ProxmoxTask'
             - $ref: '#/components/schemas/ProxmoxTaskEvent'
         next_before: {type: [string, 'null']}
+    PbsBackupState:
+      type: object
+      required: [state, observed_at, snapshot]
+      properties:
+        state: {type: string, enum: [not_collected, stale, available]}
+        observed_at: {type: [string, 'null'], format: date-time}
+        snapshot:
+          oneOf:
+          - {$ref: '#/components/schemas/PbsBackupInventory'}
+          - {type: 'null'}
+    PbsBackupInventory:
+      type: object
+      required: [version, complete, scope, counts, datastores, namespaces, groups, snapshots, jobs, issues]
+      properties:
+        version: {type: string}
+        complete: {type: boolean, description: All requested sections within this token's visible scope were collected without reported errors or limits.}
+        scope: {type: string, const: token_visible}
+        counts: {type: object, additionalProperties: {type: integer, minimum: 0}}
+        datastores: {type: array, items: {$ref: '#/components/schemas/PbsDatastore'}}
+        namespaces: {type: array, items: {$ref: '#/components/schemas/PbsNamespace'}}
+        groups: {type: array, items: {$ref: '#/components/schemas/PbsBackupGroup'}}
+        snapshots: {type: array, items: {$ref: '#/components/schemas/PbsBackupSnapshot'}}
+        jobs: {type: array, items: {$ref: '#/components/schemas/PbsJob'}}
+        issues:
+          type: array
+          items:
+            type: object
+            required: [section, reason, store, namespace]
+            properties:
+              section: {type: string}
+              reason: {type: string, enum: [permission_denied, not_available, result_limit, request_limit]}
+              store: {type: [string, 'null']}
+              namespace: {type: [string, 'null']}
+    PbsBackupRunSummary:
+      type: object
+      required: [version, complete, scope, counts]
+      properties:
+        version: {type: string}
+        complete: {type: boolean, description: All requested sections within this token's visible scope were collected without reported errors or limits.}
+        scope: {type: string, const: token_visible}
+        counts: {type: object, additionalProperties: {type: integer, minimum: 0}}
+        datastores: {type: array, items: {$ref: '#/components/schemas/PbsDatastore'}}
+        namespaces: {type: array, items: {$ref: '#/components/schemas/PbsNamespace'}}
+        groups: {type: array, items: {$ref: '#/components/schemas/PbsBackupGroup'}}
+        snapshots: {type: array, items: {$ref: '#/components/schemas/PbsBackupSnapshot'}}
+        jobs: {type: array, items: {$ref: '#/components/schemas/PbsJob'}}
+        issues:
+          type: array
+          items:
+            type: object
+            required: [section, reason, store, namespace]
+            properties:
+              section: {type: string}
+              reason: {type: string, enum: [permission_denied, not_available, result_limit, request_limit]}
+              store: {type: [string, 'null']}
+              namespace: {type: [string, 'null']}
+    PbsDatastore:
+      type: object
+      required: [store, total, used, available, capacity_visible]
+      properties:
+        store: {type: string}
+        total: {type: [string, 'null'], pattern: '^[0-9]+$'}
+        used: {type: [string, 'null'], pattern: '^[0-9]+$'}
+        available: {type: [string, 'null'], pattern: '^[0-9]+$'}
+        capacity_visible: {type: boolean}
+    PbsNamespace:
+      type: object
+      required: [store, namespace]
+      properties:
+        store: {type: string}
+        namespace: {type: string}
+    PbsBackupGroup:
+      allOf:
+      - {$ref: '#/components/schemas/PbsNamespace'}
+      - type: object
+        required: [backup_type, backup_id, last_backup, backup_count]
+        properties:
+          backup_type: {type: string, enum: [vm, ct, host]}
+          backup_id: {type: string}
+          last_backup: {type: [integer, 'null']}
+          backup_count: {type: [string, 'null']}
+    PbsBackupSnapshot:
+      allOf:
+      - {$ref: '#/components/schemas/PbsNamespace'}
+      - type: object
+        required: [backup_type, backup_id, backup_time, size, protected, verification]
+        properties:
+          backup_type: {type: string, enum: [vm, ct, host]}
+          backup_id: {type: string}
+          backup_time: {type: integer}
+          size: {type: [string, 'null']}
+          protected: {type: [boolean, 'null']}
+          verification: {type: [string, 'null'], enum: [ok, failed, null]}
+    PbsJob:
+      allOf:
+      - {$ref: '#/components/schemas/PbsNamespace'}
+      - type: object
+        required: [kind, id, schedule, disabled, last_run, next_run, last_outcome, upid]
+        properties:
+          kind: {type: string, enum: [sync, verify, prune, gc]}
+          id: {type: string}
+          schedule: {type: [string, 'null']}
+          disabled: {type: [boolean, 'null']}
+          last_run: {type: [integer, 'null']}
+          next_run: {type: [integer, 'null']}
+          last_outcome: {type: [string, 'null'], enum: [ok, warning, running, unknown, error, null]}
+          upid: {type: [string, 'null']}
+          remote: {type: [string, 'null']}
+          remote_store: {type: [string, 'null']}
+          direction: {type: [string, 'null']}
+          keep_hourly: {type: [string, 'null']}
+          keep_last: {type: [string, 'null']}
+          keep_daily: {type: [string, 'null']}
+          keep_weekly: {type: [string, 'null']}
+          keep_monthly: {type: [string, 'null']}
+          keep_yearly: {type: [string, 'null']}
+          gc_removed_bytes: {type: [string, 'null']}
+          gc_pending_bytes: {type: [string, 'null']}
     ProxmoxStorageNetworkState:
       type: object
       required: [state, observed_at, snapshot]
@@ -11602,6 +11745,7 @@ components:
         cluster_discovery: {$ref: '#/components/schemas/ProxmoxClusterSnapshot'}
         guest_discovery: {$ref: '#/components/schemas/ProxmoxGuestSnapshot'}
         task_discovery: {$ref: '#/components/schemas/ProxmoxTaskSummary'}
+        pbs_discovery: {$ref: '#/components/schemas/PbsBackupRunSummary'}
         storage_network_discovery: {$ref: '#/components/schemas/ProxmoxStorageNetworkSnapshot'}
         root_privileges:
           type: array
@@ -11632,7 +11776,7 @@ components:
       properties:
         id: {type: string, format: uuid}
         workspace_id: {type: string, format: uuid}
-        provider: {type: string, enum: [proxmox, vmmanager, ssh, winrm, snmp, custom, prometheus]}
+        provider: {type: string, enum: [proxmox, vmmanager, ssh, winrm, snmp, custom, prometheus, pbs]}
         name: {type: string}
         endpoint_host: {type: string}
         endpoint_port: {type: integer, minimum: 1, maximum: 65535}

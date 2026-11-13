@@ -4,6 +4,7 @@ return [
     'exporter_extension_file' => getenv('DATA_EXPORTER_EXTENSION_FILE') ?: '',
     'extension_file' => getenv('CONNECTOR_EXTENSION_FILE') ?: '',
     // Operator-owned TLS CA and optional CIDR allowlist for outbound connector traffic.
+    'pbs_ca_file' => getenv('PBS_CA_FILE') ?: '',
     'prometheus_ca_file' => getenv('PROMETHEUS_CA_FILE') ?: '',
     'proxmox_require_profile' => getenv('PROXMOX_REQUIRE_PROFILE') === 'true',
     'proxmox_ca_file' => getenv('PROXMOX_CA_FILE') ?: '',

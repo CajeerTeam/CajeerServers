@@ -269,9 +269,9 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 - [x] Network discovery.
 - [x] Task history import.
 - [x] Safe action dispatcher: start/stop/reboot.
-- [ ] Snapshot metadata.
-- [ ] Console URL placeholders.
-- [ ] Proxmox Backup Server integration draft.
+- [x] Snapshot metadata and safe snapshot actions (0.6.7).
+- [x] Native console hand-off (0.6.7).
+- [x] Proxmox Backup Server read-only inventory and jobs (0.6.8).
 
 ## 0.8.0 — VMmanager Integration
 
@@ -376,7 +376,7 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 - [ ] Encrypted secrets backup.
 - [ ] Restore testing command.
 - [ ] Retention policies.
-- [ ] Proxmox Backup Server integration.
+- [ ] PBS backup/restore orchestration (read-only inventory shipped in 0.6.8).
 - [ ] Disaster recovery guide.
 
 ## LTS Policy

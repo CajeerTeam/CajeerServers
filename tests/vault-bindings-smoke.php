@@ -29,7 +29,7 @@ $valid=[
  ['vmmanager','vmmanager_api','api'],['vmmanager','api_token','api'],
  ['ssh','ssh_password','ssh'],['ssh','ssh_private_key','ssh'],
  ['winrm','winrm','winrm'],['snmp','snmp_v2c','snmp'],['snmp','snmp_v3','snmp'],
- ['prometheus','api_token','api'],['custom','generic_secret','custom'],['custom','api_token','api'],
+ ['prometheus','api_token','api'],['pbs','api_token','api'],['custom','generic_secret','custom'],['custom','api_token','api'],
 ];
 foreach($valid as [$p,$type,$purpose]){
     $ok(BindingPolicy::allowsConnector($p,$type,$purpose),'allowed '.$p.':'.$type);
@@ -70,7 +70,7 @@ putenv('APP_ENV=local');putenv('APP_URL=http://127.0.0.1:8080');
 $app=(new Application($root))->boot();
 try {
     $router=$app->container()->get(Router::class);$routes=$router->routes();
-    $ok(count($routes)===208,'new protected routes are registered');
+    $ok(count($routes)===209,'new protected routes are registered');
     $ok($app->container()->get(ConnectorBindingService::class) instanceof ConnectorBindingService,'connector service registered');
     $ok($app->container()->get(ConnectorBindingController::class) instanceof ConnectorBindingController,'connector controller registered');
     $ok($app->container()->get(CredentialBindingService::class) instanceof CredentialBindingService,'inventory binding service registered');

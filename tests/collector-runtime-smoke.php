@@ -48,7 +48,7 @@ $registry->register(new class implements CollectorInterface {
 });
 $ok($runtime->collect(new CollectionPlan('custom.inventory','inspect'),$target,'proxmox_api','test-secret')->items[0]['external_id']==='qemu:43','independent registered collector executes');
 putenv('APP_ENV=local');$app=(new Application(dirname(__DIR__)))->boot();
-try {$r=$app->container()->get(CollectionRuntimeService::class);$ok(array_values(array_unique(array_column($r->catalog(),'provider')))===['proxmox','vmmanager','ssh','winrm','snmp','prometheus'],'DI registers all six executable drivers');}finally{$app->terminate();}
+try {$r=$app->container()->get(CollectionRuntimeService::class);$ok(array_values(array_unique(array_column($r->catalog(),'provider')))===['proxmox','vmmanager','ssh','winrm','snmp','pbs','prometheus'],'DI registers all seven executable drivers');}finally{$app->terminate();}
 $sql=file_get_contents(dirname(__DIR__).'/migrations/pgsql/0029_collection_runtime.sql');
 $ok(count((new \Cajeer\Servers\Database\SqlStatementParser())->split($sql))===1,'migration parses');
 echo "Collector runtime smoke: $n PASS\n";

@@ -22,7 +22,7 @@ final class ConnectorReadiness
             $r=$this->app->container()->get(ConnectorRegistry::class);
             foreach(['proxmox','vmmanager','ssh','winrm','snmp'] as $provider)
                 foreach(ConnectorManifest::OPERATIONS as $operation) $r->require($provider,$operation);
-            foreach(['inspect','health','validate_rotation'] as $operation)$r->require('prometheus',$operation);
+            foreach(['inspect','health','validate_rotation'] as $operation){$r->require('prometheus',$operation);$r->require('pbs',$operation);}
             foreach(['proxmox','vmmanager','ssh','winrm','snmp','prometheus'] as $provider)if(!$r->supportsMetrics($provider))return false;
             return true;
         },'Inventory drivers and Prometheus metrics must be registered.');
@@ -34,7 +34,7 @@ final class ConnectorReadiness
         $probe('connector_php',static fn():bool=>extension_loaded('openssl')&&extension_loaded('sodium')&&extension_loaded('pdo_pgsql')&&function_exists('pcntl_alarm'), 'CLI requires openssl, sodium, pdo_pgsql and pcntl.');
         $probe('connector_snmp',static fn():bool=>extension_loaded('snmp')&&class_exists(\SNMP::class), 'SNMP driver requires ext-snmp with Net-SNMP.');
         $probe('connector_ssh',fn():bool=>self::python((string)$cfg->get('connectors.python','/usr/bin/python3')), 'Configured Python must import Paramiko.');
-        foreach(['prometheus_ca_file','proxmox_ca_file','vmmanager_ca_file','winrm_ca_file','ssh_known_hosts'] as $key) {
+        foreach(['pbs_ca_file','prometheus_ca_file','proxmox_ca_file','vmmanager_ca_file','winrm_ca_file','ssh_known_hosts'] as $key) {
             $probe('connector_'.$key,static function()use($cfg,$key):bool {$p=$cfg->get('connectors.'.$key,'');return $p===''||(is_string($p)&&is_file($p)&&is_readable($p));},'Configured trust file must be readable.');
         }
         $probe('connector_db_integrity',function():bool {

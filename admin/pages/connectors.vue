@@ -30,7 +30,7 @@ const lastRun=ref<DiscoveryRun|null>(null)
 const resources=ref<DiscoveryResource[]>([]),resourceOffset=ref(0),resourceHasMore=ref(false),resolutionAssets=ref<Record<string,string>>({})
 const form=reactive({name:'',provider:'proxmox',endpoint_host:'',endpoint_port:8006,asset_id:''})
 const binding=reactive({credential_id:'',purpose:'api'}), manualCredential=ref(false)
-const providers=[{id:'proxmox',port:8006,purpose:'api'},{id:'vmmanager',port:443,purpose:'api'},
+const providers=[{id:'pbs',port:8007,purpose:'api'},{id:'proxmox',port:8006,purpose:'api'},{id:'vmmanager',port:443,purpose:'api'},
   {id:'ssh',port:22,purpose:'ssh'},{id:'winrm',port:5986,purpose:'winrm'},
   {id:'snmp',port:161,purpose:'snmp'},{id:'prometheus',port:443,purpose:'api'},{id:'custom',port:443,purpose:'custom'}]
 const canRead=computed(()=>auth.can('connectors.targets.read'))
@@ -290,6 +290,7 @@ onMounted(init)
           <div><dt>Circuit breaker</dt><dd>{{active.circuit_open_until?'Пауза до '+active.circuit_open_until:'Закрыт'}}</dd></div>
         </dl>
         <p v-if="circuitOpen" class="muted">Фоновые и обычные операции приостановлены. После исправления причины выполните ручную проверку доступности с MFA.</p>
+        <p v-if="active.provider==='pbs'">PBS: HTTPS 8007, API token Vault типа api_token (user@realm!token:secret). Создайте план pbs.backups с операцией inspect.</p>
         <p v-if="active.provider==='prometheus'">Prometheus: HTTPS /metrics, Bearer API token. Создайте план prometheus.metrics с операцией inspect.</p>
         <p v-if="active.provider==='snmp'">SNMP: UDP, read-only; профиль SNMPv3 с SHA-256/512 и AES128 обязателен по умолчанию. SNMPv2c доступен только при явном разрешении на сервере. Собираются sysName, sysObjectID, интерфейсы и IP. Для автоматической проверки выдайте ограниченный service grant health с расписанием через API или CLI.</p>
         <p>Для запуска требуется активная связка credential с этой конфигурацией и выбранным Inventory asset, а также такое же назначение credential на самом asset. Доступ выдаётся на одно действие после проверки пароля и TOTP. TLS проверяется; для собственного CA задайте PROXMOX_CA_FILE или VMMANAGER_CA_FILE на сервере. VMmanager 6 использует API v3, порт 443 и токен из Vault; доступны узлы, KVM ВМ и LXD контейнеры. SSH использует доверенный SSH_KNOWN_HOSTS_FILE и пароль или приватный ключ; WinRM — HTTPS, credential auth=basic и WINRM_CA_FILE для частного CA. Linux/Windows собирают CPU, RAM, диски и интерфейсы только на чтение.</p>

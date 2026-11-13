@@ -402,6 +402,7 @@ return static function (Router $router, ServiceContainer $container): void {
             $connectors->get('/targets/{id}/proxmox-cluster',static fn(HttpRequest $r):HttpResponse=>$handler()->proxmoxCluster($r));
             $connectors->get('/targets/{id}/proxmox-guests',static fn(HttpRequest $r):HttpResponse=>$handler()->proxmoxGuests($r));
             $connectors->get('/targets/{id}/proxmox-tasks',static fn(HttpRequest $r):HttpResponse=>$handler()->proxmoxTasks($r));
+            $connectors->get('/targets/{id}/pbs-backups',static fn(HttpRequest $r):HttpResponse=>$handler()->pbsBackups($r));
             $connectors->get('/targets/{id}/proxmox-storage-network',static fn(HttpRequest $r):HttpResponse=>$handler()->proxmoxStorageNetwork($r));
             $connectors->get('/targets/{id}/metric-series',static fn(HttpRequest $r):HttpResponse=>$handler()->metricSeries($r));
             $connectors->get('/targets/{id}/metric-series/{seriesId}/samples',static fn(HttpRequest $r):HttpResponse=>$handler()->metricQuery($r));

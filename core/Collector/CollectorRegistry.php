@@ -18,7 +18,8 @@ final class CollectorRegistry
         $registry=new self($connectors);
         foreach($connectors->manifests() as $provider=>$manifest) {
             if (!$manifest->supports('inspect') && !$manifest->supports('sync')) continue;
-            if($provider!=='prometheus') $registry->register($provider==='snmp'?new SnmpCollector($connectors):new ConnectorCollector($provider.'.inventory',$provider,$connectors));
+            if($provider==='pbs') $registry->register(new ConnectorCollector('pbs.backups','pbs',$connectors));
+            elseif($provider!=='prometheus') $registry->register($provider==='snmp'?new SnmpCollector($connectors):new ConnectorCollector($provider.'.inventory',$provider,$connectors));
             if($provider==='proxmox'&&$connectors->supportsClusterDiscovery()){
                 $registry->register(new ConnectorCollector('proxmox.cluster','proxmox',$connectors));
                 $registry->register(new ConnectorCollector('proxmox.guests','proxmox',$connectors));

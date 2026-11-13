@@ -39,7 +39,7 @@ final readonly class ConnectorResult
                 $visited[$parent]=true; if (!isset($parents[$parent])) break; $parent=$parents[$parent];
             }
         }
-        return new self($items, $this->complete && $items !== [], \Cajeer\Servers\Metrics\MetricBatch::normalize($this->metricSamples),$manifest->provider==='proxmox'?$this->connection:[]);
+        return new self($items, $this->complete && $items !== [], \Cajeer\Servers\Metrics\MetricBatch::normalize($this->metricSamples),in_array($manifest->provider,['proxmox','pbs'],true)?$this->connection:[]);
     }
     public function summary(ConnectorManifest $manifest): array
     {

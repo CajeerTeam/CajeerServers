@@ -1,6 +1,6 @@
 export type AssetType = 'server' | 'hypervisor_node' | 'cluster' | 'virtual_machine' | 'container' | 'router' | 'workstation' | 'other'
 export interface InfrastructureAsset { id: string; type: AssetType; name: string; status: string; source: string }
-export type Provider = 'proxmox' | 'vmmanager' | 'ssh' | 'winrm' | 'snmp' | 'custom' | 'prometheus'
+export type Provider = 'proxmox' | 'vmmanager' | 'ssh' | 'winrm' | 'snmp' | 'custom' | 'prometheus' | 'pbs'
 export type Operation = 'health' | 'inspect' | 'sync'
 export type PowerAction = 'vm.start' | 'vm.shutdown' | 'vm.stop' | 'vm.reboot' | 'lxc.start' | 'lxc.shutdown' | 'lxc.stop' | 'lxc.reboot'
 export type SnapshotAction = `${'vm'|'lxc'}.snapshot.${'create'|'delete'|'rollback'}`
@@ -44,7 +44,7 @@ export type CollectionPlanInput = { name:string; collector:string; operation:Exc
 export interface CollectionAttempt { attempt:number; started_at:string; finished_at:string|null; outcome:string; error_code:string|null }
 export interface ServiceGrant { collection_plan_id?:string|null; id: string; target_id: string; operation: Operation; expires_at: string; revoked_at: string | null }
 export interface EnqueuedRun { id:string; deduplicated:boolean }
-export interface Run { collection_plan_id?:string|null; redrive_of?:string|null; attempt_history?:CollectionAttempt[]; collector_name?:string|null; id: string; target_id: string; status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'; operation: Operation; result?: ({collection?:CollectionSnapshot;connection?:ProxmoxConnection;[key:string]:unknown})|null; error_code?: string | null }
+export interface Run { collection_plan_id?:string|null; redrive_of?:string|null; attempt_history?:CollectionAttempt[]; collector_name?:string|null; id: string; target_id: string; status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'; operation: Operation; result?: ({collection?:CollectionSnapshot;connection?:ProxmoxConnection|{pbs_discovery:Partial<PbsBackupInventory>};[key:string]:unknown})|null; error_code?: string | null }
 export interface Action { id: string; target_id: string; external_id: string; action: PowerAction | SnapshotAction; snapshot_name?:string|null; snapshot_revision?:string|null; status: 'dispatching' | 'submitted' | 'succeeded' | 'failed' | 'unknown' | 'acknowledged'; remote_task: string | null; error_code: string | null; created_at: string; updated_at: string }
 export interface Problem { title?: string; code?: string; request_id?: string; status?: number }
 
@@ -67,3 +67,12 @@ export interface DataExportList { formats:{format:string;kinds:ExportKind[]}[]; 
 export interface ManualImportInput { format:'json'|'csv'; batch_id:string; content:string }
 export interface ManualImportPreview { confirmation:string; kind:IngestionKind; count:number; records:unknown[] }
 export interface ManualImportResult { id:string; status:'queued'|'succeeded'|'failed'; deduplicated:boolean }
+
+/** PBS inventory is scoped to the token's visible resources, not the entire remote server. */
+export interface PbsDatastore {store:string; total:string|null; used:string|null; available:string|null; capacity_visible:boolean}
+export interface PbsNamespace {store:string; namespace:string}
+export interface PbsBackupGroup extends PbsNamespace {backup_type:'vm'|'ct'|'host'; backup_id:string; last_backup:number|null; backup_count:string|null}
+export interface PbsBackupSnapshot extends PbsNamespace {backup_type:'vm'|'ct'|'host'; backup_id:string; backup_time:number; size:string|null; protected:boolean|null; verification:'ok'|'failed'|null}
+export interface PbsJob extends PbsNamespace {kind:'sync'|'verify'|'prune'|'gc'; id:string; schedule:string|null; disabled:boolean|null; last_run:number|null; next_run:number|null; last_outcome:'ok'|'warning'|'running'|'unknown'|'error'|null; upid:string|null; remote:string|null; remote_store:string|null; direction:string|null; keep_hourly:string|null; keep_last:string|null; keep_daily:string|null; keep_weekly:string|null; keep_monthly:string|null; keep_yearly:string|null; gc_removed_bytes:string|null; gc_pending_bytes:string|null}
+export interface PbsBackupInventory {version:string; complete:boolean; scope:'token_visible'; counts:Record<'datastores'|'namespaces'|'groups'|'snapshots'|'jobs',number>; datastores:PbsDatastore[]; namespaces:PbsNamespace[]; groups:PbsBackupGroup[]; snapshots:PbsBackupSnapshot[]; jobs:PbsJob[]; issues:{section:string;reason:string;store:string|null;namespace:string|null}[]}
+export interface PbsBackupState {state:'not_collected'|'stale'|'available'; observed_at:string|null; snapshot:PbsBackupInventory|null}

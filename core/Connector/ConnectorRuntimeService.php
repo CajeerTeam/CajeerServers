@@ -117,7 +117,7 @@ final class ConnectorRuntimeService
         $started=microtime(true);
         $reconciliation=$this->reconciliation();
         $generation=$sync?$reconciliation->generation($this->db->connection()):0;
-        $observedAt=($sync||$plan!==null)?(string)$this->db->connection()->query("SELECT to_char(clock_timestamp() AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"')")->fetchColumn():'';
+        $observedAt=($sync||$plan!==null||($target['provider']==='pbs'&&$operation==='inspect'))?(string)$this->db->connection()->query("SELECT to_char(clock_timestamp() AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"')")->fetchColumn():'';
         try {$snapshot=$this->discoverWithGrant($target,$operation,$consume,$plan); }
         catch (HttpException $error) {
             if (in_array($error->errorCode,ConnectorHealthMonitor::ERRORS,true)) {
@@ -153,7 +153,7 @@ final class ConnectorRuntimeService
             $result=$operation==='health' ? (new ConnectorHealth($targetId,$elapsed))->toArray()
                 : ['connector_id'=>$targetId,'mode'=>'inspect','discovered'=>count($items),'types'=>$summary];
             if($snapshot->connection!==[])$result['connection']=$snapshot->connection;
-            return $this->db->transaction(function(PDO $pdo) use($actor,$targetId,$operation,$items,$requestId,$guard,$complete,$result,$target,$snapshot,$reconciliation,$elapsed,$collection):array {
+            return $this->db->transaction(function(PDO $pdo) use($actor,$targetId,$operation,$items,$requestId,$guard,$complete,$result,$target,$snapshot,$reconciliation,$elapsed,$collection,$observedAt):array {
                 $this->inventory->lockWorkspace($pdo,$target['workspace_id']);
                 if ($guard!==null) $guard($pdo);
                 $this->checkPermissions($pdo,$actor,$operation);
@@ -161,12 +161,17 @@ final class ConnectorRuntimeService
                 $latest=$this->bindings->runtimeContext($actor,$targetId,$target['version'],$operation);
                 if ($latest['credential_id']!==$target['credential_id'] || $latest['credential_version']!==$target['credential_version']) throw new HttpException(409,'Connector binding changed.','conflict');
                 ConnectorHealthMonitor::record($pdo,$target,$elapsed,null);
-                if ($operation==='inspect' && $snapshot->metricSamples===[] && ($collection['collector']??null)!=='proxmox.tasks') $result['preview']=$reconciliation->preview($pdo,$actor,$target,$snapshot);
+                if ($operation==='inspect' && $snapshot->metricSamples===[] && ($collection['collector']??null)!=='proxmox.tasks' && $target['provider']!=='pbs') $result['preview']=$reconciliation->preview($pdo,$actor,$target,$snapshot);
                 if ($collection!==null && $snapshot->metricSamples!==[]) {
                     $result['metrics']=\Cajeer\Servers\Metrics\MetricStore::ingest($pdo,$target,$collection['metric_samples'],$collection['observed_at']);
                     $this->audit->record($pdo,$actor,'collection.metrics.saved','success','connector_target',$targetId,$result['metrics'],$requestId);
                 }
                 if ($collection!==null) $result['collection']=$collection;
+                if($target['provider']==='pbs'&&$operation==='inspect'){
+                    PbsStore::save($pdo,$target,$snapshot->connection['pbs_discovery'],$observedAt);
+                    $result['discovered']=array_sum($snapshot->connection['pbs_discovery']['counts']);
+                    if($collection!==null){$result['collection']['count']=array_sum($snapshot->connection['pbs_discovery']['counts']);$result['collection']['complete']=$snapshot->connection['pbs_discovery']['complete'];}
+                }
                 if(($collection['collector']??null)==='proxmox.tasks'){
                     $result['connection']['task_discovery']=ProxmoxTaskStore::save($pdo,$target,$snapshot->connection['task_discovery'],$collection['observed_at']);
                     $result['collection']['count']=$result['connection']['task_discovery']['observed_count'];
@@ -219,6 +224,13 @@ final class ConnectorRuntimeService
         $target=$this->bindings->show($actor,$targetId);
         if($target['provider']!=='proxmox')throw new HttpException(404,'Proxmox target not found.','not_found');
         return ProxmoxGuestStore::read($this->db->connection(),$target);
+    }
+    public function pbsBackups(string $actor,string $targetId):array
+    {
+        (new Rbac($this->db,$this->audit))->requireUserPermission($actor,'inventory.assets.read');
+        $target=$this->bindings->show($actor,$targetId);
+        if($target['provider']!=='pbs')throw new HttpException(404,'PBS target not found.','not_found');
+        return PbsStore::read($this->db->connection(),$target);
     }
     public function proxmoxStorageNetwork(string $actor,string $targetId):array
     {

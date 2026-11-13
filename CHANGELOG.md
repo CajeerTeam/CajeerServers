@@ -1,3 +1,10 @@
+## [0.6.8] — 2026-11-13 — Backup Server Integration
+
+- Native read-only PBS 3/4 API token connector with TLS trust, Vault health/rotation validation and scheduled `pbs.backups` collection.
+- Discover visible datastores, capacity, namespaces, VM/CT/host backup groups, snapshots and sync/verification/prune/GC jobs; preserve byte counts as decimal strings and report incomplete sections.
+- Transactional scoped current snapshot and run history, Admin UI and SDK; migration 0044 extends provider binding and health constraints without editing previous migrations.
+- No remote mutations, restore, tape operations or PVE backup scheduling in this release.
+
 ## [0.6.7] — 2026-11-13 — Snapshots & Console Access
 
 - Live QEMU/LXC snapshot list and native console hand-off through verified PVE profiles; independent browser authentication, no token or ticket disclosure.

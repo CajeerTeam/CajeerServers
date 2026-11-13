@@ -50,7 +50,7 @@ $steps++;
 fwrite(STDOUT, sprintf("PHP lint: %d files, %d failures\n", count($phpFiles), $lintErrors));
 if ($lintErrors > 0 || $phpFiles === []) $failures++;
 
-foreach (['runtime', 'http', 'database', 'installer', 'auth', 'security', 'infrastructure', 'observability', 'admin', 'release', 'inventory-readiness', 'workspaces', 'inventory', 'ipam', 'topology', 'catalog', 'history', 'transfer', 'cmdb-integrity', 'import-dispatch', 'vault-crypto', 'vault-crud', 'vault-profiles', 'vault-access', 'vault-rotation', 'vault-bindings', 'vault-stable', 'proxmox-runtime', 'proxmox-profile', 'proxmox-cluster', 'proxmox-guests', 'proxmox-storage-network', 'proxmox-tasks', 'connector-runtime', 'connector-execution', 'connector-reconciliation', 'vmmanager-runtime', 'host-runtime', 'snmp-health', 'connector-events', 'connector-actions', 'proxmox-snapshots', 'connector-stability', 'collector-runtime', 'script-registry', 'script-execution', 'script-output', 'collection-plans', 'metrics', 'ingestion', 'data-exchange', 'collection-stability', 'backup'] as $suite) {
+foreach (['runtime', 'http', 'database', 'installer', 'auth', 'security', 'infrastructure', 'observability', 'admin', 'release', 'inventory-readiness', 'workspaces', 'inventory', 'ipam', 'topology', 'catalog', 'history', 'transfer', 'cmdb-integrity', 'import-dispatch', 'vault-crypto', 'vault-crud', 'vault-profiles', 'vault-access', 'vault-rotation', 'vault-bindings', 'vault-stable', 'proxmox-runtime', 'proxmox-profile', 'proxmox-cluster', 'proxmox-guests', 'proxmox-storage-network', 'proxmox-tasks', 'connector-runtime', 'connector-execution', 'connector-reconciliation', 'vmmanager-runtime', 'host-runtime', 'snmp-health', 'connector-events', 'connector-actions', 'proxmox-snapshots', 'pbs-backup', 'connector-stability', 'collector-runtime', 'script-registry', 'script-execution', 'script-output', 'collection-plans', 'metrics', 'ingestion', 'data-exchange', 'collection-stability', 'backup'] as $suite) {
     $run($suite . ' smoke', [PHP_BINARY, 'tests/' . $suite . '-smoke.php'], $root);
 }
 $run('Admin frontend static', ['node', 'tests/static-check.mjs'], $root . '/admin');
@@ -69,6 +69,7 @@ if ($strict) {
     $run('Metrics HTTPS integration', ['python3','tests/metrics-https-integration.py'], $root);
     $run('Proxmox profile HTTPS integration', ['python3','tests/proxmox-profile-https-integration.py'], $root);
     $run('Proxmox HTTPS integration', ['python3','tests/connector-https-integration.py'], $root);
+    $run('PBS HTTPS integration', ['python3','tests/pbs-backup-https-integration.py'], $root);
     $run('Proxmox snapshot HTTPS integration', ['python3','tests/proxmox-snapshots-https-integration.py'], $root);
     $run('Connector actions HTTPS integration', ['python3','tests/connector-actions-https-integration.py'], $root);
     $run('TypeScript SDK integration', ['bash','tests/connector-sdk-integration.sh'], $root);
@@ -78,6 +79,7 @@ if ($strict) {
     if (getenv('CAJEER_PG_TEST') !== '1' || !preg_match('/^cajeer_test_[a-z0-9_]+$/D', getenv('CAJEER_PG_TEST_DATABASE') ?: '')) {
         fwrite(STDERR, "FAIL: strict verification requires CAJEER_PG_TEST=1 and an isolated cajeer_test_* database.\n"); $failures++;
     } else {
+        $run('PBS PostgreSQL / HTTPS integration', ['python3','tests/pbs-backup-https-integration.py','--postgres'], $root);
         foreach (['database','auth','security','infrastructure','admin','inventory','workspaces','inventory-crud','ipam','topology','catalog','history','transfer','cmdb','vault','vault-crud','vault-access','vault-rotation','vault-bindings','proxmox-profile','connector-reconciliation','host-hardware','connector-health','connector-events','connector-actions','script-registry','script-execution','collection-plans','metrics','ingestion','backup'] as $name) {
             $run("PostgreSQL $name", [PHP_BINARY, 'tests/' . $name . '-postgres-integration.php'], $root);
         }

@@ -19,7 +19,7 @@ try {
     $paths = array_column($router->routes(), 'path');
     $expected=['/api/v1/admin/session','/api/v1/admin/overview','/api/v1/admin/diagnostics','/api/v1/admin/jobs','/api/v1/admin/jobs/{id}','/api/v1/admin/scheduler'];
     foreach($expected as $path) $check(in_array($path,$paths,true),$path.' registered');
-    $check(count($router->routes())===208,'total real routes 208');
+    $check(count($router->routes())===209,'total real routes 208');
     foreach(['/api/v1/admin/session','/api/v1/admin/overview','/api/v1/admin/diagnostics','/api/v1/admin/jobs','/api/v1/admin/scheduler'] as $path) {
         $response=$app->handle(new HttpRequest('GET',$path));
         $check(in_array($response->status,[401,503],true),$path.' denies guest');
