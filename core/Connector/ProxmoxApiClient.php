@@ -52,7 +52,7 @@ final class ProxmoxApiClient
     }
     private function get(array $e,string $path,#[\SensitiveParameter] string $auth):mixed
     {
-        if(!in_array($path,['/api2/json/version','/api2/json/cluster/status','/api2/json/nodes','/api2/json/cluster/resources?type=vm','/api2/json/access/permissions'],true)&&!preg_match('~^/api2/json/nodes/[A-Za-z0-9][A-Za-z0-9._-]{0,119}/status$~D',$path)&&!preg_match('~^/api2/json/nodes/[A-Za-z0-9][A-Za-z0-9._-]{0,119}/tasks/UPID%3A[A-Za-z0-9._%!-]+/status$~D',$path))throw new \RuntimeException('Unsupported PVE read operation.');
+        if(!in_array($path,['/api2/json/version','/api2/json/cluster/status','/api2/json/nodes','/api2/json/cluster/resources?type=vm','/api2/json/access/permissions'],true)&&!preg_match('~^/api2/json/nodes/[A-Za-z0-9][A-Za-z0-9._-]{0,119}/status$~D',$path)&&!preg_match('~^/api2/json/nodes/[A-Za-z0-9][A-Za-z0-9._-]{0,119}/(?:qemu|lxc)/[1-9][0-9]{0,8}/(?:config|status/current)$~D',$path)&&!preg_match('~^/api2/json/nodes/[A-Za-z0-9][A-Za-z0-9._-]{0,119}/tasks/UPID%3A[A-Za-z0-9._%!-]+/status$~D',$path))throw new \RuntimeException('Unsupported PVE read operation.');
         if($this->fixture!==null){$host=$e['host'];$body=($this->fixture)('https://'.(str_contains($host,':')?'['.$host.']':$host).':'.$e['port'].$path,$auth,$this->caFile);}
         else $body=$this->https->get($e['host'],$e['port'],$path,$auth,$this->caFile,'Authorization',$e['pin']);
         if(!is_string($body)||strlen($body)>2097152)throw new ConnectorTransportException('connector_protocol_error');

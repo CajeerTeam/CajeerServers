@@ -36,10 +36,10 @@ try{
     $ok($runner->run()['applied']===['0037_proxmox_profiles']&&$runner->validate()['valid']&&$runner->run()['applied']===[],'0.6.0 upgrade and replay');
     $audit=new AuditLogger($db);$repo=new InventoryRepository();$inventory=new InventoryService($db,$repo,$audit);$rbac=new Rbac($db,$audit);
     $key=new VaultMasterKey('base64:'.base64_encode(random_bytes(32)));$crypto=new VaultCrypto($key);$vault=new CredentialsVault($db,$crypto,$key);$vault->initialize();$store=new CredentialStore($db,$repo,$vault,$crypto,$audit);
-    $calls=0;$clusterMode='ok';$driver=new ProxmoxConnector(static function(string $url,string $auth,?string $ca)use(&$calls,&$clusterMode):string{
-        $calls++;if(parse_url($url,PHP_URL_PATH)==='/api2/json/nodes/pve-a/status'&&$clusterMode==='denied')throw \Cajeer\Servers\Connector\ConnectorTransportException::forStatus(403);
+    $calls=0;$clusterMode='ok';$guestMode='ok';$driver=new ProxmoxConnector(static function(string $url,string $auth,?string $ca)use(&$calls,&$clusterMode,&$guestMode):string{
+        $calls++;$path=parse_url($url,PHP_URL_PATH);if($guestMode==='denied'&&str_ends_with($path,'/qemu/100/config'))throw \Cajeer\Servers\Connector\ConnectorTransportException::forStatus(403);if($path==='/api2/json/nodes/pve-a/status'&&$clusterMode==='denied')throw \Cajeer\Servers\Connector\ConnectorTransportException::forStatus(403);
         if($auth!=='PVEAPIToken=svc@pve!read=fixture-secret')throw new RuntimeException('wrong Vault credential');
-        return json_encode(['data'=>match(parse_url($url,PHP_URL_PATH)){'/api2/json/version'=>['version'=>'9.0.3'],'/api2/json/cluster/status'=>[['type'=>'cluster','name'=>'prod','quorate'=>$clusterMode==='denied'?0:1,'nodes'=>1,'version'=>5],['type'=>'node','name'=>'pve-a','nodeid'=>1,'local'=>1,'online'=>1]],'/api2/json/access/permissions'=>['/'=>['Sys.Audit'=>1]],'/api2/json/nodes'=>[['node'=>'pve-a','status'=>'online']],'/api2/json/cluster/resources'=>[['type'=>'qemu','node'=>'pve-a','vmid'=>100,'status'=>'running']],'/api2/json/nodes/pve-a/status'=>['cpuinfo'=>['cpus'=>16,'model'=>'Fixture CPU'],'memory'=>['total'=>34359738368,'used'=>4294967296],'uptime'=>1234],default=>throw new RuntimeException('unexpected path')}],JSON_THROW_ON_ERROR);
+        return json_encode(['data'=>match(parse_url($url,PHP_URL_PATH)){'/api2/json/version'=>['version'=>'9.0.3'],'/api2/json/cluster/status'=>[['type'=>'cluster','name'=>'prod','quorate'=>$clusterMode==='denied'?0:1,'nodes'=>1,'version'=>5],['type'=>'node','name'=>'pve-a','nodeid'=>1,'local'=>1,'online'=>1],...($guestMode==='moved'?[['type'=>'node','name'=>'pve-b','nodeid'=>2,'local'=>0,'online'=>1]]:[])],'/api2/json/access/permissions'=>['/'=>['Sys.Audit'=>1]],'/api2/json/nodes'=>[['node'=>'pve-a','status'=>'online'],...($guestMode==='moved'?[['node'=>'pve-b','status'=>'online']]:[])],'/api2/json/cluster/resources'=>[['type'=>'qemu','node'=>$guestMode==='moved'?'pve-b':'pve-a','vmid'=>100,'status'=>'running']],'/api2/json/nodes/pve-a/qemu/100/config','/api2/json/nodes/pve-b/qemu/100/config'=>['cores'=>4,'memory'=>8192,'smbios1'=>'uuid='.($guestMode==='conflict'?'22222222-2222-4222-8222-222222222222':'11111111-1111-4111-8111-111111111111'),'scsi0'=>'local-lvm:vm-100-disk-0,size=32G','cipassword'=>'must-not-leak'],'/api2/json/nodes/pve-a/qemu/100/status/current','/api2/json/nodes/pve-b/qemu/100/status/current'=>['vmid'=>100,'status'=>'running','mem'=>4294967296],'/api2/json/nodes/pve-a/status'=>['cpuinfo'=>['cpus'=>16,'model'=>'Fixture CPU'],'memory'=>['total'=>34359738368,'used'=>4294967296],'uptime'=>1234],default=>throw new RuntimeException('unexpected path')}],JSON_THROW_ON_ERROR);
     });
     $registry=new ConnectorRegistry($driver);$bindings=new ConnectorBindingService($db,$repo,$audit,$registry);
     $old=$bindings->show($actor,$legacy);$ok($old['proxmox_profile']===null&&$old['version']===1,'legacy target unchanged');
@@ -88,7 +88,25 @@ try{
     $pdo->prepare("INSERT INTO user_roles(user_id,role_id) SELECT :id,id FROM roles WHERE slug='administrator'")->execute(['id'=>$other]);
     $reject(404,fn()=>$runtime->proxmoxCluster($other,$id));
     $exec->setPlanEnabled($actor,$id,$plan['id'],false);
-    $changed=$bindings->update($actor,$id,2,['proxmox_profile'=>array_replace($profile,['primary_pin'=>str_repeat('b',64)])]);$ok($changed['version']===3,'pin update fences grants');$ok($runtime->proxmoxCluster($actor,$id)['state']==='stale','profile revision invalidates current state');
+    copy($root.'/migrations/pgsql/0039_proxmox_guest_discovery.sql',$dir.'/0039_proxmox_guest_discovery.sql');
+    $ok($runner->run()['applied']===['0039_proxmox_guest_discovery']&&$runner->validate()['valid']&&$runner->run()['applied']===[],'0.6.2 upgrade and replay');
+    $ok($runtime->proxmoxGuests($actor,$id)['state']==='not_collected','initial guest state');
+    $clusterMode='ok';$authorize();$guestPlan=$exec->createPlan($principal,$id,2,['name'=>'Guest detail','collector'=>'proxmox.guests','operation'=>'sync','ttl_seconds'=>3600,'interval_seconds'=>60]);
+    $job=$exec->runPlan($actor,$id,$guestPlan['id'],'pve-guest-details-1');
+    $ok($exec->once()['status']==='succeeded','guest plan executes');
+    $guestState=$runtime->proxmoxGuests($actor,$id);$guest=$guestState['snapshot']['guests'][0];
+    $ok($guestState['state']==='available'&&$guest['config']['memory']===8192&&$guest['runtime']['mem']==='4294967296','detailed guest state saved');
+    $ok($resources()['qemu:100']['asset_id']===$before['qemu:100']['asset_id'],'existing guest UUID retained');
+    $guestMode='denied';$partial=$exec->runPlan($actor,$id,$guestPlan['id'],'pve-guest-details-2');$ok($exec->once()['status']==='succeeded','partial detail accepted');
+    $cached=$runtime->proxmoxGuests($actor,$id)['snapshot']['guests'][0];$ok($cached['config']===null&&$cached['last_config']['memory']===8192&&$cached['last_config_observed_at']===$guest['config_observed_at'],'partial config retains timestamp');
+    $guestMode='moved';$migration=$exec->runPlan($actor,$id,$guestPlan['id'],'pve-guest-details-3');$ok($exec->once()['status']==='succeeded','migration reconciled');
+    $moved=$resources()['qemu:100'];$ok($moved['asset_id']===$before['qemu:100']['asset_id']&&$moved['parent_external_id']==='node:pve-b','migration preserves UUID and updates parent');
+    $previous=$runtime->proxmoxGuests($actor,$id);$guestMode='conflict';$conflict=$exec->runPlan($actor,$id,$guestPlan['id'],'pve-guest-details-4');$ok($exec->once()['status']==='failed','changed guest identity rejected');
+    $failedRun=$exec->status($actor,$id,$conflict['id']);$ok($failedRun['error_code']==='guest_identity_conflict'&&$runtime->proxmoxGuests($actor,$id)===$previous&&$resources()['qemu:100']['parent_external_id']==='node:pve-b','identity failure atomic, retains previous state');
+    $ok(!str_contains(json_encode($exec->status($actor,$id,$job['id'])),'must-not-leak'),'historical config sanitized');
+    $reject(404,fn()=>$runtime->proxmoxGuests($other,$id));
+    $exec->setPlanEnabled($actor,$id,$guestPlan['id'],false);
+    $changed=$bindings->update($actor,$id,2,['proxmox_profile'=>array_replace($profile,['primary_pin'=>str_repeat('b',64)])]);$ok($changed['version']===3,'pin update fences grants');$ok($runtime->proxmoxCluster($actor,$id)['state']==='stale'&&$runtime->proxmoxGuests($actor,$id)['state']==='stale','profile revision invalidates current state');
     $reject(412,fn()=>$bindings->update($actor,$id,2,['proxmox_profile'=>$profile]));
     try{$exec->enqueue($actor,$id,$grant['id'],'pve-old-grant','proxmox.inventory');throw new RuntimeException('stale grant accepted');}catch(HttpException $e){$ok(in_array($e->status,[403,409,412],true),'stale grant rejected');}
     $ok(!str_contains(json_encode($changed),'fixture-secret'),'no plaintext in target');

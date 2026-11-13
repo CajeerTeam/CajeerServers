@@ -13,6 +13,7 @@ final readonly class ConnectorCollector implements CollectorInterface
     public function provider(): string {return $this->driver;}
     public function collect(CollectionContext $context, #[\SensitiveParameter] string $secret): ConnectorResult
     {
+        if($this->id==='proxmox.guests')return $this->connectors->guests($context->connector,$context->plan->operation,$context->purpose,$secret);
         if($this->id==='proxmox.cluster')return $this->connectors->cluster($context->connector,$context->plan->operation,$context->purpose,$secret);
         return $this->connectors->execute($context->connector,$context->plan->operation,$context->purpose,$secret);
     }

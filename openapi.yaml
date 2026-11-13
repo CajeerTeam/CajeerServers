@@ -1,7 +1,7 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.6.2
+  version: 0.6.3
   description: 'CajeerServers 0.5.7: signed external data ingestion, durable inbox and time series.'
 servers:
 - url: /api/v1
@@ -5295,6 +5295,31 @@ paths:
                 required: [data]
                 properties:
                   data: {$ref: '#/components/schemas/ProxmoxClusterState'}
+        '401': {description: Authentication required}
+        '403': {description: Permission denied}
+        '404': {description: Target not found in Workspace}
+  /connectors/targets/{id}/proxmox-guests:
+    get:
+      operationId: getProxmoxGuestState
+      summary: Read the latest scoped PVE QEMU and LXC guest observation
+      description: Requires connectors.targets.read, inventory.assets.read and Workspace membership. A stale scope has no current snapshot. Historical runs remain available separately.
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Current saved observation, not live health
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: {$ref: '#/components/schemas/ProxmoxGuestState'}
         '401': {description: Authentication required}
         '403': {description: Permission denied}
         '404': {description: Target not found in Workspace}
@@ -10970,6 +10995,89 @@ components:
           - {$ref: '#/components/schemas/ProxmoxNodeDetails'}
           - {type: 'null'}
         last_details_observed_at: {type: [string, 'null'], format: date-time}
+    ProxmoxGuestState:
+      type: object
+      required: [state, observed_at, snapshot]
+      properties:
+        state: {type: string, enum: [not_collected, stale, available]}
+        observed_at: {type: [string, 'null'], format: date-time}
+        snapshot:
+          oneOf:
+            - {$ref: '#/components/schemas/ProxmoxGuestSnapshot'}
+            - {type: 'null'}
+    ProxmoxGuestSnapshot:
+      type: object
+      required: [schema_version, visibility, guest_count, details_complete]
+      properties:
+        schema_version: {type: integer, const: 1}
+        visibility: {type: string, const: reported_only}
+        guest_count: {type: integer, minimum: 0, maximum: 1500}
+        details_complete: {type: boolean}
+        guests:
+          type: array
+          items: {$ref: '#/components/schemas/ProxmoxGuest'}
+    ProxmoxGuest:
+      type: object
+      required: [external_id, vmid, type, node, name, status, config_state, runtime_state, config, runtime]
+      properties:
+        external_id: {type: string}
+        vmid: {type: integer}
+        type: {type: string, enum: [qemu, lxc]}
+        node: {type: string}
+        name: {type: string}
+        status: {type: string}
+        pool: {type: string}
+        template: {type: boolean}
+        config_state: {type: string}
+        runtime_state: {type: string}
+        config:
+          oneOf:
+            - {$ref: '#/components/schemas/ProxmoxGuestConfig'}
+            - {type: 'null'}
+        runtime: {type: [object, 'null'], additionalProperties: {type: [number, string]}}
+        config_observed_at: {type: string, format: date-time}
+        last_config:
+          oneOf:
+            - {$ref: '#/components/schemas/ProxmoxGuestConfig'}
+            - {type: 'null'}
+        last_config_observed_at: {type: [string, 'null'], format: date-time}
+    ProxmoxGuestConfig:
+      type: object
+      required: [disks, nics]
+      properties:
+        cores: {type: integer}
+        sockets: {type: integer}
+        vcpus: {type: integer}
+        memory: {type: integer, description: Configured MiB}
+        balloon: {type: integer}
+        swap: {type: integer}
+        cpu_model: {type: string}
+        identity_fingerprint: {type: string}
+        disks:
+          type: array
+          items:
+            type: object
+            required: [device]
+            properties:
+              device: {type: string}
+              storage: {type: string}
+              volume_id: {type: string}
+              size: {type: string}
+              source: {type: string}
+              media: {type: string}
+        nics:
+          type: array
+          items:
+            type: object
+            required: [device]
+            properties:
+              device: {type: string}
+              mac: {type: string}
+              model: {type: string}
+              bridge: {type: string}
+              tag: {type: integer}
+              ip: {type: string}
+              ip6: {type: string}
     ProxmoxClusterSnapshot:
       type: object
       required: [schema_version, cluster, standalone, membership_scope, visible_node_count, member_count, reported_node_count_mismatch, details_complete]
@@ -11023,6 +11131,7 @@ components:
         quorate: {type: [boolean, 'null']}
         permissions_visible: {type: boolean}
         cluster_discovery: {$ref: '#/components/schemas/ProxmoxClusterSnapshot'}
+        guest_discovery: {$ref: '#/components/schemas/ProxmoxGuestSnapshot'}
         root_privileges:
           type: array
           items: {type: string}

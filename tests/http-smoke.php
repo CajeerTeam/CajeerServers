@@ -25,7 +25,7 @@ $app = (new Application(dirname(__DIR__)))->boot();
 try {
     $router = $app->container()->get(Router::class);
     $kernel = $app->container()->get(HttpKernel::class);
-    $check(count($router->routes()) === 204, 'real registered routes only');
+    $check(count($router->routes()) === 205, 'real registered routes only');
 
     foreach (['/', '/api/v1/health', '/api/v1/system'] as $path) {
         $response = $app->handle(new HttpRequest('GET', $path));

@@ -1,3 +1,9 @@
+## [0.6.3] — 2026-11-13 — VM & LXC Inventory
+
+- Execute `proxmox.guests` with verified PVE profiles, bounded QEMU/LXC configuration and runtime projection, migration recheck and partial ACL handling.
+- Save current guest state and immutable run history with revision fencing, last-known configuration timestamps and durable guest identity evidence. Reject known VMID type/fingerprint conflicts atomically.
+- Add guest inventory panel, protected current state endpoint, typed SDK, migration 0039 and regression tests.
+
 ## [0.6.2] — 2026-11-13 — Cluster & Node Discovery
 
 - Execute `proxmox.cluster` using verified PVE profiles, membership/quorum and allowlisted physical node status; standalone and partial visibility are explicit.

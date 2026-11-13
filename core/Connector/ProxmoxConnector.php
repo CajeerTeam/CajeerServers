@@ -43,6 +43,14 @@ final class ProxmoxConnector implements ConnectorInterface, ConnectorActionDrive
         return $this->client()->read($context,$secret,static fn(callable $get,array $info):ConnectorResult=>ProxmoxClusterDiscovery::collect($get,$info,$deadline),false,false,true);
     }
 
+    /** Detailed, bounded QEMU/LXC collection requires the verified PVE profile. */
+    public function guests(ConnectorContext $context,#[\SensitiveParameter] string $secret):ConnectorResult
+    {
+        if($context->provider!=='proxmox'||$context->proxmoxProfile===null)throw new ConnectorTransportException('connector_trust_failed');
+        $deadline=ProxmoxGuestDiscovery::deadline();
+        return $this->client()->read($context,$secret,static fn(callable $get,array $info):ConnectorResult=>ProxmoxGuestDiscovery::collect($get,$info,$deadline),false,false,true);
+    }
+
     public function metrics(ConnectorContext $context,#[\SensitiveParameter] string $secret):array
     {
         [$nodes,$guests]=$this->client()->read($context,$secret,static fn(callable $get)=>[ProxmoxApiClient::rows($get('/api2/json/nodes')),ProxmoxApiClient::rows($get('/api2/json/cluster/resources?type=vm'))]);
