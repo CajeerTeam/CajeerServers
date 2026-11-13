@@ -1,8 +1,8 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.7.0
-  description: 'CajeerServers 0.5.7: signed external data ingestion, durable inbox and time series.'
+  version: 0.7.1
+  description: 'CajeerServers 0.7.1: VMmanager connection profiles, PVE/PBS integration and infrastructure collection.'
 servers:
 - url: /api/v1
 security: []
@@ -6381,7 +6381,10 @@ paths:
                       connector_id: {type: string, format: uuid}
                       status: {type: string}
                       duration_ms: {type: integer, minimum: 0}
-                      connection: {$ref: '#/components/schemas/ProxmoxConnection'}
+                      connection:
+                        anyOf:
+                          - {$ref: '#/components/schemas/ProxmoxConnection'}
+                          - {$ref: '#/components/schemas/VmmanagerConnection'}
         '403':
           $ref: '#/components/responses/Forbidden'
         '412':
@@ -6501,6 +6504,8 @@ paths:
                   type: integer
                   minimum: 1
                   maximum: 65535
+                vmmanager_profile:
+                  $ref: '#/components/schemas/VmmanagerProfile'
                 proxmox_profile:
                   $ref: '#/components/schemas/ProxmoxProfile'
                 asset_id:
@@ -6614,6 +6619,8 @@ paths:
                   type: integer
                   minimum: 1
                   maximum: 65535
+                vmmanager_profile:
+                  $ref: '#/components/schemas/VmmanagerProfile'
                 proxmox_profile:
                   $ref: '#/components/schemas/ProxmoxProfile'
                 asset_id:
@@ -11758,6 +11765,26 @@ components:
         root_privileges:
           type: array
           items: {type: string}
+    VmmanagerProfile:
+      type: object
+      additionalProperties: false
+      required: [primary_pin, anchor_id, anchor_node]
+      properties:
+        primary_pin: {type: string, pattern: '^[a-fA-F0-9]{64}$'}
+        anchor_id: {type: integer, minimum: 1, maximum: 2147483647}
+        anchor_node: {type: string, minLength: 1, maxLength: 255}
+    VmmanagerConnection:
+      type: object
+      required: [provider, api_version, endpoint_host, endpoint_port, tls_pinned, identity_verified]
+      properties:
+        provider: {const: vmmanager}
+        api_version: {const: v3}
+        endpoint_host: {type: string}
+        endpoint_port: {type: integer}
+        tls_pinned: {type: boolean}
+        identity_verified: {type: boolean}
+        anchor_id: {type: integer}
+        anchor_node: {type: string}
     ProxmoxProfile:
       type: object
       additionalProperties: false
@@ -11788,6 +11815,10 @@ components:
         name: {type: string}
         endpoint_host: {type: string}
         endpoint_port: {type: integer, minimum: 1, maximum: 65535}
+        vmmanager_profile:
+          oneOf:
+            - $ref: '#/components/schemas/VmmanagerProfile'
+            - {type: 'null'}
         proxmox_profile:
           oneOf:
             - $ref: '#/components/schemas/ProxmoxProfile'

@@ -8,11 +8,14 @@ const api=useApi(), auth=useAuth(),route=useRoute()
 type Driver={provider:string;purpose:string;credentialTypes:string[];operations:string[];resourceTypes:string[];transport:string;actions:string[];write_actions_enabled:boolean;collectors?:import('~/composables/connectorLifecycle').CollectorDefinition[]}
 const drivers=ref<Driver[]>([])
 type Workspace={id:string;name:string;role:string}
+type VmmProfile={primary_pin:string;anchor_id:number;anchor_node:string}
+type VmmConnection={provider:'vmmanager';api_version:'v3';endpoint_host:string;endpoint_port:number;tls_pinned:boolean;identity_verified:boolean;anchor_id?:number;anchor_node?:string}
+const vmmForm=reactive<VmmProfile>({primary_pin:'',anchor_id:1,anchor_node:''}),vmmConnection=ref<VmmConnection|null>(null)
 type PveProfile={cluster:string|null;anchor_node:string;anchor_id:number|null;primary_pin:string;fallbacks:{host:string;port:number;pin:string}[]}
 type PveConnection={version:string;cluster:string|null;anchor_node:string;anchor_id:number|null;endpoint_host:string;endpoint_port:number;failover:boolean;visible_members:number;quorate:boolean|null;permissions_visible?:boolean;root_privileges?:string[]}
 const profileText=ref(''),pveConnection=ref<PveConnection|null>(null)
 const canProfile=computed(()=>canManage.value&&workspaces.value.find(w=>w.id===workspace.value)?.role==='owner')
-type Target={proxmox_profile?:PveProfile|null;id:string;workspace_id:string;provider:string;name:string;endpoint_host:string;endpoint_port:number;state:string;asset_id:string|null;version:number;etag:string;health_status:string;health_checked_at:string|null;health_success_at:string|null;health_duration_ms:number|null;health_error_code:string|null;circuit_open_until:string|null;consecutive_failures:number}
+type Target={vmmanager_profile?:VmmProfile|null;proxmox_profile?:PveProfile|null;id:string;workspace_id:string;provider:string;name:string;endpoint_host:string;endpoint_port:number;state:string;asset_id:string|null;version:number;etag:string;health_status:string;health_checked_at:string|null;health_success_at:string|null;health_duration_ms:number|null;health_error_code:string|null;circuit_open_until:string|null;consecutive_failures:number}
 type Binding={id:string;connector_id:string;credential_id:string;purpose:string;type:string;state:string;credential_version:number|string}
 type Credential={credential_id:string;name:string;type:string;state:string}
 type Asset={id:string;name:string;type:string}
@@ -81,7 +84,7 @@ async function load(){const seq=++loadSequence,ws=workspace.value;openSequence++
     await searchAssets()
   }catch(e){if(seq===loadSequence)fail(e)}finally{if(seq===loadSequence)loading.value=false}
 }
-async function open(target:Target){if(target.workspace_id!==workspace.value)return;const seq=++openSequence;resources.value=[];resourceOffset.value=0;resourceHasMore.value=false;resolutionAssets.value={};selected.value=target.id;selectedTarget.value=target;profileText.value=target.proxmox_profile?JSON.stringify(target.proxmox_profile,null,2):'';pveConnection.value=null;assetSelection.value=target.asset_id||'';Object.assign(edit,{name:target.name,endpoint_host:target.endpoint_host,endpoint_port:target.endpoint_port});editEtag.value=target.etag;bindings.value=[];binding.credential_id='';manualCredential.value=false;binding.purpose=drivers.value.find(d=>d.provider===target.provider)?.purpose||providers.find(p=>p.id===target.provider)?.purpose||'api';pendingVersions.value=[];lastRun.value=null;stepup.password='';stepup.totp='';reset();
+async function open(target:Target){if(target.workspace_id!==workspace.value)return;const seq=++openSequence;resources.value=[];resourceOffset.value=0;resourceHasMore.value=false;resolutionAssets.value={};selected.value=target.id;selectedTarget.value=target;profileText.value=target.proxmox_profile?JSON.stringify(target.proxmox_profile,null,2):'';pveConnection.value=null;vmmConnection.value=null;Object.assign(vmmForm,target.vmmanager_profile||{primary_pin:'',anchor_id:1,anchor_node:''});assetSelection.value=target.asset_id||'';Object.assign(edit,{name:target.name,endpoint_host:target.endpoint_host,endpoint_port:target.endpoint_port});editEtag.value=target.etag;bindings.value=[];binding.credential_id='';manualCredential.value=false;binding.purpose=drivers.value.find(d=>d.provider===target.provider)?.purpose||providers.find(p=>p.id===target.provider)?.purpose||'api';pendingVersions.value=[];lastRun.value=null;stepup.password='';stepup.totp='';reset();
   await navigateTo(`${inventoryContextUrl('connectors',workspace.value)}&target_id=${target.id}`,{replace:true});
   await loadResources(target,0);if(seq!==openSequence||selected.value!==target.id)return
   try{
@@ -105,6 +108,11 @@ async function savePveProfile(){
   let profile:PveProfile;try{profile=JSON.parse(profileText.value)}catch{error.value='Некорректный JSON профиля.';return}
   if(!confirm('Подтвердить доверенные endpoints и SHA-256 сертификатов? Прежние grants будут недействительны.'))return
   busy.value=true;reset();try{const updated=(await api.write<{data:Target}>('PATCH',`/connectors/targets/${item.id}`,{proxmox_profile:profile},true,{'If-Match':item.etag})).data;await open(updated);message.value='Профиль сохранён. Выполните MFA health check.'}catch(e){fail(e)}finally{busy.value=false}
+}
+async function saveVmmProfile(){
+  const item=active.value;if(!item||item.provider!=='vmmanager'||!canProfile.value||busy.value)return
+  if(!confirm('Сохранить проверенный вне приложения fingerprint и опорный узел? Прежние grants станут недействительны.'))return
+  busy.value=true;reset();try{const updated=(await api.write<{data:Target}>('PATCH',`/connectors/targets/${item.id}`,{vmmanager_profile:{...vmmForm,primary_pin:vmmForm.primary_pin.trim().toLowerCase()}},true,versionHeaders(item))).data;await open(updated);message.value='Профиль сохранён. Выполните MFA health check.'}catch(e){fail(e)}finally{busy.value=false}
 }
 async function editTarget(){const item=active.value;if(!item||!canManage.value||busy.value)return;const patch:Record<string,string|number>={};if(edit.name!==item.name)patch.name=edit.name;if(edit.endpoint_host!==item.endpoint_host)patch.endpoint_host=edit.endpoint_host;if(edit.endpoint_port!==item.endpoint_port)patch.endpoint_port=edit.endpoint_port;if(!Object.keys(patch).length)return;if(!confirm('Изменение конфигурации делает прежние сервисные разрешения неактуальными. Продолжить?'))return;busy.value=true;reset();try{const updated=(await api.write<{data:Target}>('PATCH',`/connectors/targets/${item.id}`,patch,true,{'If-Match':editEtag.value})).data;await refreshHealth();await open(updated);message.value='Конфигурация обновлена.'}catch(e){fail(e)}finally{busy.value=false}}
 async function create(){if(!canManage.value||!workspace.value)return;busy.value=true;reset()
@@ -162,7 +170,7 @@ async function resolveResource(resource:DiscoveryResource,mode:'link'|'create'){
 async function executeRemote(sync:boolean){
   const item=active.value,credential=apiBinding.value
   if(busy.value||!item||!credential||!item.asset_id||(sync?!canSync.value:!canRun.value))return
-  busy.value=true;reset();lastRun.value=null
+  busy.value=true;reset();lastRun.value=null;pveConnection.value=null;vmmConnection.value=null
   try{
     await api.write('POST',`/vault/credentials/${credential.credential_id}/authorize-use`,{
       asset_id:item.asset_id,purpose:credential.purpose,password:stepup.password,totp:stepup.totp})
@@ -178,12 +186,14 @@ async function executeRemote(sync:boolean){
 async function checkHealth(){
   const item=active.value,credential=apiBinding.value
   if(!item||!credential||!item.asset_id||!canHealth.value)return
-  busy.value=true;reset();lastRun.value=null
+  busy.value=true;reset();lastRun.value=null;pveConnection.value=null;vmmConnection.value=null
   try{
     await api.write('POST',`/vault/credentials/${credential.credential_id}/authorize-use`,{
       asset_id:item.asset_id,purpose:credential.purpose,password:stepup.password,totp:stepup.totp})
-    const result=await api.write<{data:{status:string;duration_ms:number;connection?:PveConnection}}>('POST',`/connectors/targets/${item.id}/health`,undefined,true,versionHeaders(item))
-    pveConnection.value=result.data.connection||null
+    const result=await api.write<{data:{status:string;duration_ms:number;connection?:PveConnection|VmmConnection}}>('POST',`/connectors/targets/${item.id}/health`,undefined,true,versionHeaders(item))
+    const connection=result.data.connection
+    if(connection&&'provider' in connection&&connection.provider==='vmmanager')vmmConnection.value=connection
+    else if(connection&&'quorate' in connection)pveConnection.value=connection
     message.value=`Проверка доступности: ${result.data.status}, ${result.data.duration_ms} мс.`
   }catch(e){fail(e)}finally{stepup.password='';stepup.totp='';await refreshHealth();busy.value=false}
 }
@@ -248,6 +258,18 @@ onMounted(init)
         </form>
         <p v-if="active.proxmox_profile">Кластер: {{active.proxmox_profile.cluster||'Standalone'}} · опорный узел: {{active.proxmox_profile.anchor_node}} · резервных endpoints: {{active.proxmox_profile.fallbacks.length}}</p>
         <dl v-if="pveConnection" class="kv-grid"><div><dt>PVE</dt><dd>{{pveConnection.version}}</dd></div><div><dt>Endpoint проверки</dt><dd>{{pveConnection.endpoint_host}}:{{pveConnection.endpoint_port}} {{pveConnection.failover?'(резервный)':'(основной)'}}</dd></div><div><dt>Quorum</dt><dd>{{pveConnection.quorate===null?'—':pveConnection.quorate?'Есть':'Нет'}}</dd></div><div><dt>Права на /</dt><dd>{{pveConnection.permissions_visible?(pveConnection.root_privileges||[]).join(', ')||'Нет видимых прав':'Не доступны'}}</dd></div></dl>
+      </section>
+      <section v-if="active?.provider==='vmmanager'" class="panel" data-testid="vmmanager-profile">
+        <h2>Профиль доверия VMmanager 6</h2>
+        <p>{{active.vmmanager_profile?'Проверка CA, hostname, TLS pin и опорного узла при каждом сборе.':'Совместимый режим: CA и hostname. Для production настройте профиль и обязательный режим.'}}</p>
+        <p class="muted small">Сверьте SHA-256 сертификата и ID/имя узла по доверенному каналу. Сохранение профиля само по себе не подтверждает соединение.</p>
+        <form v-if="canProfile" @submit.prevent="saveVmmProfile">
+          <div class="form-row"><label>ID опорного узла<input v-model.number="vmmForm.anchor_id" type="number" min="1" max="2147483647" required :disabled="!!active.vmmanager_profile" /></label><label>Имя опорного узла<input v-model="vmmForm.anchor_node" maxlength="255" required :disabled="!!active.vmmanager_profile" /></label></div>
+          <label>SHA-256 TLS-сертификата<input v-model="vmmForm.primary_pin" minlength="64" maxlength="64" pattern="[a-fA-F0-9]{64}" required autocomplete="off" /></label>
+          <button class="btn" :disabled="busy">Сохранить профиль VMmanager</button>
+        </form>
+        <p v-if="active.vmmanager_profile">Опорный узел: {{active.vmmanager_profile.anchor_node}} ({{active.vmmanager_profile.anchor_id}}) · SHA-256: <code>{{active.vmmanager_profile.primary_pin}}</code></p>
+        <dl v-if="vmmConnection" class="kv-grid"><div><dt>Платформа / API</dt><dd>VMmanager / {{vmmConnection.api_version}}</dd></div><div><dt>Endpoint</dt><dd>{{vmmConnection.endpoint_host}}:{{vmmConnection.endpoint_port}}</dd></div><div><dt>TLS pin</dt><dd>{{vmmConnection.tls_pinned?'Проверен':'Не настроен'}}</dd></div><div><dt>Идентичность узла</dt><dd>{{vmmConnection.identity_verified?'Подтверждена':'Не проверена'}}</dd></div></dl>
       </section>
       <section v-if="active&&canManage" class="panel"><h2>Настройки: {{active.name}}</h2><form @submit.prevent="editTarget"><div class="form-row"><label>Название подключения<input v-model="edit.name" required maxlength="120" data-testid="connector-edit-name" /></label><label>Адрес подключения<input v-model="edit.endpoint_host" required maxlength="253" /></label><label>Порт подключения<input v-model.number="edit.endpoint_port" type="number" min="1" max="65535" required /></label></div><button class="btn" :disabled="busy">Сохранить настройки</button><button class="btn" type="button" :disabled="busy" @click="open(active)">Загрузить текущие настройки</button></form></section>
       <section v-if="active" class="panel"><h2>Credentials: {{active.name}}</h2><NuxtLink v-if="!busy&&auth.can('inventory.assets.read')&&['proxmox','pbs'].includes(active.provider)" class="btn" :to="proxmoxUrl(workspace,active.id,active.provider==='pbs'?'backups':'overview')">Открыть панель Proxmox</NuxtLink>

@@ -302,7 +302,7 @@ final class ConnectorRuntimeService
             $manifest=$this->registry->manifest($target['provider'],$operation);
             if ($type!==$target['credential_type'] || !$manifest->accepts($type,$target['purpose']))
                 throw new \RuntimeException('Credential type changed.');
-            $context=new ConnectorContext($target['provider'],$target['endpoint_host'],$target['endpoint_port'],$type,$target['proxmox_profile']??null);
+            $context=new ConnectorContext($target['provider'],$target['endpoint_host'],$target['endpoint_port'],$type,$target['proxmox_profile']??null,$target['vmmanager_profile']??null);
         } catch (Throwable) {
             // No driver exception, request header or remote response body reaches HTTP or logs.
             throw new HttpException(502,'Remote connector operation failed.','connector_failed');

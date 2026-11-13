@@ -304,7 +304,7 @@ final class Application
         $this->services->singleton(ProxmoxConnector::class, fn (ServiceContainer $c): ProxmoxConnector => new ProxmoxConnector(
             null,($ca=$c->get(ConfigRepository::class)->get('connectors.proxmox_ca_file',''))!==''?(string)$ca:null,$c->get(HttpsTransport::class),$c->get(ConfigRepository::class)->get('connectors.proxmox_require_profile',false)===true));
         $this->services->singleton(VmmanagerConnector::class, fn (ServiceContainer $c): VmmanagerConnector => new VmmanagerConnector(
-            $c->get(HttpsTransport::class),($ca=$c->get(ConfigRepository::class)->get('connectors.vmmanager_ca_file',''))!==''?(string)$ca:null));
+            $c->get(HttpsTransport::class),($ca=$c->get(ConfigRepository::class)->get('connectors.vmmanager_ca_file',''))!==''?(string)$ca:null,$c->get(ConfigRepository::class)->get('connectors.vmmanager_require_profile',false)===true));
         $this->services->singleton(HostTransport::class, fn (ServiceContainer $c): HostTransport => new HostTransport(
             $c->get(EndpointPolicy::class), (string)$c->get(ConfigRepository::class)->get('connectors.python','/usr/bin/python3'),
             ($known=$c->get(ConfigRepository::class)->get('connectors.ssh_known_hosts',''))!==''?(string)$known:null,

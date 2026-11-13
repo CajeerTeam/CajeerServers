@@ -8,6 +8,7 @@ return [
     'prometheus_ca_file' => getenv('PROMETHEUS_CA_FILE') ?: '',
     'proxmox_require_profile' => getenv('PROXMOX_REQUIRE_PROFILE') === 'true',
     'proxmox_ca_file' => getenv('PROXMOX_CA_FILE') ?: '',
+    'vmmanager_require_profile' => getenv('VMMANAGER_REQUIRE_PROFILE') === 'true',
     'vmmanager_ca_file' => getenv('VMMANAGER_CA_FILE') ?: '',
     'python' => getenv('CONNECTOR_PYTHON') ?: '/usr/bin/python3',
     'ssh_known_hosts' => getenv('SSH_KNOWN_HOSTS_FILE') ?: '',

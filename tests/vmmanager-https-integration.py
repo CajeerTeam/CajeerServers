@@ -20,6 +20,7 @@ HOSTS = [dict(id=21, name='vmm-guest-a', state=True, node={'id': 1}, cluster={'i
 
 class Handler(http.server.BaseHTTPRequestHandler):
     calls = []
+    anchor_calls = 0
 
     def log_message(self, *_):
         pass
@@ -81,6 +82,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.reply({'list': [], 'size': 0, 'last_notify': 10})
             return
         rows = [dict(row) for row in (NODES if path.path.endswith('/node') else HOSTS)]
+        if path.path.endswith('/node'):
+            if token == 'fixture-vmm-wrong-anchor':
+                rows[0]['name'] = 'other-platform'
+            if token == 'fixture-vmm-no-name':
+                rows[0].pop('name')
+            if token == 'fixture-vmm-anchor-drift' and limit == 1:
+                Handler.anchor_calls += 1
+                if Handler.anchor_calls > 1:
+                    rows[0]['name'] = 'other-platform'
         if path.path.endswith('/host'):
             if token == 'fixture-vmm-rotated':
                 rows[0].update(name='vmm-guest-renamed', node={'id': 2})
@@ -146,10 +156,41 @@ foreach(['denied'=>'connector_auth_failed','error'=>'connector_auth_failed','thr
 foreach([[new VmmanagerConnector($transport),'vmmanager.test'],[new VmmanagerConnector($transport,$ca),'wrong.test'],[new VmmanagerConnector(new HttpsTransport(new EndpointPolicy([],null,true)),$ca),'127.0.0.1']] as [$bad,$host]){
  try{(new ConnectorRegistry($bad))->execute(new ConnectorContext('vmmanager',$host,$port,'api_token'),'health','api','fixture-vmm-active');throw new LogicException('unsafe TLS/network');}catch(HttpException $e){$ok($e->status===502,'TLS or network policy fails closed');}
 }
+$pin=openssl_x509_fingerprint(file_get_contents($ca),'sha256');
+$profile=['primary_pin'=>strtoupper($pin),'anchor_id'=>2,'anchor_node'=>'vmm-node-b'];
+$trusted=new ConnectorContext('vmmanager','vmmanager.test',$port,'api_token',null,$profile);
+$strict=new ConnectorRegistry(new VmmanagerConnector($transport,$ca,true));
+$health=$strict->execute($trusted,'health','api','fixture-vmm-active');
+$ok($health->connection['identity_verified']===true&&$health->connection['tls_pinned']===true&&$health->connection['api_version']==='v3'&&$health->items[0]['external_id']==='node:2','pinned profile health exact non-first anchor');
+foreach(['inspect','sync','validate_rotation'] as $op){$r=$strict->execute($trusted,$op,'api','fixture-vmm-active');$ok($r->complete&&count($r->items)===4&&$r->connection['anchor_id']===2,'pinned '.$op);}
+$target['vmmanager_profile']=$profile;$target['credential_type']='api_token';
+$collected=$collector->collect(new \Cajeer\Servers\Collector\CollectionPlan('vmmanager.inventory','inspect'),$target,'api_token','fixture-vmm-active');
+$ok($collected->connection['identity_verified']===true,'collector forwards profile');
+$ok(count($driver->metrics($trusted,'fixture-vmm-active'))===3,'metrics use pinned profile');
+$rejectTrust=static function(ConnectorContext $ctx,string $token,string $op='health')use($strict,$ok):void{
+ try{$strict->execute($ctx,$op,'api',$token);throw new LogicException('accepted invalid trust');}catch(HttpException $e){$ok($e->status===502&&$e->errorCode==='connector_trust_failed','reject trust '.$op);}
+};
+$rejectTrust(new ConnectorContext('vmmanager','vmmanager.test',$port,'api_token'),'fixture-vmm-mandatory-missing');
+$wrongPin=$profile;$wrongPin['primary_pin']=str_repeat('0',64);
+$rejectTrust(new ConnectorContext('vmmanager','vmmanager.test',$port,'api_token',null,$wrongPin),'fixture-vmm-wrong-pin');
+$wrongNode=$profile;$wrongNode['anchor_node']='other-platform';
+$rejectTrust(new ConnectorContext('vmmanager','vmmanager.test',$port,'api_token',null,$wrongNode),'fixture-vmm-active');
+$missing=$profile;$missing['anchor_id']=99;
+$rejectTrust(new ConnectorContext('vmmanager','vmmanager.test',$port,'api_token',null,$missing),'fixture-vmm-active');
+$first=['primary_pin'=>$pin,'anchor_id'=>1,'anchor_node'=>'vmm-node-a'];
+$firstCtx=new ConnectorContext('vmmanager','vmmanager.test',$port,'api_token',null,$first);
+$rejectTrust($firstCtx,'fixture-vmm-wrong-anchor','sync');
+$rejectTrust($firstCtx,'fixture-vmm-no-name','health');
+$rejectTrust($firstCtx,'fixture-vmm-anchor-drift','sync');
+foreach([null,[],['primary_pin'=>$pin,'anchor_id'=>'1','anchor_node'=>'node'],['primary_pin'=>$pin,'anchor_id'=>1,'anchor_node'=>"a\n"],$profile+['token'=>'secret']] as $bad){
+ try{\Cajeer\Servers\Connector\VmmanagerProfile::normalize($bad);throw new LogicException('accepted invalid profile');}catch(HttpException $e){$ok($e->status===422,'invalid profile rejected');}
+}
+try{new ConnectorContext('proxmox','vmmanager.test',$port,'api_token',null,$profile);throw new LogicException('accepted cross provider');}catch(InvalidArgumentException){$ok(true,'provider scope');}
 echo "VMmanager HTTPS integration: $n PASS\n";
 '''
             subprocess.run(['php','-r',code,str(ROOT),str(server.server_port),str(cert)],check=True,timeout=60)
             assert all(host == f'vmmanager.test:{server.server_port}' for _,host,_ in Handler.calls)
+            assert not any(token in ('fixture-vmm-wrong-pin','fixture-vmm-mandatory-missing') for _,_,token in Handler.calls), 'credentials sent before trust check'
             assert not any(path == '/redirect-destination' for path,_,_ in Handler.calls)
             assert any('id%20GT%201099' in path for path,_,_ in Handler.calls)
             if args.postgres:

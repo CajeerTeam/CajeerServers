@@ -13,7 +13,7 @@ final class VmmanagerConnector implements ConnectorInterface, \Cajeer\Servers\Me
     private const DEADLINE = 60;
     private const MAX_PAGES = 64;
 
-    public function __construct(private readonly HttpsTransport $https, private readonly ?string $caFile = null) {}
+    public function __construct(private readonly HttpsTransport $https, private readonly ?string $caFile = null, private readonly bool $requireProfile = false) {}
 
     public function manifest(): ConnectorManifest
     {
@@ -27,6 +27,7 @@ final class VmmanagerConnector implements ConnectorInterface, \Cajeer\Servers\Me
         if ($context->provider !== $manifest->provider || !$manifest->supports($operation) || !$manifest->accepts($context->credentialType,'api')) {
             throw new RuntimeException('Unsupported VMmanager operation or credential.');
         }
+        if($this->requireProfile && $context->vmmanagerProfile===null) throw new ConnectorTransportException('connector_trust_failed');
         $decoded = CredentialProfile::decodeForInternalUse($context->credentialType,$secret);
         $token = is_array($decoded) ? $decoded['token'] : $decoded;
         unset($decoded);
@@ -35,15 +36,27 @@ final class VmmanagerConnector implements ConnectorInterface, \Cajeer\Servers\Me
                 throw new RuntimeException('Invalid VMmanager token format.');
             }
             $deadline = microtime(true)+self::DEADLINE;
+            $profile=$context->vmmanagerProfile;
+            $connection=['provider'=>'vmmanager','api_version'=>'v3','endpoint_host'=>$context->host,'endpoint_port'=>$context->port,'tls_pinned'=>$profile!==null,'identity_verified'=>false];
+            $anchor=[];
+            if($profile!==null){
+                $anchor=$this->anchor($context,$token,$deadline);
+                $connection['identity_verified']=true;
+                $connection['anchor_id']=$profile['anchor_id'];$connection['anchor_node']=$profile['anchor_node'];
+            }
             if ($operation==='health') {
-                $page=$this->page($context,'node',0,1,$token,$deadline);
+                $page=$profile!==null?$anchor:$this->page($context,'node',0,1,$token,$deadline);
                 if ($page===[]) throw new RuntimeException('VMmanager returned no visible nodes.');
-                return new ConnectorResult(self::observations($page,[]),false);
+                return new ConnectorResult(self::observations($page,[]),false,connection:$connection);
             }
             $nodes=$this->collect($context,'node',$token,$deadline,self::LIMIT);
             if ($nodes===[]) throw new RuntimeException('VMmanager returned no visible nodes.');
             $hosts=$this->collect($context,'host',$token,$deadline,self::LIMIT-count($nodes));
-            return new ConnectorResult(self::observations($nodes,$hosts),true);
+            if($profile!==null){
+                VmmanagerProfile::verify($profile,array_values(array_filter($nodes,static fn($row)=>$row['id']===$profile['anchor_id'])));
+                $this->anchor($context,$token,$deadline);
+            }
+            return new ConnectorResult(self::observations($nodes,$hosts),true,connection:$connection);
         } finally { sodium_memzero($token); }
     }
 
@@ -53,6 +66,14 @@ final class VmmanagerConnector implements ConnectorInterface, \Cajeer\Servers\Me
         $snapshot=$this->execute($context,'inspect',$secret);$out=[];
         foreach($snapshot->items as $item){$state=$item['fields']['status'];if(in_array($state,['online','offline'],true))$out[]=\Cajeer\Servers\Metrics\MetricBatch::sample('vmmanager.resource.up',$state==='online'?1:0,$item['external_id'],[],'gauge','boolean');}
         return $out;
+    }
+
+    private function anchor(ConnectorContext $context,#[\SensitiveParameter] string $token,float $deadline): array
+    {
+        $profile=$context->vmmanagerProfile;
+        $rows=$this->page($context,'node',$profile['anchor_id']-1,1,$token,$deadline,true);
+        VmmanagerProfile::verify($profile,$rows);
+        return $rows;
     }
 
     /** Keyset pagination avoids shifting offsets on inserts/deletes and detects ignored filters.
@@ -73,12 +94,12 @@ final class VmmanagerConnector implements ConnectorInterface, \Cajeer\Servers\Me
         throw new RuntimeException('VMmanager pagination did not terminate.');
     }
 
-    private function page(ConnectorContext $context,string $kind,int $after,int $limit,#[\SensitiveParameter] string $token,float $deadline):array
+    private function page(ConnectorContext $context,string $kind,int $after,int $limit,#[\SensitiveParameter] string $token,float $deadline,bool $strictName=false):array
     {
         if (microtime(true)>=$deadline) throw new RuntimeException('VMmanager discovery deadline exceeded.');
         // API v3 filter syntax, not URL supplied by remote data or user input.
         $path='/vm/v3/'.$kind.'?where=id%20GT%20'.$after.'&orderby=id%20asc&limit=0%2C'.$limit;
-        $body=$this->https->get($context->host,$context->port,$path,$token,$this->caFile,'x-xsrf-token');
+        $body=$this->https->get($context->host,$context->port,$path,$token,$this->caFile,'x-xsrf-token',$context->vmmanagerProfile['primary_pin']??null);
         if (microtime(true)>=$deadline) throw new RuntimeException('VMmanager discovery deadline exceeded.');
         $decoded=HttpsTransport::jsonObject($body);
         if (property_exists($decoded,'error')) {
@@ -95,6 +116,7 @@ final class VmmanagerConnector implements ConnectorInterface, \Cajeer\Servers\Me
             if ($id<=$last) throw new RuntimeException('VMmanager pagination returned duplicate or unordered IDs.');
             $last=$id;
             // Keep only the fields consumed by the mapper; discard bulky or sensitive remote metadata.
+            if($strictName && (!is_string($row->name??null)||self::name($row->name,'')!==$row->name||$row->name==='')) throw new ConnectorTransportException('connector_trust_failed');
             $state=$row->state??null;
             $clean=['id'=>$id,'name'=>self::name($row->name??null,($kind==='node'?'Node ':'Host ').$id),
                 'state'=>is_bool($state)||(is_string($state)&&strlen($state)<=32)?$state:null];

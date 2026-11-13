@@ -61,7 +61,16 @@ final class ConnectorReadiness
             }
             return true;
         },'Stored Proxmox profiles must be valid; mandatory profile mode requires trust for every active PVE target.');
-        $probe('connector_ssh_trust',function()use($cfg):bool {
+        $probe('connector_vmmanager_profiles',function()use($cfg):bool {
+            $pdo=$this->app->container()->get(DatabaseManager::class)->connection();
+            $q=$pdo->query("SELECT vmmanager_profile,state FROM connector_targets WHERE provider='vmmanager'");
+            while($row=$q->fetch(\PDO::FETCH_ASSOC)){
+                if($row['vmmanager_profile']===null){if($row['state']==='active'&&$cfg->get('connectors.vmmanager_require_profile',false)===true)return false;continue;}
+                VmmanagerProfile::normalize(json_decode($row['vmmanager_profile'],true,32,JSON_THROW_ON_ERROR));
+            }
+            return true;
+        },'Stored VMmanager profiles must be valid; mandatory profile mode requires trust for every active VMmanager target.');
+        $probe('connector_ssh_trust' ,function()use($cfg):bool {
             $pdo=$this->app->container()->get(DatabaseManager::class)->connection();
             $n=$pdo->query("SELECT count(*) FROM connector_targets WHERE provider='ssh' AND state='active'")->fetchColumn();
             $p=$cfg->get('connectors.ssh_known_hosts','');return (string)$n==='0'||(is_string($p)&&is_file($p)&&is_readable($p));

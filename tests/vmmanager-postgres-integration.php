@@ -56,8 +56,14 @@ try {
     $execution=new ConnectorExecutionService($db,$bindings,$repo,$rbac,$access,$vault,$crypto,$audit,$runtime);
     $asset=$inventory->create($actor,['workspace_id'=>$ws,'type'=>'server','name'=>'VMmanager endpoint']);
     $credential=$store->create($actor,['workspace_id'=>$ws,'name'=>'VMmanager token','type'=>'vmmanager_api','secret'=>['token'=>'fixture-vmm-active']]);
-    $target=$bindings->create($actor,['workspace_id'=>$ws,'provider'=>'vmmanager','name'=>'VMmanager integration','endpoint_host'=>'127.0.0.1','endpoint_port'=>(int)$argv[1],'asset_id'=>$asset['id']]);
-    $id=$target['id'];$cid=$credential['id'];$bindings->bind($actor,$id,$cid,'api',1,null,true);
+    $profile=['primary_pin'=>openssl_x509_fingerprint(file_get_contents($argv[2]),'sha256'),'anchor_id'=>1,'anchor_node'=>'vmm-node-a'];
+    $target=$bindings->create($actor,['workspace_id'=>$ws,'provider'=>'vmmanager','name'=>'VMmanager integration','endpoint_host'=>'127.0.0.1','endpoint_port'=>(int)$argv[1],'asset_id'=>$asset['id'],'vmmanager_profile'=>$profile]);
+    $ok($target['vmmanager_profile']==$profile,'persisted VMmanager profile');
+    $id=$target['id'];$cid=$credential['id'];
+    $reject(409,fn()=>$bindings->update($actor,$id,1,['vmmanager_profile'=>array_replace($profile,['anchor_id'=>2])]),'cannot change identity');
+    $reject(422,fn()=>$bindings->update($actor,$id,1,['vmmanager_profile'=>null]),'cannot remove trust');
+    $reject(422,fn()=>$bindings->update($actor,$id,1,['endpoint_port'=>443]),'endpoint change requires trust');
+    $reject(412,fn()=>$bindings->update($actor,$id,99,['vmmanager_profile'=>$profile]),'stale trust update');$bindings->bind($actor,$id,$cid,'api',1,null,true);
     $authorize=static function()use($pdo,$actor,$principal,$access,$asset,$cid,$password,$totpKey):void {
         // Test-only OTP reset; production never resets replay protection.
         $pdo->prepare('UPDATE user_mfa SET last_counter=NULL WHERE user_id=:id')->execute(['id'=>$actor]);
@@ -65,6 +71,7 @@ try {
     };
     $count=static fn():int=>(int)$pdo->query('SELECT count(*) FROM inventory_assets')->fetchColumn();
     $before=$count();$authorize();$preview=$runtime->run($principal,$id,2,false);
+    $ok($preview['connection']['identity_verified']===true,'runtime propagates trust profile');
     $ok($preview['discovered']===4&&$preview['preview']['summary']['create']===4&&$count()===$before,'real API preview has no writes');
     $authorize();$sync=$runtime->run($principal,$id,2,true);
     $ok($sync['discovered']===4&&$sync['outcomes']['created']===4&&$count()===$before+4,'VMmanager TLS to Vault to Inventory');
@@ -99,6 +106,11 @@ try {
     $ok($execution->once()['status']==='failed'&&$execution->status($actor,$deniedTarget['id'],$deniedRun['id'])['error_code']==='connector_auth_failed',
         'remote auth failure is terminal, safe and not retried');
     $ok($count()===$before+5,'denied worker leaves Inventory unchanged');
+    $rotatedProfile=$bindings->update($actor,$id,2,['vmmanager_profile'=>array_replace($profile,['primary_pin'=>strtoupper($profile['primary_pin'])])]);
+    $ok($rotatedProfile['version']===3&&$rotatedProfile['vmmanager_profile']==$profile,'profile update normalizes pin and bumps target version');
+    $reject(412,fn()=>$bindings->runtimeContext($actor,$id,2,'health'),'old profile revision fenced');
+    $authorize();$verified=$runtime->health($principal,$id,3);
+    $ok($verified['connection']['identity_verified']===true,'updated profile health verified through Vault');
     echo "VMmanager PostgreSQL/Vault/Queue/HTTPS integration: $n PASS\n";
 } catch(Throwable $e){$failed=true;fwrite(STDERR,'FAIL VMmanager PostgreSQL: '.$e::class.': '.$e->getMessage()."\n");}
 finally {

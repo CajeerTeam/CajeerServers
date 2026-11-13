@@ -1,3 +1,10 @@
+## [0.7.1] — 2026-11-13 — VMmanager Connection Profile
+
+- Persist scoped VMmanager TLS profiles, verify leaf SHA-256 before sending tokens and an exact visible node identity before/after discovery.
+- Apply trust to health, inventory, metrics, workers and credential rotation; optional mandatory profile mode and readiness probe.
+- Owner/MFA/If-Match profile edits with execution fencing, immutable anchor identity and explicit pin replacement. Existing CA-only targets remain compatible.
+- Admin profile editor and typed health diagnostics, SDK/OpenAPI, migration 0046 and expanded real TLS regression tests.
+
 ## [0.7.0] — 2026-11-13 — Proxmox Integration Stable
 
 - Fix automatic snapshot delete/rollback reconciliation using a shared map of all 14 PVE action workers.

@@ -17,7 +17,7 @@ final readonly class CollectionRuntimeService
     {
         $this->validate($plan,$target);
         if ($type!==$target['credential_type']) throw new \Cajeer\Servers\Http\Exception\HttpException(403,'Collector credential changed.','permission_denied');
-        $context=new ConnectorContext($target['provider'],$target['endpoint_host'],$target['endpoint_port'],$type,$target['proxmox_profile']??null);
+        $context=new ConnectorContext($target['provider'],$target['endpoint_host'],$target['endpoint_port'],$type,$target['proxmox_profile']??null,$target['vmmanager_profile']??null);
         return $this->registry->execute(new CollectionContext($context,$target['purpose'],$plan,$previous),$secret);
     }
 }
