@@ -27,7 +27,7 @@ permissions:
 jobs:
   browser:
     if: ${{ inputs.confirm_disposable_environment == true }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 50
     environment: inventory-e2e-staging
     env:
@@ -50,18 +50,21 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
-      - name: Verify committed lockfile is present
-        run: test -s admin/package-lock.json
+          node-version-file: .nvmrc
+      - name: Verify reviewed npm locks
+        run: node scripts/verify-dependency-locks.mjs
+      - name: Audit browser dependencies
+        working-directory: admin
+        run: npm audit --package-lock-only --audit-level=high
       - name: Reproducible dependency installation
         working-directory: admin
-        run: npm ci --no-audit --no-fund
+        run: npm ci --include=dev --include=optional --no-audit --no-fund
       - name: Browser safety preflight
         working-directory: admin
         run: npm run test:e2e:preflight
       - name: Install Chromium
         working-directory: admin
-        run: npx playwright install --with-deps chromium
+        run: ./node_modules/.bin/playwright install --with-deps chromium
       - name: Execute real browser E2E against staging
         working-directory: admin
         run: bash ../scripts/verify-browser-e2e.sh

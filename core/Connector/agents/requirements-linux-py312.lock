@@ -1,0 +1,9 @@
+# Linux x86_64, glibc >= 2.34, CPython 3.12. Official PyPI wheel SHA-256 hashes.
+# Install with --require-hashes --only-binary=:all: in a fresh virtualenv.
+paramiko==5.0.1 --hash=sha256:126ff26677a7cb1504c4ea5a5a7a168b14abee3972ac72657e31efca68977f03
+bcrypt==5.0.0 --hash=sha256:611f0a17aa4a25a69362dcc299fda5c8a3d4f160e2abb3831041feb77393a14a
+cryptography==50.0.2 --hash=sha256:9dab55f57c74c3cad24c323bacbbd04be4705ba6eb0d92e920b1fc4837ed5079
+invoke==2.2.1 --hash=sha256:2413bc441b376e5cd3f55bb5d364f973ad8bdd7bf87e53c79de3c11bf3feecc8
+PyNaCl==1.6.2 --hash=sha256:c8a231e36ec2cab018c4ad4358c386e36eede0319a0c41fed24f840b1dac59f6
+cffi==2.0.0 --hash=sha256:3e17ed538242334bf70832644a32a7aae3d83b57567f9fd60a26257e992b79ba
+pycparser==2.23 --hash=sha256:e5c6e8d3fbad53479cab09ac03729e0a9faf2bee3db8208a550daf5af81a5934

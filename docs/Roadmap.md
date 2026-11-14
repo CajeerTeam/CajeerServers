@@ -408,3 +408,10 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 - [ ] Подтверждение PostgreSQL integration, Nuxt build, browser E2E и строгого production release gate на реальном стенде.
 
 **Следующий этап: 0.2.9 — Complete Inventory Admin UI & End-to-End Integration.**
+
+## 0.9.1 — Reproducible Build & Dependency Stability
+
+- [x] SDK lock, pinned Node/npm/Composer toolchain and PHP solver platform, Linux SSH wheel lock.
+- [x] Clean build and validation pipeline, actual SSR smoke, PHPUnit, CI evidence and isolated resolver.
+- [ ] Resolve and commit Composer and Admin locks on a network-connected runner; complete online install/build/audits on PHP 8.4/8.5.
+- [ ] Confirm reproducibility from a fresh committed checkout; see `docs/Reproducible-Build-0.9.1.md`.

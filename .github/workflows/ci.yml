@@ -9,7 +9,8 @@ permissions:
 jobs:
   php-smoke:
     name: PHP ${{ matrix.php }} / Smoke
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -20,19 +21,24 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
-          extensions: pdo_pgsql, sodium, mbstring, intl, openssl, snmp
-          tools: composer:v2
+          extensions: pdo_pgsql, sodium, mbstring, intl, openssl, snmp, dom, xml, xmlwriter, zip
+          tools: composer:2.11.2
           coverage: none
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version-file: .nvmrc
+      - name: Build input validation regression
+        run: node --test tests/dependency-locks.test.mjs
       - name: Native PHP + Admin static verification
         run: php scripts/verify-release.php
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: SSH transport dependencies
-        run: python3 -m pip install -r core/Connector/agents/requirements.txt
+      - name: SSH transport dependencies (verified wheels)
+        run: |
+          python3 -m venv "$RUNNER_TEMP/cajeer-agents"
+          bash scripts/install-agent-dependencies.sh "$RUNNER_TEMP/cajeer-agents/bin/python"
+          echo "$RUNNER_TEMP/cajeer-agents/bin" >> "$GITHUB_PATH"
       - name: Native SNMP agent dependency
         run: sudo apt-get update -qq && sudo apt-get install -y snmpd
       - name: Connector HTTPS and host protocol integration
@@ -63,20 +69,24 @@ jobs:
         run: |
           npm ci --prefix packages/ts-sdk --no-audit --no-fund
           bash tests/connector-sdk-integration.sh
-      - name: Verify dependency lockfiles are present
-        run: |
-          test -s composer.lock
-          test -s admin/package-lock.json
-          test -s packages/ts-sdk/package-lock.json
       - name: Build from reviewed lockfiles
         run: bash scripts/build-release.sh
+      - name: Upload verified build evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-build-php-${{ matrix.php }}
+          path: |
+            storage/tmp/release-build.sha256
+            storage/tmp/release-build.tar.gz
+          if-no-files-found: error
+          retention-days: 14
   postgres-integration:
     strategy:
       fail-fast: false
       matrix:
         pg: [17, 18]
     name: PostgreSQL ${{ matrix.pg }} / Connector + Inventory + Recovery
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     services:
       postgres:
         image: postgres:${{ matrix.pg }}
@@ -114,8 +124,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: SSH transport dependencies
-        run: python3 -m pip install -r core/Connector/agents/requirements.txt
+      - name: SSH transport dependencies (verified wheels)
+        run: |
+          python3 -m venv "$RUNNER_TEMP/cajeer-agents"
+          bash scripts/install-agent-dependencies.sh "$RUNNER_TEMP/cajeer-agents/bin/python"
+          echo "$RUNNER_TEMP/cajeer-agents/bin" >> "$GITHUB_PATH"
       - name: SNMP test daemon
         run: sudo apt-get update -qq && sudo apt-get install -y snmpd
       - name: PostgreSQL workspace, Inventory CRUD, IPAM and Topology integration

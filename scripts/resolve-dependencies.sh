@@ -1,13 +1,33 @@
 #!/usr/bin/env bash
-# Maintainer-only: create or update dependency locks on a trusted network-connected build host.
-# Review the resulting locks, commit them, then run scripts/build-release.sh in a clean checkout.
+# Maintainer-only; resolve on a trusted network-connected host. Never called by build-release.sh.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-command -v composer >/dev/null || { echo 'Composer is required' >&2; exit 2; }
-command -v npm >/dev/null || { echo 'npm is required' >&2; exit 2; }
-composer validate
-composer update --no-install --no-interaction --no-scripts --prefer-dist
-npm install --prefix admin --package-lock-only --ignore-scripts --no-audit --no-fund
-npm install --prefix packages/ts-sdk --package-lock-only --ignore-scripts --no-audit --no-fund
-composer validate --strict
-printf 'Review and commit composer.lock, admin/package-lock.json and packages/ts-sdk/package-lock.json.\nThen run bash scripts/build-release.sh from a clean checkout.\n'
+source scripts/build-toolchain.sh
+root=$PWD
+# Resolve in a clean temporary directory, not against old node_modules (npm can omit platform optional dependencies).
+stage=$(mktemp -d)
+trap 'rm -rf "$stage"' EXIT
+mkdir -p "$stage/admin" "$stage/packages/ts-sdk"
+for file in composer.json admin/package.json packages/ts-sdk/package.json; do cp -- "$file" "$stage/$file"; done
+# Preserve existing locked versions unless a maintainer intentionally updates the manifest/lock.
+for file in composer.lock admin/package-lock.json packages/ts-sdk/package-lock.json; do
+  if [[ -e "$file" ]]; then [[ -f "$file" && ! -L "$file" ]] || exit 2; cp -- "$file" "$stage/$file"; fi
+done
+(
+  cd "$stage"
+  composer validate --no-check-lock
+  composer update --no-install --no-interaction --no-scripts --no-plugins --prefer-dist
+  composer validate --strict
+  composer audit --locked --abandoned=fail
+  for dir in admin packages/ts-sdk; do
+    npm install --prefix "$dir" --package-lock-only --ignore-scripts --include=dev --include=optional --no-audit --no-fund
+    npm audit --prefix "$dir" --package-lock-only --audit-level=high
+  done
+)
+node scripts/verify-dependency-locks.mjs "$stage"
+# No source lock is replaced until every resolver/validator succeeded.
+for file in composer.lock admin/package-lock.json packages/ts-sdk/package-lock.json; do
+  install -m 0644 "$stage/$file" "$root/$file.new"
+  mv -f -- "$root/$file.new" "$root/$file"
+done
+printf 'Review and commit the three resolved lockfiles, then run bash scripts/build-release.sh in a clean checkout.\n'

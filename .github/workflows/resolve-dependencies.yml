@@ -1,0 +1,53 @@
+name: Maintainer dependency lock resolution
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  resolve:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: pdo_pgsql, sodium, mbstring, intl, openssl, snmp, dom, xml, xmlwriter, zip
+          tools: composer:2.11.2
+          coverage: none
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Resolve and audit candidate locks
+        run: bash scripts/resolve-dependencies.sh
+      - name: Preserve candidate lockfiles for human review
+        uses: actions/upload-artifact@v4
+        with:
+          name: candidate-dependency-locks
+          path: |
+            composer.lock
+            admin/package-lock.json
+            packages/ts-sdk/package-lock.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Test candidate on a local-only commit
+        run: |
+          git add composer.lock admin/package-lock.json packages/ts-sdk/package-lock.json
+          if ! git diff --cached --quiet; then
+            git -c user.name='Cajeer dependency verification' -c user.email='dependency-ci@invalid.example' commit -m 'CI-only dependency lock candidate'
+          fi
+          bash scripts/build-release.sh
+      - name: Upload successful build evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: candidate-build-verification
+          path: |
+            storage/tmp/release-build.sha256
+            storage/tmp/release-build.tar.gz
+          if-no-files-found: error
+          retention-days: 14

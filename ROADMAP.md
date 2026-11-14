@@ -602,3 +602,10 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 
 - Реализованы специализированный OS / Network центр, SQL Dashboard, навигация Workspace, карточки, планы и резервные копии.
 - Добавлены TLS-интеграционный и браузерный E2E сценарии; полный staging/live acceptance требуется для stable.
+
+## 0.9.1 — Reproducible Build & Dependency Stability
+
+- [x] SDK lock, pinned Node/npm/Composer toolchain and PHP solver platform, Linux SSH wheel lock.
+- [x] Clean build and validation pipeline, actual SSR smoke, PHPUnit, CI evidence and isolated resolver.
+- [ ] Resolve and commit Composer and Admin locks on a network-connected runner; complete online install/build/audits on PHP 8.4/8.5.
+- [ ] Confirm reproducibility from a fresh committed checkout; see `docs/Reproducible-Build-0.9.1.md`.

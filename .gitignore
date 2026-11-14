@@ -18,3 +18,11 @@
 
 /storage/files/*
 !/storage/files/.gitkeep
+
+/packages/ts-sdk/node_modules/
+/packages/ts-sdk/dist/
+/admin/test-results/
+/admin/playwright-report/
+__pycache__/
+*.pyc
+.phpunit.cache/

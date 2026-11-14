@@ -1,3 +1,10 @@
+## [0.9.1] — 2026-11-15 — Reproducible Build & Dependency Stability
+
+- SDK: npm v3 lock with actual TypeScript 5.8.3 registry integrity; PHP resolution platform pinned to 8.4.0; exact Node/npm/Composer release toolchain.
+- Linux CPython 3.12 x86-64 SSH dependency hashes, isolated wheel-only installation, PyPI wheel hash/advisory audit and dependency/import checks.
+- Isolated maintainer lock resolution, security audits, clean locked build, PHPUnit, production Nuxt SSR smoke and source/input/output checksums. CI runs the new checks and can generate candidate lockfiles without pushing commits.
+- Full Composer/Admin locks and full online build remain unverified and are required before production release; development channel retained. No migration.
+
 ## [0.9.0] — 2026-11-14 — OS / Network Connectors Stable
 
 - SSH drains stdout/stderr through EOF, including late channel data; HostTransport uses monotonic deadline and validates credential/provider.
