@@ -119,6 +119,7 @@ onMounted(init)
         </div>
         <button type="button" class="btn" :disabled="busy||!workspaceId" @click="refresh">Обновить</button>
       </section>
+      <NetworkDiscoveryTopology v-if="workspaceId && auth.can('connectors.targets.read')" :workspace-id="workspaceId" :can-write="auth.can('inventory.network.manage') && ['owner','manager'].includes(space?.role||'')" />
       <section v-if="canWrite" class="panel">
         <h2>{{selectedRelation?'Изменение типа связи':'Новая связь'}}</h2>
         <form @submit.prevent="save">

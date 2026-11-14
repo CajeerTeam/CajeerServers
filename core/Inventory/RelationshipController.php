@@ -16,6 +16,7 @@ final class RelationshipController
         private readonly Rbac $rbac,
         private readonly RelationshipService $relations,
         private readonly TopologyService $topology,
+        private readonly NetworkDiscoveryService $networkDiscovery,
     ) {}
     private function actor(HttpRequest $r,bool $write):string
     {
@@ -93,5 +94,18 @@ final class RelationshipController
             $this->rbac->requirePermission($principal,$scope);
         return HttpResponse::json(['data'=>$this->topology->graph((string)$principal['user']['id'],self::query($r,'workspace_id'),
             self::limit($r,'limit',100,200))]);
+    }
+    public function networkDiscovery(HttpRequest $r):HttpResponse
+    {
+        $principal=$this->auth->authenticate($r,sessionOnly:true);
+        foreach(['inventory.relationships.read','inventory.assets.read','inventory.network.read','connectors.targets.read'] as $scope)$this->rbac->requirePermission($principal,$scope);
+        return HttpResponse::json(['data'=>$this->networkDiscovery->graph((string)$principal['user']['id'],self::query($r,'workspace_id'),self::limit($r,'limit',5,20),self::limit($r,'offset',0,10000))],200,['Cache-Control'=>'private, no-store']);
+    }
+    public function reconcileNetwork(HttpRequest $r):HttpResponse
+    {
+        $principal=$this->auth->authenticate($r,sessionOnly:true);$this->auth->requireCsrf($r,$principal);
+        foreach(['inventory.relationships.read','inventory.assets.read','inventory.network.read','inventory.network.manage','connectors.targets.read'] as $scope)$this->rbac->requirePermission($principal,$scope);
+        $data=$r->attribute('json');
+        return HttpResponse::json(['data'=>$this->networkDiscovery->reconcile((string)$principal['user']['id'],$data['workspace_id'],$data['target_id'],$data['network_id']??null,$data['observed_at'],$data['asset_id'],self::rid($r))],200,['Cache-Control'=>'private, no-store']);
     }
 }

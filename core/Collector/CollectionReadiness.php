@@ -43,9 +43,10 @@ final class CollectionReadiness
             return true;
         },'Required collectors and exporters must be registered.');
         $probe('collection_migrations',function()use($c):bool{
-            $v=$c->get(MigrationRunner::class)->validate();return $v['valid']&&count($v['rows'])>=57&&array_column($v['rows'],'status')!==[]&&!array_diff(array_column($v['rows'],'status'),['applied']);
-        },'All PostgreSQL migrations, including 0057, must be applied and checksum-valid.');
+            $v=$c->get(MigrationRunner::class)->validate();return $v['valid']&&count($v['rows'])>=58&&array_column($v['rows'],'status')!==[]&&!array_diff(array_column($v['rows'],'status'),['applied']);
+        },'All PostgreSQL migrations, including 0058, must be applied and checksum-valid.');
         $queries=[
+            'network_discovery_ipam_scope'=>"SELECT 1 FROM network_discovery_ipam_import p JOIN connector_targets t ON t.id=p.target_id WHERE t.provider NOT IN ('ssh','winrm','routeros') OR p.workspace_id<>t.workspace_id LIMIT 1",
             'linux_discovery_scope'=>"SELECT 1 FROM linux_discovery_state s JOIN connector_targets t ON t.id=s.target_id WHERE t.provider<>'ssh' OR s.workspace_id<>t.workspace_id OR s.target_version>t.version LIMIT 1",
             'windows_discovery_scope'=>"SELECT 1 FROM windows_discovery_state s JOIN connector_targets t ON t.id=s.target_id WHERE t.provider<>'winrm' OR s.workspace_id<>t.workspace_id OR s.target_version>t.version LIMIT 1",
             'routeros_discovery_scope'=>"SELECT 1 FROM routeros_discovery_state s JOIN connector_targets t ON t.id=s.target_id WHERE t.provider<>'routeros' OR s.workspace_id<>t.workspace_id OR s.target_version>t.version LIMIT 1",

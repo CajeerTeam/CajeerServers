@@ -1,3 +1,9 @@
+## [0.8.6] — 2026-11-14 — Network Topology & IPAM
+
+- Проекция текущих сетевых снимков шести провайдеров, связи интерфейсов и двусторонние LLDP-наблюдения, диагностика повторяющихся IP/MAC/CIDR.
+- Аддитивный импорт SSH/WinRM/RouterOS в IPAM с точной CMDB identity, provenance, блокировками и защитой ручных записей; миграция 0058.
+- Admin UI, API/SDK, регрессионные проверки; канал development до strict acceptance.
+
 ## [0.8.4] — 2026-11-14 — Advanced SNMP Discovery
 
 ## 0.8.5 — RouterOS API Integration

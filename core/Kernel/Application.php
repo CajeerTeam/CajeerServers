@@ -280,8 +280,9 @@ final class Application
             $c->get(DatabaseManager::class),$c->get(InventoryRepository::class),$c->get(AuditLogger::class)));
         $this->services->singleton(TopologyService::class, fn (ServiceContainer $c): TopologyService => new TopologyService(
             $c->get(DatabaseManager::class),$c->get(InventoryRepository::class)));
+        $this->services->singleton(\Cajeer\Servers\Inventory\NetworkDiscoveryService::class, fn (ServiceContainer $c) => new \Cajeer\Servers\Inventory\NetworkDiscoveryService($c->get(DatabaseManager::class),$c->get(InventoryRepository::class),$c->get(AuditLogger::class)));
         $this->services->singleton(RelationshipController::class, fn (ServiceContainer $c): RelationshipController => new RelationshipController(
-            $c->get(AuthenticationService::class),$c->get(Rbac::class),$c->get(RelationshipService::class),$c->get(TopologyService::class)));
+            $c->get(AuthenticationService::class),$c->get(Rbac::class),$c->get(RelationshipService::class),$c->get(TopologyService::class),$c->get(\Cajeer\Servers\Inventory\NetworkDiscoveryService::class)));
         $this->services->singleton(CatalogService::class, fn (ServiceContainer $c): CatalogService => new CatalogService(
             $c->get(DatabaseManager::class),$c->get(InventoryRepository::class),$c->get(AuditLogger::class)));
         $this->services->singleton(CatalogController::class, fn (ServiceContainer $c): CatalogController => new CatalogController(

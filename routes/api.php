@@ -474,6 +474,12 @@ return static function (Router $router, ServiceContainer $container): void {
             ]);
             $graph->delete('/relationships/{id}',static fn(HttpRequest $r):HttpResponse => $controller()->delete($r));
             $graph->get('/topology',static fn(HttpRequest $r):HttpResponse => $controller()->topology($r));
+            $graph->get('/network-discovery',static fn(HttpRequest $r):HttpResponse => $controller()->networkDiscovery($r));
+            $graph->post('/network-discovery/reconcile',static fn(HttpRequest $r):HttpResponse => $controller()->reconcileNetwork($r),[
+                'required'=>['workspace_id','target_id','observed_at','asset_id'],
+                'properties'=>['workspace_id'=>['type'=>'string','format'=>'uuid'],'target_id'=>['type'=>'string','format'=>'uuid'],
+                    'asset_id'=>['type'=>'string','format'=>'uuid'],'observed_at'=>['type'=>'string','maxLength'=>40],'network_id'=>['type'=>'string','format'=>'uuid']], 'additionalProperties'=>false,
+            ]);
         });
         // IPAM uses workspace membership + global RBAC and is not exposed to bearer tokens.
         $routes->group('/ipam', static function (Router $ipam) use ($container): void {

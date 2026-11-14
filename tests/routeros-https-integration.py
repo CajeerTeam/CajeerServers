@@ -73,6 +73,10 @@ try {
       $s=$r->connection['routeros_discovery'];if($s['scope']!==$scope||str_contains(json_encode($s),'fixture-secret')||$s['complete']!==!in_array($mode,['acl','missing'],true))throw new RuntimeException('bad snapshot');
       if($scope==='routing'&&$mode==='ok'&&($s['sections']['firewall_filter'][1]['action']!=='drop'||$s['sections']['routes4'][0]['gateway']!=='192.0.2.254'||$s['sections']['routes6'][0]['dst-address']!=='::/0'||$s['sections']['firewall_nat'][0]['action']!=='masquerade'||$s['sections']['address_lists'][0]['list']!=='trusted'))throw new RuntimeException('bad rules');
       if($scope==='network'&&($s['sections']['ipv4'][0]['interface']!=='ether1'||$s['sections']['ipv4'][0]['interface-id']!=='*1'||$s['sections']['ipv6'][0]['address']!=='2001:db8::1/64'||$s['sections']['bridge_ports'][0]['interface-id']!=='*1'||$s['sections']['bridge_ports'][0]['bridge-id']!==null||$s['sections']['bridge_vlans'][0]['vlan-ids']!=='20,30'||$s['sections']['dhcp_leases'][0]['status']!=='bound'))throw new RuntimeException('bad network');
+      if($scope==='network'){
+        $projection=\Cajeer\Servers\Inventory\NetworkObservation::project(['id'=>'routeros-fixture','provider'=>'routeros','name'=>'router01'],$s,'2026-11-14T12:00:00Z');
+        if(count($projection['interfaces'])!==1||count($projection['addresses'])!==2||array_column($projection['networks'],'cidr')!==['192.0.2.0/24','2001:db8::/64']||$projection['addresses'][0]['interface_id']!==$projection['interfaces'][0]['id']||$projection['neighbors'][0]['evidence']!=='routeros_neighbor'||$projection['links']!==[])throw new RuntimeException('bad topology projection of real RouterOS snapshot');
+      }
       if($scope==='inventory'&&($r->items[0]['type']!=='router'||$s['sections']['resource'][0]['total-memory']!=='9007199254740993'))throw new RuntimeException('bad inventory');
       if($mode==='acl'&&$s['visibility']['firewall_filter']!=='denied')throw new RuntimeException('bad ACL');
       if($mode==='missing'&&$s['visibility']['firewall_filter']!=='not_found')throw new RuntimeException('bad visibility');

@@ -1,7 +1,7 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.8.5
+  version: 0.8.6
   description: 'CajeerServers 0.7.1: VMmanager connection profiles, PVE/PBS integration and infrastructure collection.'
 servers:
 - url: /api/v1
@@ -3690,6 +3690,128 @@ paths:
         '404': {description: Связь не найдена}
         '412': {description: Конфликт версии}
         '428': {description: Отсутствует If-Match}
+  /inventory/network-discovery:
+    get:
+      operationId: inventoryNetworkDiscovery
+      summary: Наблюдаемая сетевая топология из актуальных снимков коннекторов
+      description: Требуются inventory.relationships.read, inventory.assets.read, inventory.network.read, connectors.targets.read и членство Workspace. Сопоставление LLDP и повторяющихся наблюдений ограничено текущей страницей. Снимки старше 15 минут не используются.
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: workspace_id
+        in: query
+        required: true
+        schema: {type: string, format: uuid}
+      - name: limit
+        in: query
+        schema: {type: integer, minimum: 1, maximum: 20, default: 5}
+      - name: offset
+        in: query
+        schema: {type: integer, minimum: 0, maximum: 10000, default: 0}
+      responses:
+        '200':
+          description: Страница источников, подтверждённые LLDP-связи и совпадающие наблюдения
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [sources, physical_links, conflicts, conflicts_truncated, has_more, limit, offset]
+                    properties:
+                      sources:
+                        type: array
+                        items:
+                          type: object
+                          required: [target_id, provider, name, state, fresh, observed_at, projection]
+                          properties:
+                            target_id: {type: string, format: uuid}
+                            asset_id: {type: [string, 'null'], format: uuid}
+                            provider: {type: string, enum: [ssh, winrm, snmp, routeros, proxmox, vmmanager]}
+                            name: {type: string}
+                            state: {type: string, enum: [available, stale, not_collected]}
+                            fresh: {type: boolean}
+                            observed_at: {type: [string, 'null'], format: date-time}
+                            projection:
+                              type: [object, 'null']
+                              properties:
+                                target_id: {type: string, format: uuid}
+                                provider: {type: string}
+                                observed_at: {type: string, format: date-time}
+                                complete: {type: boolean}
+                                devices: {type: array, items: {type: object}}
+                                interfaces: {type: array, items: {type: object}}
+                                networks: {type: array, items: {type: object}}
+                                addresses: {type: array, items: {type: object}}
+                                links: {type: array, items: {type: object}}
+                                neighbors: {type: array, items: {type: object}}
+                                lldp: {type: array, items: {type: object}}
+                                issues: {type: array, items: {type: object}}
+                      physical_links: {type: array, items: {type: object}}
+                      conflicts: {type: array, items: {type: object}}
+                      conflicts_truncated: {type: boolean}
+                      has_more: {type: boolean}
+                      limit: {type: integer}
+                      offset: {type: integer}
+        '401': {description: Authentication required}
+        '403': {description: Permission denied}
+        '404': {description: Workspace not found}
+        '422': {description: Invalid pagination or oversized page}
+  /inventory/network-discovery/reconcile:
+    post:
+      operationId: inventoryNetworkDiscoveryReconcile
+      summary: Аддитивный импорт одного свежего сетевого снимка SSH, WinRM или RouterOS в IPAM
+      description: Требует те же права чтения, inventory.network.manage, CSRF и Workspace owner/manager. Точные observed_at и asset_id из GET являются предусловиями. Ручные записи не изменяются; указанный network_id разрешает только явное использование совпадающей сети.
+      security:
+      - sessionAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [workspace_id, target_id, observed_at, asset_id]
+              additionalProperties: false
+              properties:
+                workspace_id: {type: string, format: uuid}
+                target_id: {type: string, format: uuid}
+                observed_at: {type: string, format: date-time, maxLength: 40}
+                asset_id: {type: string, format: uuid}
+                network_id: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Отчёт созданных, неизменённых, конфликтующих и пропущенных объектов
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [created, unchanged, conflicts, skipped, issues, retained_unseen, applied]
+                    properties:
+                      created: {type: integer}
+                      unchanged: {type: integer}
+                      conflicts: {type: integer}
+                      skipped: {type: integer}
+                      retained_unseen: {type: integer}
+                      applied: {type: boolean}
+                      issues:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            kind: {type: string}
+                            key: {type: string}
+                            code: {type: string}
+        '401': {description: Authentication required}
+        '403': {description: Permission denied}
+        '404': {description: Resource not found}
+        '409': {description: Snapshot stale or CMDB identity not synchronized}
+        '422': {description: Invalid source or selected subnet}
   /inventory/topology:
     get:
       operationId: inventoryTopologyGraph
