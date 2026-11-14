@@ -30,7 +30,7 @@ try {
     $pdo=$db->connection();$ok((int)$pdo->query("SELECT current_setting('server_version_num')")->fetchColumn()>=170000,'PostgreSQL 17+');
     $pdo->exec('CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public');
     $pdo->exec('CREATE SCHEMA "'.$schema.'"');$created=true;$pdo->exec('SET search_path TO "'.$schema.'", public');
-    foreach(glob($root.'/migrations/pgsql/*.sql')?:[] as $file)if(!str_starts_with(basename($file),'0047_')&&!str_starts_with(basename($file),'0048_')&&!str_starts_with(basename($file),'0049_'))copy($file,$dir.'/migrations/'.basename($file));
+    foreach(glob($root.'/migrations/pgsql/*.sql')?:[] as $file)if(!str_starts_with(basename($file),'0047_')&&!str_starts_with(basename($file),'0048_')&&!str_starts_with(basename($file),'0049_')&&!str_starts_with(basename($file),'0050_'))copy($file,$dir.'/migrations/'.basename($file));
     (new MigrationRunner($db,$dir.'/migrations'))->run();
     $password='fixture-only-password-123!';$q=$pdo->prepare('INSERT INTO users(email,name,password_hash,two_factor_enabled) VALUES(:email,:name,:hash,true) RETURNING id::text');
     $q->execute(['email'=>'vmm-test@example.invalid','name'=>'VMM integration','hash'=>password_hash($password,PASSWORD_ARGON2ID)]);$actor=(string)$q->fetchColumn();
@@ -174,9 +174,26 @@ try {
     $reject(403,fn()=>$execution->status($actor,$id,$networkRun['id']),'network history requires network permission');
     $reject(403,fn()=>$execution->runs($actor,$id,20,0,null,'vmmanager.network'),'network history filter requires network permission');
     $pdo->exec("INSERT INTO role_permissions(role_id,permission_id) SELECT r.id,p.id FROM roles r CROSS JOIN permissions p WHERE r.slug='administrator' AND p.scope='inventory.network.read'");
+    copy($root.'/migrations/pgsql/0050_vmmanager_storage_templates.sql',$dir.'/migrations/0050_vmmanager_storage_templates.sql');
+    $ok(count($runner->run()['applied'])===1&&$runner->run()['applied']===[],'upgrade from 0.7.5 and migration idempotency');
+    $ok($runtime->vmmanagerStorage($actor,$id)['state']==='not_collected'&&$runtime->vmmanagerTemplates($actor,$id)['state']==='not_collected','catalog states initially absent');
+    $beforeCatalog=$count();
+    foreach(['storage','templates'] as $scope){
+        $authorize();$p=$execution->createPlan($principal,$id,3,['name'=>'Inspect '.$scope,'collector'=>'vmmanager.'.$scope,'operation'=>'inspect','ttl_seconds'=>3600,'interval_seconds'=>300]);
+        $r=$execution->runPlan($actor,$id,$p['id'],'catalog-'.$scope);$ok($execution->once()['status']==='succeeded','catalog worker '.$scope);
+        $current=$scope==='storage'?$runtime->vmmanagerStorage($actor,$id):$runtime->vmmanagerTemplates($actor,$id);
+        $ok($current['state']==='available'&&$current['snapshot']['counts']!==[],'current '.$scope.' committed');
+        $history=$execution->status($actor,$id,$r['id'])['result']['connection']['vmmanager_'.$scope.'_discovery'];
+        $ok($history===$current['snapshot']||$history['counts']===$current['snapshot']['counts'],'history '.$scope.' retained');
+        $execution->runPlan($actor,$id,$p['id'],'catalog-repeat-'.$scope);$ok($execution->once()['status']==='succeeded','repeat catalog '.$scope);
+    }
+    $ok($count()===$beforeCatalog&&(int)$pdo->query('SELECT count(*) FROM vmmanager_catalog_state')->fetchColumn()===2,'two independent states without CMDB mutations');
+    $ok($runtime->vmmanagerStorage($actor,$id)['snapshot']['volumes'][0]['size_mib']==='9007199254740993','precise storage volume in PostgreSQL');
+    $ok($runtime->vmmanagerTemplates($actor,$id)['snapshot']['os'][0]['id']===12,'OS catalog in PostgreSQL');
     $bindings->update($actor,$id,3,['vmmanager_profile'=>$profile]);$ok($runtime->vmmanagerCluster($actor,$id)['state']==='stale','profile revision invalidates current cluster snapshot');
     $ok($runtime->vmmanagerGuests($actor,$id)['state']==='stale','profile revision invalidates guest snapshot');
     $ok($runtime->vmmanagerNetwork($actor,$id)['state']==='stale','profile revision invalidates network snapshot');
+    $ok($runtime->vmmanagerStorage($actor,$id)['state']==='stale'&&$runtime->vmmanagerTemplates($actor,$id)['state']==='stale','profile revision invalidates both catalog states');
     echo "VMmanager PostgreSQL/Vault/Queue/HTTPS integration: $n PASS\n";
 } catch(Throwable $e){$failed=true;fwrite(STDERR,'FAIL VMmanager PostgreSQL: '.$e::class.': '.$e->getMessage()."\n");}
 finally {

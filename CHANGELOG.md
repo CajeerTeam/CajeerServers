@@ -1,3 +1,8 @@
+## [0.7.6] — 2026-11-14 — Storage & Templates Discovery
+
+- Рабочие Inspect-сборщики `vmmanager.storage` и `vmmanager.templates`: storage, capacity, guest disks, OS, presets, images и ISO.
+- Pinned HTTPS, scoped catalog completeness, точные MiB, привязка дисков и ОС, атомарное хранение, история, Admin UI, SDK и миграция 0050.
+
 ## [0.7.5] — 2026-11-14 — Network & IPAM Discovery
 
 - Рабочий `vmmanager.network`: сети, IP-пулы, IPv4/IPv6, NIC и привязки к гостям через IPmanager API v3.

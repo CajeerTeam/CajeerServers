@@ -45,6 +45,18 @@ final class VmmanagerConnector implements ConnectorInterface, \Cajeer\Servers\Me
         return $this->discover($context,'inspect',$secret,'network');
     }
 
+    public function storage(ConnectorContext $context,#[\SensitiveParameter] string $secret):ConnectorResult
+    {
+        if($context->vmmanagerProfile===null)throw new ConnectorTransportException('connector_trust_failed');
+        return $this->discover($context,'inspect',$secret,'storage');
+    }
+
+    public function templates(ConnectorContext $context,#[\SensitiveParameter] string $secret):ConnectorResult
+    {
+        if($context->vmmanagerProfile===null)throw new ConnectorTransportException('connector_trust_failed');
+        return $this->discover($context,'inspect',$secret,'templates');
+    }
+
     private function discover(ConnectorContext $context,string $operation,#[\SensitiveParameter] string $secret,string $scope):ConnectorResult
     {
         $manifest = $this->manifest();
@@ -95,6 +107,29 @@ final class VmmanagerConnector implements ConnectorInterface, \Cajeer\Servers\Me
                 if($this->api->identity($context,$token,$deadline)!==$identity)throw new ConnectorTransportException('connector_auth_failed');
                 // This collector has no guests; never claim completeness for the target-wide reconciliation.
                 return new ConnectorResult($items,false,connection:$connection+['vmmanager_cluster_discovery'=>$details]);
+            }
+            if(in_array($scope,['storage','templates'],true)){
+                $nodes=$this->clusterPages($context,'nodes',$token,$deadline,self::LIMIT);
+                $hosts=$this->clusterPages($context,'guests',$token,$deadline,self::LIMIT-count($nodes));
+                $visible=array_values(array_filter($nodes,static fn($r)=>VmmanagerApiClient::id($r->id??null)===$profile['anchor_id']));
+                VmmanagerProfile::verify($profile,array_map(static fn($r)=>['id'=>VmmanagerApiClient::id($r->id),'name'=>$r->name??null],$visible));
+                $full=$identity['administrator']&&$identity['owner_id']===$identity['trustee_id'];
+                [$guestDetails]=VmmanagerGuestDiscovery::build($nodes,$hosts,$full);
+                $sections=['nodes'=>'available','guests'=>'available'];$catalogs=[];$remaining=self::LIMIT;
+                foreach($scope==='storage'?['storages']:['os','presets','images','isos'] as $resource){
+                    try{
+                        $catalogs[$resource]=$this->clusterPages($context,$resource,$token,$deadline,$remaining);
+                        $remaining-=count($catalogs[$resource]);$sections[$resource]='available';
+                    }catch(ConnectorTransportException $e){
+                        // Only explicit ACL/not found may produce a partial catalog. No partial page is retained.
+                        $sections[$resource]=match($e->httpStatus){403=>'denied',404=>'not_found',default=>throw $e};
+                        $catalogs[$resource]=[];
+                    }
+                }
+                $details=$scope==='storage'?VmmanagerStorageDiscovery::storage($catalogs['storages'],$nodes,$guestDetails['guests'],$full,$sections):VmmanagerStorageDiscovery::templates($catalogs,$guestDetails['guests'],$full,$sections);
+                $this->anchor($context,$token,$deadline);
+                if($this->api->identity($context,$token,$deadline)!==$identity)throw new ConnectorTransportException('connector_auth_failed');
+                return new ConnectorResult([],false,connection:$connection+['vmmanager_'.$scope.'_discovery'=>$details]);
             }
             if($scope==='network'){
                 $nodes=$this->clusterPages($context,'nodes',$token,$deadline,self::LIMIT);

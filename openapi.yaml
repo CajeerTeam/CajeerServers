@@ -1,7 +1,7 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.7.5
+  version: 0.7.6
   description: 'CajeerServers 0.7.1: VMmanager connection profiles, PVE/PBS integration and infrastructure collection.'
 servers:
 - url: /api/v1
@@ -5320,6 +5320,56 @@ paths:
                 required: [data]
                 properties:
                   data: {$ref: '#/components/schemas/VmmanagerGuestState'}
+        '401': {description: Authentication required}
+        '403': {description: Permission denied}
+        '404': {description: Target not found in Workspace}
+  /connectors/targets/{id}/vmmanager-storage:
+    get:
+      operationId: getVmmanagerStorageState
+      summary: Read the latest scoped VMmanager storage observation
+      description: Requires connectors.targets.read, inventory.assets.read and Workspace membership. A stale scope has no current snapshot. Historical runs remain available separately.
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Current saved observation, not live health
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: {$ref: '#/components/schemas/VmmanagerStorageState'}
+        '401': {description: Authentication required}
+        '403': {description: Permission denied}
+        '404': {description: Target not found in Workspace}
+  /connectors/targets/{id}/vmmanager-templates:
+    get:
+      operationId: getVmmanagerTemplatesState
+      summary: Read the latest scoped VMmanager templates observation
+      description: Requires connectors.targets.read, inventory.assets.read and Workspace membership. A stale scope has no current snapshot. Historical runs remain available separately.
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Current saved observation, not live health
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: {$ref: '#/components/schemas/VmmanagerTemplatesState'}
         '401': {description: Authentication required}
         '403': {description: Permission denied}
         '404': {description: Target not found in Workspace}
@@ -11909,6 +11959,140 @@ components:
       properties:
         total: {type: [string, 'null']}
         used: {type: [string, 'null']}
+    VmmanagerCatalogCapacity:
+      type: object
+      required: [total, used, free]
+      properties:
+        total: {type: [string, 'null']}
+        used: {type: [string, 'null']}
+        free: {type: [string, 'null']}
+    VmmanagerCatalogBase:
+      type: object
+      required: [schema_version, complete, visibility, sections, counts]
+      properties:
+        schema_version: {const: 1}
+        complete: {type: boolean}
+        visibility: {type: string, enum: [administrator, restricted]}
+        sections:
+          type: object
+          additionalProperties: {type: string, enum: [available, denied, not_found]}
+        counts:
+          type: object
+          additionalProperties: {type: integer, minimum: 0}
+    VmmanagerStorageEntry:
+      type: object
+      required: [id, name, type, state, shared, cluster_ids, node_ids, capacity_mib, visible_disks]
+      properties:
+        id: {type: integer}
+        name: {type: string}
+        type: {type: [string, 'null']}
+        state: {type: [string, 'null']}
+        shared: {type: [boolean, 'null']}
+        cluster_ids: {type: [array, 'null'], items: {type: integer}}
+        node_ids: {type: [array, 'null'], items: {type: integer}}
+        capacity_mib:
+          oneOf:
+          - {$ref: '#/components/schemas/VmmanagerCatalogCapacity'}
+          - {type: 'null'}
+        visible_disks: {type: integer, minimum: 0}
+    VmmanagerStorageNode:
+      type: object
+      required: [id, name, cluster_id, capacity_mib, storage_ids]
+      properties:
+        id: {type: integer}
+        name: {type: string}
+        cluster_id: {type: [integer, 'null']}
+        storage_ids: {type: [array, 'null'], items: {type: integer}}
+        capacity_mib:
+          oneOf:
+          - {$ref: '#/components/schemas/VmmanagerCatalogCapacity'}
+          - {type: 'null'}
+    VmmanagerStorageVolume:
+      allOf:
+      - {$ref: '#/components/schemas/VmmanagerGuestDisk'}
+      - type: object
+        required: [key, guest_id, guest_name, node_id, cluster_id, storage_visible]
+        properties:
+          key: {type: string}
+          guest_id: {type: integer}
+          guest_name: {type: string}
+          node_id: {type: [integer, 'null']}
+          cluster_id: {type: [integer, 'null']}
+          storage_visible: {type: boolean}
+    VmmanagerCatalogEntry:
+      type: object
+      required: [id, name, state, type, version, architecture, os_family, cluster_ids, node_ids, repository_id, os_id, size_mib, cpu_number, ram_mib, hdd_mib, enabled]
+      properties:
+        id: {type: integer}
+        name: {type: string}
+        state: {type: [string, 'null']}
+        type: {type: [string, 'null']}
+        version: {type: [string, 'null']}
+        architecture: {type: [string, 'null']}
+        os_family: {type: [string, 'null']}
+        cluster_ids: {type: [array, 'null'], items: {type: integer}}
+        node_ids: {type: [array, 'null'], items: {type: integer}}
+        repository_id: {type: [integer, 'null']}
+        os_id: {type: [integer, 'null']}
+        size_mib: {type: [string, 'null']}
+        cpu_number: {type: [string, 'null']}
+        ram_mib: {type: [string, 'null']}
+        hdd_mib: {type: [string, 'null']}
+        enabled: {type: [boolean, 'null']}
+    VmmanagerGuestOsLink:
+      type: object
+      required: [guest_id, guest_name, node_id, cluster_id, os_id, os_name, os_visible]
+      properties:
+        guest_id: {type: integer}
+        guest_name: {type: string}
+        node_id: {type: [integer, 'null']}
+        cluster_id: {type: [integer, 'null']}
+        os_id: {type: [integer, 'null']}
+        os_name: {type: [string, 'null']}
+        os_visible: {type: boolean}
+    VmmanagerStorageSnapshot:
+      allOf:
+      - {$ref: '#/components/schemas/VmmanagerCatalogBase'}
+      - type: object
+        required: [unknown_guest_disks, unlinked_volumes]
+        properties:
+          unknown_guest_disks: {type: integer, minimum: 0}
+          unlinked_volumes: {type: integer, minimum: 0}
+          storages: {type: array, items: {$ref: '#/components/schemas/VmmanagerStorageEntry'}}
+          nodes: {type: array, items: {$ref: '#/components/schemas/VmmanagerStorageNode'}}
+          volumes: {type: array, items: {$ref: '#/components/schemas/VmmanagerStorageVolume'}}
+    VmmanagerTemplatesSnapshot:
+      allOf:
+      - {$ref: '#/components/schemas/VmmanagerCatalogBase'}
+      - type: object
+        required: [unknown_guest_os]
+        properties:
+          unknown_guest_os: {type: integer, minimum: 0}
+          os: {type: array, items: {$ref: '#/components/schemas/VmmanagerCatalogEntry'}}
+          presets: {type: array, items: {$ref: '#/components/schemas/VmmanagerCatalogEntry'}}
+          images: {type: array, items: {$ref: '#/components/schemas/VmmanagerCatalogEntry'}}
+          isos: {type: array, items: {$ref: '#/components/schemas/VmmanagerCatalogEntry'}}
+          guest_os_links: {type: array, items: {$ref: '#/components/schemas/VmmanagerGuestOsLink'}}
+    VmmanagerStorageState:
+      type: object
+      required: [state, observed_at, snapshot]
+      properties:
+        state: {type: string, enum: [not_collected, stale, available]}
+        observed_at: {type: [string, 'null'], format: date-time}
+        snapshot:
+          oneOf:
+            - {$ref: '#/components/schemas/VmmanagerStorageSnapshot'}
+            - {type: 'null'}
+    VmmanagerTemplatesState:
+      type: object
+      required: [state, observed_at, snapshot]
+      properties:
+        state: {type: string, enum: [not_collected, stale, available]}
+        observed_at: {type: [string, 'null'], format: date-time}
+        snapshot:
+          oneOf:
+            - {$ref: '#/components/schemas/VmmanagerTemplatesSnapshot'}
+            - {type: 'null'}
     VmmanagerGuestState:
       type: object
       required: [state, observed_at, snapshot]
@@ -12090,6 +12274,8 @@ components:
       required: [provider, api_version, endpoint_host, endpoint_port, tls_pinned, identity_verified]
       properties:
         vmmanager_network_discovery: {$ref: '#/components/schemas/VmmanagerNetworkSnapshot'}
+        vmmanager_storage_discovery: {$ref: '#/components/schemas/VmmanagerStorageSnapshot'}
+        vmmanager_templates_discovery: {$ref: '#/components/schemas/VmmanagerTemplatesSnapshot'}
         vmmanager_guest_discovery: {$ref: '#/components/schemas/VmmanagerGuestSnapshot'}
         vmmanager_cluster_discovery: {$ref: '#/components/schemas/VmmanagerClusterSnapshot'}
         provider: {const: vmmanager}

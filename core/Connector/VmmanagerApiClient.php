@@ -7,6 +7,7 @@ final class VmmanagerApiClient
 {
     private const READS = [
         'nodes'=>'/vm/v3/node', 'guests'=>'/vm/v3/host', 'clusters'=>'/vm/v3/cluster',
+        'storages'=>'/vm/v3/storage', 'os'=>'/vm/v3/os', 'presets'=>'/vm/v3/preset', 'images'=>'/vm/v3/image', 'isos'=>'/vm/v3/os/iso',
         'tasks'=>'/vm/v3/task', 'networks'=>'/ip/v3/ipnet', 'pools'=>'/ip/v3/ippool', 'addresses'=>'/ip/v3/ip',
     ];
 

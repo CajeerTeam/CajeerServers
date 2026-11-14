@@ -105,6 +105,14 @@ final class ConnectorBindingController
     {
         return HttpResponse::json(['data'=>$this->runtime->vmmanagerGuests($this->actor($r,'connectors.targets.read'),self::id($r))],200,['Cache-Control'=>'private, no-store']);
     }
+    public function vmmanagerStorage(HttpRequest $r):HttpResponse
+    {
+        return HttpResponse::json(['data'=>$this->runtime->vmmanagerStorage($this->actor($r,'connectors.targets.read'),self::id($r))],200,['Cache-Control'=>'private, no-store']);
+    }
+    public function vmmanagerTemplates(HttpRequest $r):HttpResponse
+    {
+        return HttpResponse::json(['data'=>$this->runtime->vmmanagerTemplates($this->actor($r,'connectors.targets.read'),self::id($r))],200,['Cache-Control'=>'private, no-store']);
+    }
     public function vmmanagerNetwork(HttpRequest $r):HttpResponse
     {
         return HttpResponse::json(['data'=>$this->runtime->vmmanagerNetwork($this->actor($r,'connectors.targets.read'),self::id($r))],200,['Cache-Control'=>'private, no-store']);

@@ -28,6 +28,13 @@ ADDRESSES = [dict(id=1, name='192.0.2.21', ipnet=1, ippool=1, userspace=1, statu
              dict(id=3, name='192.0.2.1', ipnet=1, ippool=1, status='special', locked=True),
              dict(id=4, name='2001:db8::/80', ipnet=2, ippool=1, status='busy')]
 
+STORAGES = [dict(id=6,name='local',type='lvm',shared=False,cluster=[{'id':1}],node=[{'id':1}],storage_mib={'total':'9007199254740993','used':'1024','free':'9007199254739969'},storage_params={'password':'remote-secret-marker'}),dict(id=7,name='ceph',type='rbd',shared=True,clusters=[1,2],nodes=[1,2],state='active')]
+OS = [dict(id=12,name='Ubuntu 24.04',version='24.04',arch='x86_64',os_family='linux',clusters=[1],repository=3,enabled=True,password='remote-secret-marker')]
+PRESETS = [dict(id=1,name='Small KVM',cpu_number=2,ram_mib=4096,hdd_mib=32768,cluster=1,os=12)]
+IMAGES = [dict(id=1,name='golden-image',size_mib='9007199254740993',os=12,state='ready',path='remote-secret-marker')]
+ISOS = [dict(id=1,name='install.iso',size_mib=1024,repository=3,url='https://remote-secret-marker.invalid')]
+CATALOGS = {'/vm/v3/storage': STORAGES, '/vm/v3/os': OS, '/vm/v3/preset': PRESETS, '/vm/v3/image': IMAGES, '/vm/v3/os/iso': ISOS}
+
 class Handler(http.server.BaseHTTPRequestHandler):
     calls = []
     anchor_calls = 0
@@ -100,10 +107,27 @@ class Handler(http.server.BaseHTTPRequestHandler):
         args = parse_qs(path.query, strict_parsing=True)
         match = re.fullmatch(r'id GT (\d+)', args.get('where', [''])[0])
         limit_match = re.fullmatch(r'0,(1|100)', args.get('limit', [''])[0])
-        if path.path not in ('/vm/v3/node', '/vm/v3/host', '/vm/v3/cluster', '/vm/v3/task', '/ip/v3/ipnet', '/ip/v3/ippool', '/ip/v3/ip') or not match or not limit_match or args.get('orderby') != ['id asc']:
+        if path.path not in ('/vm/v3/node', '/vm/v3/host', '/vm/v3/cluster', '/vm/v3/task', '/ip/v3/ipnet', '/ip/v3/ippool', '/ip/v3/ip', *CATALOGS) or not match or not limit_match or args.get('orderby') != ['id asc']:
             self.reply({'error': {'code': 400}}, 400)
             return
         after, limit = int(match[1]), int(limit_match[1])
+        if path.path in CATALOGS:
+            rows = [dict(r) for r in CATALOGS[path.path]]
+            if token == 'fixture-vmm-catalog-denied' and path.path == '/vm/v3/os':
+                self.reply({'error': {'code': 42}}, 403); return
+            if token == 'fixture-vmm-catalog-not-found' and path.path == '/vm/v3/os/iso':
+                self.reply({'error': {'code': 42}}, 404); return
+            if token == 'fixture-vmm-catalog-midfail' and path.path == '/vm/v3/storage' and after > 0:
+                self.reply({'error': {'code': 42}}, 503); return
+            if token == 'fixture-vmm-catalog-revoked' and path.path == '/vm/v3/image':
+                self.reply({'error': {'code': 3001}}); return
+            if token == 'fixture-vmm-catalog-many' and path.path == '/vm/v3/os':
+                rows = [dict(id=i, name=f'OS {i}') for i in range(1,103)]
+            if token == 'fixture-vmm-catalog-duplicate' and path.path == '/vm/v3/storage':
+                rows = [rows[0],rows[0]]
+            if token == 'fixture-vmm-catalog-unlinked' and path.path == '/vm/v3/storage':
+                rows = rows[1:]
+            self.reply({'list':[row for row in rows if row['id']>after][:limit]}); return
         if path.path == '/vm/v3/cluster':
             if token == 'fixture-vmm-cluster-denied':
                 self.reply({'error': {'code': 42}}, 403)
@@ -231,7 +255,7 @@ $collected=$collector->collect(new \Cajeer\Servers\Collector\CollectionPlan('vmm
 $ok(count($collected->items)===4&&$collected->complete,'named VMmanager collector');
 $health=$execute('fixture-vmm-active','health');$ok(count($health->items)===1&&!$health->complete,'health one-node partial');
 $ok($health->connection['authentication']['owner_id']===7&&$health->connection['authentication']['administrator']===true&&$health->connection['authentication']['expiry_source']==='unknown','verified remote principal');
-$ok(count($health->connection['capabilities'])===7&&$health->connection['capabilities']['tasks']==='available'&&!str_contains(json_encode($health->connection),'remote-secret-marker'),'real read probes, empty list accessible, no remote PII');
+$ok(count($health->connection['capabilities'])===12&&$health->connection['capabilities']['tasks']==='available'&&!str_contains(json_encode($health->connection),'remote-secret-marker'),'real read probes, empty list accessible, no remote PII');
 $ok($health->connection['action_capabilities']===['start'=>'advertised','stop'=>'not_advertised','restart'=>'advertised'],'advertised handlers, exact template match');
 $restrictedHealth=$execute('fixture-vmm-capabilities','health')->connection;
 $ok($restrictedHealth['action_capabilities']['start']==='unknown','handler ACL not treated as write permission');
@@ -337,6 +361,29 @@ $d=$network('fixture-vmm-network-userspace')->connection['vmmanager_network_disc
 $d=$network('fixture-vmm-network-duplicate-mac')->connection['vmmanager_network_discovery'];$ok($d['interfaces'][0]['issue']==='duplicate_mac'&&$d['interfaces'][1]['issue']==='duplicate_mac'&&$d['addresses'][0]['issue']==='duplicate_mac','duplicate MAC blocks both NICs and assignment');
 $d=$network('fixture-vmm-network-many')->connection['vmmanager_network_discovery'];$ok(count($d['pools'])===102,'IPmanager keyset pagination');
 foreach(['network-denied'=>'connector_auth_failed','network-midfail'=>'connector_unavailable','network-invalid'=>'connector_protocol_error'] as $case=>$category){try{$network('fixture-vmm-'.$case);throw new LogicException('accepted '.$case);}catch(HttpException $e){$ok($e->errorCode===$category,'network rejects '.$case);}}
+$storagePlan=new \Cajeer\Servers\Collector\CollectionPlan('vmmanager.storage','inspect');
+$templatePlan=new \Cajeer\Servers\Collector\CollectionPlan('vmmanager.templates','inspect');
+$ok($catalog['vmmanager.storage']['operations']===['inspect']&&$catalog['vmmanager.templates']['operations']===['inspect'],'catalog collectors inspect only');
+$storage=static fn(string $token)=>$collector->collect($storagePlan,$target,'api_token',$token);
+$templates=static fn(string $token)=>$collector->collect($templatePlan,$target,'api_token',$token);
+$r=$storage('fixture-vmm-active');$d=$r->connection['vmmanager_storage_discovery'];
+$ok($r->items===[]&&!$r->complete&&$d['counts']===['storages'=>2,'nodes'=>2,'volumes'=>1],'storage does not reconcile CMDB');
+$ok($d['storages'][0]['capacity_mib']['total']==='9007199254740993'&&$d['storages'][0]['capacity_mib']['free']==='9007199254739969','exact physical capacity');
+$ok($d['storages'][0]['cluster_ids']===[1]&&$d['storages'][1]['shared']&&$d['storages'][1]['node_ids']===[1,2],'storage membership and shared status');
+$ok($d['volumes'][0]['key']==='host:21:disk:31'&&$d['volumes'][0]['storage_visible']&&$d['storages'][0]['visible_disks']===1&&$d['volumes'][0]['size_mib']==='9007199254740993','disk placement via exact storage ID');
+$ok($d['unknown_guest_disks']===1&&!$d['complete']&&!str_contains(json_encode($d),'remote-secret-marker'),'missing disk data and no secrets');
+$d=$storage('fixture-vmm-catalog-unlinked')->connection['vmmanager_storage_discovery'];$ok($d['unlinked_volumes']===1&&!$d['volumes'][0]['storage_visible'],'unresolved disk preserved');
+$d=$templates('fixture-vmm-active')->connection['vmmanager_templates_discovery'];
+$ok($d['counts']===['os'=>1,'presets'=>1,'images'=>1,'isos'=>1,'guest_os_links'=>1]&&$d['guest_os_links'][0]['os_visible'],'independent catalogs and OS identity');
+$ok($d['os'][0]['architecture']==='x86_64'&&$d['presets'][0]['ram_mib']==='4096'&&$d['images'][0]['size_mib']==='9007199254740993'&&!str_contains(json_encode($d),'remote-secret-marker'),'allowlisted template metadata');
+$d=$templates('fixture-vmm-catalog-denied')->connection['vmmanager_templates_discovery'];$ok(!$d['complete']&&$d['sections']['os']==='denied'&&$d['os']===[]&&count($d['presets'])===1&&!$d['guest_os_links'][0]['os_visible'],'ACL isolates catalog');
+$d=$templates('fixture-vmm-catalog-not-found')->connection['vmmanager_templates_discovery'];$ok(!$d['complete']&&$d['sections']['isos']==='not_found','missing catalog distinguished from empty');
+$d=$templates('fixture-vmm-catalog-many')->connection['vmmanager_templates_discovery'];$ok(count($d['os'])===102,'catalog keyset pagination');
+$d=$templates('fixture-vmm-scoped')->connection['vmmanager_templates_discovery'];$ok(!$d['complete']&&$d['visibility']==='restricted','scoped catalog incomplete');
+foreach(['catalog-midfail'=>'connector_unavailable','catalog-duplicate'=>'connector_protocol_error'] as $case=>$category){try{$storage('fixture-vmm-'.$case);throw new LogicException('accepted '.$case);}catch(HttpException $e){$ok($e->errorCode===$category,'storage rejects '.$case);}}
+try{$templates('fixture-vmm-catalog-revoked');throw new LogicException('accepted revoked');}catch(HttpException $e){$ok($e->errorCode==='connector_auth_failed','revoked token is not partial ACL');}
+try{$collector->collect($storagePlan,array_diff_key($target,['vmmanager_profile'=>true]),'api_token','fixture-vmm-active');throw new LogicException('missing storage profile');}catch(HttpException $e){$ok($e->errorCode==='collection_invalid','catalog profile required');}
+try{$collector->collect(new \Cajeer\Servers\Collector\CollectionPlan('vmmanager.templates','sync'),$target,'api_token','fixture-vmm-active');throw new LogicException('accepted sync');}catch(HttpException $e){$ok($e->errorCode==='collection_invalid','catalog sync prohibited');}
 echo "VMmanager HTTPS integration: $n PASS\n";
 '''
             subprocess.run(['php','-r',code,str(ROOT),str(server.server_port),str(cert)],check=True,timeout=60)

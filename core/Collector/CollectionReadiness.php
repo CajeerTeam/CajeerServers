@@ -26,6 +26,7 @@ final class CollectionReadiness
                 if(($rows[$provider.'.metrics']['operations']??null)!==['inspect'])return false;
                 if($provider!=='prometheus'&&!in_array('sync',$rows[$provider.'.inventory']['operations']??[],true))return false;
             }
+            if(($rows['vmmanager.storage']['operations']??null)!==['inspect']||($rows['vmmanager.templates']['operations']??null)!==['inspect'])return false;
             if(($rows['vmmanager.network']['operations']??null)!==['inspect','sync'])return false;
             if(($rows['vmmanager.cluster']['operations']??null)!==['inspect','sync']||($rows['vmmanager.guests']['operations']??null)!==['inspect','sync'])return false;
             if(($rows['pbs.backups']['operations']??null)!==['inspect'])return false;
@@ -36,9 +37,10 @@ final class CollectionReadiness
             return true;
         },'Required collectors and exporters must be registered.');
         $probe('collection_migrations',function()use($c):bool{
-            $v=$c->get(MigrationRunner::class)->validate();return $v['valid']&&count($v['rows'])>=49&&array_column($v['rows'],'status')!==[]&&!array_diff(array_column($v['rows'],'status'),['applied']);
-        },'All PostgreSQL migrations, including 0049, must be applied and checksum-valid.');
+            $v=$c->get(MigrationRunner::class)->validate();return $v['valid']&&count($v['rows'])>=50&&array_column($v['rows'],'status')!==[]&&!array_diff(array_column($v['rows'],'status'),['applied']);
+        },'All PostgreSQL migrations, including 0050, must be applied and checksum-valid.');
         $queries=[
+            'vmmanager_catalog_scope'=>"SELECT 1 FROM vmmanager_catalog_state s JOIN connector_targets t ON t.id=s.target_id WHERE t.provider<>'vmmanager' OR s.workspace_id<>t.workspace_id OR s.target_version>t.version LIMIT 1",
             'vmmanager_cluster_scope'=>"SELECT 1 FROM vmmanager_cluster_state s JOIN connector_targets t ON t.id=s.target_id WHERE t.provider<>'vmmanager' OR s.workspace_id<>t.workspace_id OR s.target_version>t.version LIMIT 1",
             'vmmanager_network_scope'=>"SELECT 1 FROM vmmanager_network_state s JOIN connector_targets t ON t.id=s.target_id WHERE t.provider<>'vmmanager' OR s.workspace_id<>t.workspace_id OR s.target_version>t.version LIMIT 1",
             'vmmanager_guest_scope'=>"SELECT 1 FROM vmmanager_guest_state s JOIN connector_targets t ON t.id=s.target_id WHERE t.provider<>'vmmanager' OR s.workspace_id<>t.workspace_id OR s.target_version>t.version LIMIT 1",

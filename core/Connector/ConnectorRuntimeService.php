@@ -164,7 +164,7 @@ final class ConnectorRuntimeService
                 $latest=$this->bindings->runtimeContext($actor,$targetId,$target['version'],$operation);
                 if ($latest['credential_id']!==$target['credential_id'] || $latest['credential_version']!==$target['credential_version']) throw new HttpException(409,'Connector binding changed.','conflict');
                 ConnectorHealthMonitor::record($pdo,$target,$elapsed,null);
-                if ($operation==='inspect' && $snapshot->metricSamples===[] && !in_array($collection['collector']??null,['proxmox.tasks','vmmanager.network'],true) && $target['provider']!=='pbs') $result['preview']=$reconciliation->preview($pdo,$actor,$target,$snapshot);
+                if ($operation==='inspect' && $snapshot->metricSamples===[] && !in_array($collection['collector']??null,['proxmox.tasks','vmmanager.network','vmmanager.storage','vmmanager.templates'],true) && $target['provider']!=='pbs') $result['preview']=$reconciliation->preview($pdo,$actor,$target,$snapshot);
                 if ($collection!==null && $snapshot->metricSamples!==[]) {
                     $result['metrics']=\Cajeer\Servers\Metrics\MetricStore::ingest($pdo,$target,$collection['metric_samples'],$collection['observed_at']);
                     $this->audit->record($pdo,$actor,'collection.metrics.saved','success','connector_target',$targetId,$result['metrics'],$requestId);
@@ -184,6 +184,13 @@ final class ConnectorRuntimeService
                     (new Rbac($this->db,$this->audit))->requireUserPermission($actor,'inventory.network.read',$pdo);
                     $details=$snapshot->connection['vmmanager_network_discovery'];
                     VmmanagerNetworkStore::save($pdo,$target,$details,$observedAt);
+                    $result['discovered']=$result['collection']['count']=array_sum($details['counts']);
+                    $result['collection']['complete']=$details['complete'];
+                }
+                if(in_array($collection['collector']??null,['vmmanager.storage','vmmanager.templates'],true)){
+                    $scope=substr($collection['collector'],strlen('vmmanager.'));
+                    $details=$snapshot->connection['vmmanager_'.$scope.'_discovery'];
+                    VmmanagerCatalogStore::save($pdo,$target,$details,$observedAt,$scope);
                     $result['discovered']=$result['collection']['count']=array_sum($details['counts']);
                     $result['collection']['complete']=$details['complete'];
                 }
@@ -253,6 +260,20 @@ final class ConnectorRuntimeService
         $target=$this->bindings->show($actor,$targetId);
         if($target['provider']!=='vmmanager')throw new HttpException(404,'VMmanager target not found.','not_found');
         return VmmanagerGuestStore::read($this->db->connection(),$target);
+    }
+    public function vmmanagerStorage(string $actor,string $targetId):array
+    {
+        (new Rbac($this->db,$this->audit))->requireUserPermission($actor,'inventory.assets.read');
+        $target=$this->bindings->show($actor,$targetId);
+        if($target['provider']!=='vmmanager')throw new HttpException(404,'VMmanager target not found.','not_found');
+        return VmmanagerCatalogStore::read($this->db->connection(),$target,'storage');
+    }
+    public function vmmanagerTemplates(string $actor,string $targetId):array
+    {
+        (new Rbac($this->db,$this->audit))->requireUserPermission($actor,'inventory.assets.read');
+        $target=$this->bindings->show($actor,$targetId);
+        if($target['provider']!=='vmmanager')throw new HttpException(404,'VMmanager target not found.','not_found');
+        return VmmanagerCatalogStore::read($this->db->connection(),$target,'templates');
     }
     public function vmmanagerNetwork(string $actor,string $targetId):array
     {

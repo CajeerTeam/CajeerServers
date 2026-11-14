@@ -63,6 +63,8 @@ $run('Data collection navigation and UI policy', ['node','--experimental-strip-t
 
 $run('Proxmox Admin navigation policy', ['node','--experimental-strip-types','tests/proxmox-navigation-contract.mjs'], $root . '/admin');
 
+$run('VMmanager HTTPS integration', ['python3','tests/vmmanager-https-integration.py'], $root);
+
 if ($strict) {
     $run('Script sandbox integration', [PHP_BINARY,'tests/script-sandbox-integration.php'], $root);
     $run('Connector stability HTTPS integration', ['python3','tests/connector-stability-https-integration.py'], $root);
