@@ -14,6 +14,13 @@ final class VmmanagerPowerPolicy
     {return match($action){self::ACTIONS[0]=>'start',self::ACTIONS[1]=>'stop',self::ACTIONS[2]=>'restart',default=>throw new \InvalidArgumentException('Unsupported VMmanager action.')};}
     public static function deny(string $code):never
     {throw new HttpException(409,'VMmanager guest is not safe for this operation.',$code);}
+    /** Same safety boundary as the UI; a restricted or future-dated observation is not actionable. */
+    public static function usableSnapshot(array $state,?int $now=null):bool
+    {
+        if(($state['state']??null)!=='available'||($state['snapshot']['complete']??null)!==true||!is_string($state['observed_at']??null))return false;
+        try{$at=(new \DateTimeImmutable($state['observed_at']))->getTimestamp();}catch(\Throwable){return false;}
+        $now??=time();return $at>=$now-900&&$at<=$now;
+    }
     public static function fingerprint(array $guest):string
     {
         foreach(['id','name','virtualization_type','node_id','cluster_id','account_id'] as $key)if(!array_key_exists($key,$guest))self::deny('guest_identity_conflict');

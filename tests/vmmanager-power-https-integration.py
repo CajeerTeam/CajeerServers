@@ -62,6 +62,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 for t in self.tasks.get(token,[]):
                     if t['consul_id']==int(match[1]) and t['name']==match[2]:
                         if token.endswith('-bad-task'): return self.reply({'list':[dict(t,host={'id':99})]})
+                        if token.endswith('-unlinked-task'): return self.reply({'list':[dict(t,host=None,status='complete')]})
                         if token.endswith('-missing-task'): return self.reply({'list':[]})
                         rows.append(dict(t))
                         if t['status']=='running': t['status']='fail' if token.endswith('-failed') else 'complete'
@@ -109,7 +110,7 @@ def main():
         threading.Thread(target=server.serve_forever,daemon=True).start()
         try:
             subprocess.run(['php',str(ROOT/'tests/vmmanager-power-https.php'),str(server.server_port),str(cert)],check=True,timeout=90)
-            assert len(Handler.writes)==15, Handler.writes
+            assert len(Handler.writes)==16, Handler.writes
             assert all(sum(1 for t,h,o in Handler.writes if t==token and h==host and o==op)==1 for token,host,op in Handler.writes), Handler.writes
             if opts.postgres:
                 subprocess.run(['php',str(ROOT/'tests/vmmanager-power-postgres-integration.php'),str(server.server_port),str(cert)],check=True,timeout=180)

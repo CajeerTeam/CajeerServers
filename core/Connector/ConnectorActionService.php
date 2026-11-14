@@ -92,7 +92,7 @@ final class ConnectorActionService
             if(!is_array($guest))throw new HttpException(409,'VMmanager guest identity unavailable.','guest_identity_conflict');
             // Require a current, recently observed detailed guest snapshot and the same CMDB type.
             $state=VmmanagerGuestStore::read($pdo,$t);
-            if($state['state']!=='available'||new \DateTimeImmutable($state['observed_at'])<new \DateTimeImmutable('-15 minutes'))throw new HttpException(409,'Collect vmmanager.guests before executing an action.','guest_identity_conflict');
+            if(!VmmanagerPowerPolicy::usableSnapshot($state))throw new HttpException(409,'Collect vmmanager.guests before executing an action.','guest_identity_conflict');
             $known=null;foreach($state['snapshot']['guests']??[] as $g)if($g['external_id']===$guest['external_id']){$known=$g;break;}
             if($known===null||VmmanagerPowerPolicy::fingerprint($known)!==$remote['fingerprint'])throw new HttpException(409,'VMmanager guest identity changed. Collect guest inventory again.','guest_identity_conflict');
             $type=$guest['virtualization_type']==='kvm'?'virtual_machine':'container';

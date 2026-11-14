@@ -27,15 +27,26 @@ $bad=$profile;$bad['primary_pin']=str_repeat('0',64);
 $reject(fn()=>$driver->prepareAction(new ConnectorContext('vmmanager','vmmanager.test',(int)$argv[1],'api_token',null,$bad),'vmmanager.host.start','host:21','fixture-power-wrong-pin'),'wrong pin');
 $token='fixture-power-drift';$r=$driver->prepareAction($ctx,'vmmanager.host.start','host:21',$token);$reject(fn()=>$driver->dispatchAction($ctx,'vmmanager.host.start',$r,$token),'guest changed before POST',ConnectorActionNotSentException::class);
 foreach(['lost','bad-receipt'] as $mode){$token='fixture-power-'.$mode;$r=$driver->prepareAction($ctx,'vmmanager.host.start','host:21',$token);$reject(fn()=>$driver->dispatchAction($ctx,'vmmanager.host.start',$r,$token),$mode);}
-foreach(['failed','bad-task','missing-task','state-mismatch'] as $mode){
+foreach(['failed','bad-task','missing-task','state-mismatch','unlinked-task'] as $mode){
     $token='fixture-power-'.$mode;$r=$driver->prepareAction($ctx,'vmmanager.host.start','host:21',$token);$task=$driver->dispatchAction($ctx,'vmmanager.host.start',$r,$token);
     if($mode==='failed'){$ok($driver->actionStatus($ctx,$r['node'],$task,$token)==='submitted','failed pending');$ok($driver->actionStatus($ctx,$r['node'],$task,$token)==='failed','remote task failure');}
     elseif($mode==='state-mismatch'){$ok($driver->actionStatus($ctx,$r['node'],$task,$token)==='submitted','mismatch pending');$reject(fn()=>$driver->actionStatus($ctx,$r['node'],$task,$token),'terminal but wrong live state');}
     else $reject(fn()=>$driver->actionStatus($ctx,$r['node'],$task,$token),$mode);
+    if(in_array($mode,['bad-task','unlinked-task'],true)){
+        try{$driver->actionStatus($ctx,$r['node'],$task,$token);throw new LogicException('task identity accepted');}catch(\Cajeer\Servers\Http\Exception\HttpException $e){$ok($e->errorCode==='action_task_identity_unverified','distinct task identity rejection');}
+        $batch=$driver->tasks($ctx,$token,['actions'=>[['id'=>'fixture','node'=>$r['node'],'remote_task'=>$task]]])->connection['vmmanager_task_discovery'];
+        $ok($batch['action_checks'][0]['status']==='submitted'&&$batch['observed_count']===1,'unverified receipt cannot settle or block history');
+    }
 }
 $token='fixture-power-missing-second';$r=$driver->prepareAction($ctx,'vmmanager.host.start','host:21',$token);$task=$driver->dispatchAction($ctx,'vmmanager.host.start',$r,$token);$driver->actionStatus($ctx,$r['node'],$task,$token);$driver->actionStatus($ctx,$r['node'],$task,$token);
 $r=$driver->prepareAction($ctx,'vmmanager.host.reboot','host:21',$token);$reject(fn()=>$driver->dispatchAction($ctx,'vmmanager.host.reboot',$r,$token),'missing start task');
 $token='fixture-power-worker';$r=$driver->prepareAction($ctx,'vmmanager.host.start','host:21',$token);$task=$driver->dispatchAction($ctx,'vmmanager.host.start',$r,$token);
 $prev=['actions'=>[['id'=>'action-fixture','node'=>$r['node'],'remote_task'=>$task]]];$first=$driver->tasks($ctx,$token,$prev)->connection['vmmanager_task_discovery'];$ok($first['action_checks'][0]['status']==='submitted','worker pending');
 $prev+=['revision'=>1,'cursor'=>$first['cursor']];$next=$driver->tasks($ctx,$token,$prev)->connection['vmmanager_task_discovery'];$ok($next['action_checks'][0]['status']==='succeeded','worker settles from actual task and state');
+$now=1700000000;$snapshot=['state'=>'available','observed_at'=>gmdate('c',$now),'snapshot'=>['complete'=>true]];
+$ok(VmmanagerPowerPolicy::usableSnapshot($snapshot,$now),'fresh full snapshot');
+$ok(!VmmanagerPowerPolicy::usableSnapshot(array_replace($snapshot,['snapshot'=>['complete'=>false]]),$now),'partial snapshot blocked');
+$ok(!VmmanagerPowerPolicy::usableSnapshot(array_replace($snapshot,['observed_at'=>gmdate('c',$now-901)]),$now),'old snapshot blocked');
+$ok(!VmmanagerPowerPolicy::usableSnapshot(array_replace($snapshot,['observed_at'=>gmdate('c',$now+1)]),$now),'future snapshot blocked');
+$ok(!VmmanagerPowerPolicy::usableSnapshot(array_replace($snapshot,['state'=>'stale']),$now),'stale scope blocked');
 echo "VMmanager power HTTPS integration: $n PASS\n";

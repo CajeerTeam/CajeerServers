@@ -194,7 +194,7 @@ final class VmmanagerConnector implements ConnectorInterface, ConnectorActionDri
                     if(microtime(true)>$deadline-10)break;
                     try{$status=$this->checkAction($context,$action['node'],$action['remote_task'],$token,$deadline,$identity);}
                     catch(ConnectorTransportException $e){if(!in_array($e->httpStatus,[403,404],true))throw $e;$status='submitted';}
-                    catch(\Cajeer\Servers\Http\Exception\HttpException $e){if(!in_array($e->errorCode,['guest_identity_conflict','action_task_not_visible','action_state_unconfirmed'],true))throw $e;$status='submitted';}
+                    catch(\Cajeer\Servers\Http\Exception\HttpException $e){if(!in_array($e->errorCode,['guest_identity_conflict','action_task_identity_unverified','action_task_not_visible','action_state_unconfirmed'],true))throw $e;$status='submitted';}
                     $batch['action_checks'][]=['id'=>$action['id'],'remote_task'=>$action['remote_task'],'status'=>$status];
                 }
                 $this->anchor($context,$token,$deadline);

@@ -184,6 +184,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 rows.append(dict(id=5,name='192.0.2.21',ipnet=1,userspace=2,status='busy'))
             if token == 'fixture-vmm-network-userspace' and path.path.endswith('/ip'):
                 rows[0]['userspace']=0
+            if token == 'fixture-vmm-pool-missing' and path.path.endswith('/ippool'):
+                rows=[]
+            if token == 'fixture-vmm-pool-unverified' and path.path.endswith('/ippool'):
+                rows[0].pop('ipnets',None)
+            if token == 'fixture-vmm-pool-network' and path.path.endswith('/ippool'):
+                rows[0]['ipnets']=[{'id':2}]
+            if token == 'fixture-vmm-pool-space' and path.path.endswith('/ippool'):
+                rows[0]['userspace']=2
             if token == 'fixture-vmm-network-invalid' and path.path.endswith('/ipnet'):
                 rows[0]['name']='192.0.2.5/24'
             if token == 'fixture-vmm-network-many' and path.path.endswith('/ippool'):
@@ -386,6 +394,7 @@ $d=$network('fixture-vmm-network-duplicate')->connection['vmmanager_network_disc
 $d=$network('fixture-vmm-network-userspace')->connection['vmmanager_network_discovery'];$ok($d['addresses'][0]['issue']==='userspace_mismatch'&&$d['addresses'][0]['userspace']===0,'userspace zero is distinct from unknown');
 $d=$network('fixture-vmm-network-duplicate-mac')->connection['vmmanager_network_discovery'];$ok($d['interfaces'][0]['issue']==='duplicate_mac'&&$d['interfaces'][1]['issue']==='duplicate_mac'&&$d['addresses'][0]['issue']==='duplicate_mac','duplicate MAC blocks both NICs and assignment');
 $d=$network('fixture-vmm-network-many')->connection['vmmanager_network_discovery'];$ok(count($d['pools'])===102,'IPmanager keyset pagination');
+foreach(['pool-missing'=>'pool_not_visible','pool-unverified'=>'pool_network_unverified','pool-network'=>'pool_network_mismatch','pool-space'=>'pool_userspace_mismatch'] as $case=>$issue){$d=$network('fixture-vmm-'.$case)->connection['vmmanager_network_discovery'];$ok($d['addresses'][0]['issue']===$issue,'unsafe pool relationship '.$case);}
 foreach(['network-denied'=>'connector_auth_failed','network-midfail'=>'connector_unavailable','network-invalid'=>'connector_protocol_error'] as $case=>$category){try{$network('fixture-vmm-'.$case);throw new LogicException('accepted '.$case);}catch(HttpException $e){$ok($e->errorCode===$category,'network rejects '.$case);}}
 $storagePlan=new \Cajeer\Servers\Collector\CollectionPlan('vmmanager.storage','inspect');
 $templatePlan=new \Cajeer\Servers\Collector\CollectionPlan('vmmanager.templates','inspect');

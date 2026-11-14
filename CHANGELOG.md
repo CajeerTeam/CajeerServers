@@ -1,3 +1,10 @@
+## [0.8.0] — 2026-11-14 — VMmanager Integration Stable
+
+- Серверный запрет действий по неполному, устаревшему или датированному будущим guest inventory; строгая привязка Consul-задачи к гостю при сверке.
+- IPAM: запрет импорта адресов с неподтверждённой принадлежностью к пулу или конфликтом userspace.
+- Исполняемая read-only live acceptance CLI VMmanager с проверкой ожидаемых ресурсов, связей и preflight KVM/LXD; обязательная live-приёмка в strict gate и TLS regression.
+- Канал development до подтверждения полного production gate.
+
 ## [0.7.9] — 2026-11-14 — VMmanager Admin UI & E2E
 
 - Рабочая панель `/vmmanager`: scope, навигация, discovery, метрики, планы, контекстные действия KVM/LXD.

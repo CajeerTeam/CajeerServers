@@ -110,7 +110,9 @@ final class VmmanagerApiClient
         if(!in_array($name,['host_start','host_stop','host_restart'],true))throw new \InvalidArgumentException('Unsupported VMmanager task type.');
         $rows=$this->taskQuery($context,"((consul_id EQ '".$consul."') AND (name EQ '".$name."'))",$token,$deadline);
         if($rows===[])return null;
-        if(count($rows)!==1||$rows[0]['consul_id']!==(string)$consul||$rows[0]['type']!==$name||($rows[0]['resource_id']!==null&&$rows[0]['resource_id']!=='host:'.$host))throw new ConnectorTransportException('connector_protocol_error');
+        if(count($rows)!==1||$rows[0]['consul_id']!==(string)$consul||$rows[0]['type']!==$name)throw new ConnectorTransportException('connector_protocol_error');
+        // Missing or mismatched resource evidence cannot settle an action. Keep the lock.
+        if($rows[0]['resource_id']!=='host:'.$host)VmmanagerPowerPolicy::deny('action_task_identity_unverified');
         return $rows[0];
     }
     public function power(ConnectorContext $context,int $host,string $op,#[\SensitiveParameter] string $token,float $deadline):\stdClass

@@ -20,6 +20,18 @@ final class VmmanagerNetworkDiscovery
         return ltrim($out,'0')?:'0';
     }
     private static function cidr(mixed $v):?string {try{return Network::cidr($v);}catch(\Cajeer\Servers\Http\Exception\HttpException){return null;}}
+    /** A referenced pool must positively identify the address network before an IPAM write. */
+    private static function poolIssue(?int $poolId,int $networkId,?int $addressSpace,array $nets,array $pools):?string
+    {
+        if($poolId===null)return null;
+        $pool=$pools[$poolId]??null;
+        if($pool===null)return 'pool_not_visible';
+        if($pool['network_ids']===null)return 'pool_network_unverified';
+        if(!in_array($networkId,$pool['network_ids'],true))return 'pool_network_mismatch';
+        $networkSpace=$nets[$networkId]['userspace'];$poolSpace=$pool['userspace'];
+        if($poolSpace!==null&&(($networkSpace!==null&&$networkSpace!==$poolSpace)||($addressSpace!==null&&$addressSpace!==$poolSpace)))return 'pool_userspace_mismatch';
+        return null;
+    }
     public static function build(array $networks,array $pools,array $addresses,array $guests,bool $full):array
     {
         $nets=[];$poolRows=[];$ips=[];$nics=[];$claims=[];$hostClaims=[];$issues=[];
@@ -47,7 +59,9 @@ final class VmmanagerNetworkDiscovery
             $net=self::ref($r->ipnet??null);$status=in_array($r->status??null,['busy','special','locked','problem','service','extended','dnsbl','deleted','check'],true)?$r->status:'unknown';
             $keys=$ip===null?[]:($claims[$ip]??[]);$nic=count($keys)===1?$keys[0]:null;
             $issue=null;if($prefix!==null)$issue='prefix_allocation';elseif($net===null||!isset($nets[$net])||!Network::contains($nets[$net]['cidr'],$ip))$issue='network_unavailable';elseif(count($keys)>1||($nic!==null&&count($hostClaims[$ip]??[])>1))$issue='ambiguous_nic';elseif($nic!==null&&$nics[$nic]['issue']!==null)$issue=$nics[$nic]['issue'];elseif($net!==null&&isset($nets[$net])&&self::userspace($r->userspace??null)!==null&&$nets[$net]['userspace']!==null&&self::userspace($r->userspace??null)!==$nets[$net]['userspace'])$issue='userspace_mismatch';
-            $ips[$id]=['id'=>$id,'address'=>$ip,'prefix'=>$prefix,'network_id'=>$net,'pool_id'=>self::ref($r->ippool??null),'userspace'=>self::userspace($r->userspace??null),'status'=>$status,'locked'=>is_bool($r->locked??null)?$r->locked:null,'nic_key'=>$nic,'issue'=>$issue];
+            $poolId=self::ref($r->ippool??null);$addressSpace=self::userspace($r->userspace??null);
+            if($issue===null)$issue=self::poolIssue($poolId,$net,$addressSpace,$nets,$poolRows);
+            $ips[$id]=['id'=>$id,'address'=>$ip,'prefix'=>$prefix,'network_id'=>$net,'pool_id'=>$poolId,'userspace'=>$addressSpace,'status'=>$status,'locked'=>is_bool($r->locked??null)?$r->locked:null,'nic_key'=>$nic,'issue'=>$issue];
             if($ip!==null&&$status!=='deleted')$duplicates[$ip][]=$id;
         }
         foreach($duplicates as $ids)if(count($ids)>1)foreach($ids as $id)$ips[$id]['issue']='duplicate_address';

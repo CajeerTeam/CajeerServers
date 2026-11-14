@@ -84,6 +84,9 @@ try {
     $pdo->exec("DELETE FROM role_permissions WHERE permission_id IN (SELECT id FROM permissions WHERE scope='connectors.vmmanager.actions.execute')");
     $reject(403,fn()=>$submit('start',21,'db-no-permission-01'),'requires provider-specific permission');
     $pdo->exec("INSERT INTO role_permissions(role_id,permission_id) SELECT r.id,p.id FROM roles r CROSS JOIN permissions p WHERE r.slug='administrator' AND p.scope='connectors.vmmanager.actions.execute'");
+    $pdo->prepare("UPDATE vmmanager_guest_state SET snapshot=jsonb_set(snapshot,'{complete}','false'::jsonb) WHERE target_id=:id")->execute(['id'=>$id]);
+    $authorize();$reject(409,fn()=>$submit('start',21,'db-partial-guest-01'),'server rejects incomplete guest snapshot');
+    $pdo->prepare("UPDATE vmmanager_guest_state SET snapshot=jsonb_set(snapshot,'{complete}','true'::jsonb) WHERE target_id=:id")->execute(['id'=>$id]);
     $authorize();$start=$submit('start',21,'db-start-guest21-01');$ok($start['status']==='submitted'&&str_starts_with($start['remote_task'],'vmm:'),'durable intent and receipt');
     $ok($submit('start',21,'db-start-guest21-01')['id']===$start['id'],'idempotency replay');
     $reject(409,fn()=>$submit('start',21,'db-concurrent-00001'),'blocks competing action');
