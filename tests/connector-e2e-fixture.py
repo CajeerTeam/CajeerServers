@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""Disposable HTTPS PVE/PBS/VMmanager protocol fixture. No access to a real hypervisor.
+"""Disposable HTTPS PVE/PBS/VMmanager/RouterOS protocol fixture. No access to a real hypervisor.
 Run only on an isolated staging management network. The synthetic token is public.
 """
 import argparse
+import base64
+import binascii
 import http.server
 import json
 import ssl
@@ -101,7 +103,83 @@ class Handler(http.server.BaseHTTPRequestHandler):
             Handler.vmm_counter+=1;consul=100000+Handler.vmm_counter;self.vmm_tasks.setdefault(token,[]).append(dict(id=Handler.vmm_counter,consul_id=consul,name=name,status='complete',host={'id':host}));response[field]=consul
         self.vmm_reply(response)
 
+    # RouterOS is a synthetic REST device; unique test usernames isolate export revisions.
+    routeros_files = {}
+    routeros_exports = {}
+
+    def routeros_user(self):
+        try:
+            auth=self.headers.get('Authorization','')
+            if not auth.startswith('Basic '):return None
+            value=base64.b64decode(auth[6:],validate=True).decode('ascii')
+            user,password=value.split(':',1)
+            return user if re.fullmatch(r'reader-[a-f0-9]{8}',user) and password=='fixture-secret' else None
+        except (ValueError,UnicodeError,binascii.Error):return None
+
+    def routeros_get(self):
+        if not self.routeros_user():return self.send_error(401)
+        url=urllib.parse.urlsplit(self.path);p=url.path
+        if '.proplist' not in urllib.parse.parse_qs(url.query):return self.send_error(400)
+        if p=='/rest/system/identity':
+            data={'name':'router01'}
+        elif p=='/rest/system/resource':data=[{'version':'7.16.2 (stable)','platform':'MikroTik','cpu-load':'10','total-memory':'9007199254740993','free-memory':'100','board-name':'CHR'}]
+        elif p=='/rest/system/routerboard':data={'routerboard':'false','model':'CHR'}
+        elif p=='/rest/interface':data=[{'.id':'*1','name':'ether1','type':'ether','rx-byte':'18446744073709551615','tx-byte':'20','mac-address':'00:11:22:33:44:55'}]
+        elif p=='/rest/interface/bridge':data=[{'.id':'*10','name':'bridge1','vlan-filtering':'true'}]
+        elif p=='/rest/interface/bridge/port':data=[{'.id':'*11','bridge':'bridge1','interface':'ether1','pvid':'20'}]
+        elif p=='/rest/interface/bridge/vlan':data=[{'.id':'*12','bridge':'bridge1','vlan-ids':'20,30','tagged':'ether1','untagged':'bridge1'}]
+        elif p=='/rest/interface/vlan':data=[{'.id':'*13','name':'vlan20','interface':'ether1','vlan-id':'20'}]
+        elif p=='/rest/ipv6/address':data=[{'.id':'*14','address':'2001:db8::1/64','interface':'ether1'}]
+        elif p=='/rest/ip/pool':data=[{'.id':'*15','name':'lan','ranges':'192.0.2.10-192.0.2.100'}]
+        elif p=='/rest/ip/dhcp-server/lease':data=[{'.id':'*16','address':'192.0.2.10','mac-address':'00:11:22:33:44:56','status':'bound'}]
+        elif p=='/rest/ip/neighbor':data=[{'.id':'*17','interface':'ether1','identity':'switch01','address':'192.0.2.2'}]
+        elif p=='/rest/ipv6/route':data=[{'.id':'*18','dst-address':'::/0','gateway':'2001:db8::2','routing-table':'main'}]
+        elif p=='/rest/routing/table':data=[{'.id':'*19','name':'main','fib':'true'}]
+        elif p=='/rest/ip/firewall/nat':data=[{'.id':'*20','chain':'srcnat','action':'masquerade','out-interface':'ether1'}]
+        elif p=='/rest/ipv6/firewall/filter':data=[{'.id':'*21','chain':'forward','action':'drop'}]
+        elif p=='/rest/ip/firewall/address-list':data=[{'.id':'*22','list':'trusted','address':'192.0.2.0/24'}]
+        elif p=='/rest/ip/address':data=[{'.id':'*2','address':'192.0.2.1/24','interface':'ether1'}]
+        elif p=='/rest/ip/route':data=[{'.id':'*3','dst-address':'0.0.0.0/0','gateway':'192.0.2.254','routing-table':'main','active':'true'}]
+        elif p=='/rest/ip/firewall/filter':
+            data=[{'.id':'*4','chain':'input','action':'accept','protocol':'tcp','dst-port':'443'},{'.id':'*5','chain':'input','action':'drop'}]
+        else:data=[]
+        self.vmm_reply(data)
+
+    def routeros_post(self):
+        user=self.routeros_user()
+        if not user:return self.send_error(401)
+        try:
+            size=int(self.headers.get('Content-Length','0'))
+            if not 0<size<=2048:return self.send_error(400)
+            data=json.loads(self.rfile.read(size))
+        except (ValueError,TypeError):return self.send_error(400)
+        if not isinstance(data,dict):return self.send_error(400)
+        with self.lock:
+            if self.path=='/rest/export' and set(data)=={'file','compact'} and isinstance(data['file'],str) and re.fullmatch(r'cajeer-backup-[a-f0-9]+',data['file']):
+                count=self.routeros_exports.get(user,0)+1;self.routeros_exports[user]=count
+                action='accept' if count<=2 else 'drop'
+                self.routeros_files[(user,data['file']+'.rsc')]=f'# 2026-11-14 12:00:00 by RouterOS 7.16.2\n/ip firewall filter\nadd chain=input action={action}\n'
+                return self.vmm_reply([])
+            if self.path=='/rest/file/read' and set(data)=={'file','offset','chunk-size'} and data['chunk-size']=='32768' and isinstance(data['file'],str):
+                content=self.routeros_files.get((user,data['file']))
+                if content is None:return self.send_error(404)
+                try:offset=int(data['offset'])
+                except (ValueError,TypeError):return self.send_error(400)
+                if offset<0:return self.send_error(400)
+                return self.vmm_reply([{'data':content[offset:offset+32768]}])
+        self.send_error(405)
+
+    def routeros_delete(self):
+        user=self.routeros_user()
+        if not user:return self.send_error(401)
+        with self.lock:
+            key=(user,self.path.removeprefix('/rest/file/'))
+            if not self.path.startswith('/rest/file/') or key not in self.routeros_files:return self.send_error(404)
+            del self.routeros_files[key]
+        self.send_response(204);self.end_headers()
+
     def do_GET(self):
+        if self.path.startswith('/rest/'):return self.routeros_get()
         if self.vmm_token():
             with self.lock: return self.vmm_get(self.vmm_token())
         if self.headers.get('Authorization') == PBS_AUTH:
@@ -158,6 +236,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.reply(task)
 
     def do_POST(self):
+        if self.path.startswith('/rest/'):return self.routeros_post()
         if self.vmm_token():
             with self.lock: return self.vmm_post(self.vmm_token())
         if not self.authorized():return
@@ -179,6 +258,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             else:self.reply(None,404)
 
     def do_DELETE(self):
+        if self.path.startswith('/rest/'):return self.routeros_delete()
         if not self.authorized():return
         prefix=f'/api2/json/nodes/{NODE}/qemu/{VM}/snapshot/'
         name=self.path.removeprefix(prefix)

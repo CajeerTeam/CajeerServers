@@ -599,3 +599,8 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 - [x] Нативный RouterOS 7 export, шифрование, версии, diff, скачивание и ручные/плановые сборы.
 - [x] Миграция 0060, RBAC, аудит, Admin UI, SDK и тесты.
 - [ ] Live acceptance на реальном RouterOS и production deployment.
+
+## 0.8.9 — OS / Network Admin UI & E2E
+
+- Реализованы специализированный OS / Network центр, SQL Dashboard, навигация Workspace, карточки, планы и резервные копии.
+- Добавлены TLS-интеграционный и браузерный E2E сценарии; полный staging/live acceptance требуется для stable.

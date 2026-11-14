@@ -64,6 +64,8 @@ $run('Data collection navigation and UI policy', ['node','--experimental-strip-t
 $run('Proxmox Admin navigation policy', ['node','--experimental-strip-types','tests/proxmox-navigation-contract.mjs'], $root . '/admin');
 
 $run('VMmanager navigation and dashboard policy', ['node','--experimental-strip-types','tests/vmmanager-navigation-contract.mjs'], $root . '/admin');
+$run('OS / Network navigation and dashboard policy', ['node','--experimental-strip-types','tests/os-network-navigation-contract.mjs'], $root . '/admin');
+$run('OS / Network staging TLS fixture', ['python3','tests/os-network-admin-fixture-integration.py'], $root);
 $run('VMmanager admin fixture HTTPS integration', ['python3','tests/vmmanager-admin-fixture-integration.py'], $root);
 $run('VMmanager HTTPS integration', ['python3','tests/vmmanager-https-integration.py'], $root);
 $run('VMmanager power HTTPS integration', ['python3','tests/vmmanager-power-https-integration.py'], $root);

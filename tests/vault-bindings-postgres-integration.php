@@ -104,6 +104,12 @@ try {
     $id=$createdTarget['id'];
     $ok($createdTarget['version']===1 && $createdTarget['asset_id']===$asset['id'],'real target persisted with inventory relation');
     $ok(count($connector->list($admin,$ws))===1,'workspace target listed');
+    $summary=$connector->summary($admin,$ws,null,'proxmox');
+    $ok($summary===['total'=>1,'healthy'=>0,'problem'=>0,'disabled'=>0,'unchecked'=>1,'without_profile'=>1,'unlinked'=>0],'exact workspace health summary');
+    $ok($connector->summary($viewer,$ws,null,'proxmox')===$summary,'viewer summary matches visible scope');
+    $ok($connector->summary($admin,$ws,'%')['total']===0&&$connector->summary($admin,$ws,null,'ssh')['total']===0,'summary literal and provider filters');
+    $reject(404,fn()=>$connector->summary($other,$ws),'cross-workspace summary forbidden');
+    $reject(422,fn()=>$connector->summary($admin,$ws,null,'invalid'),'summary provider validation');
     $ok(count($connector->list($admin,$ws,50,0,'pve-01','proxmox','active'))===1,'literal case-insensitive name filter');
     $ok(count($connector->list($admin,$ws,50,0,'PVE.INTERNAL'))===1,'host search');
     $ok(count($connector->list($admin,$ws,50,0,'%'))===0,'search wildcard is literal');

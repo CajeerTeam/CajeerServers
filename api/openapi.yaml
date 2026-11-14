@@ -1,7 +1,7 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.8.8
+  version: 0.8.9
   description: 'CajeerServers 0.7.1: VMmanager connection profiles, PVE/PBS integration and infrastructure collection.'
 servers:
 - url: /api/v1
@@ -6965,6 +6965,10 @@ paths:
       - name: state
         in: query
         schema: {type: string, enum: [active, disabled]}
+      - name: include_summary
+        in: query
+        description: Include exact counts for the filtered Workspace, independent of limit and offset.
+        schema: {type: string, enum: ['0', '1']}
       responses:
         '200':
           description: Authorized safe metadata; no secret bytes
@@ -6977,6 +6981,18 @@ paths:
                   data:
                     type: array
                     items: {$ref: '#/components/schemas/ConnectorTargetWithHealth'}
+                  summary:
+                    type: object
+                    description: Counts of saved target health and OS/network profile/CMDB coverage, present only with include_summary=1.
+                    required: [total, healthy, problem, disabled, unchecked, without_profile, unlinked]
+                    properties:
+                      total: {type: integer, minimum: 0}
+                      healthy: {type: integer, minimum: 0}
+                      problem: {type: integer, minimum: 0}
+                      disabled: {type: integer, minimum: 0}
+                      unchecked: {type: integer, minimum: 0}
+                      without_profile: {type: integer, minimum: 0}
+                      unlinked: {type: integer, minimum: 0}
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':

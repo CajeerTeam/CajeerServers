@@ -83,6 +83,10 @@ ok(read('components/VmmanagerSyncDashboard.vue').includes('status=succeeded')&&r
 ok(existsSync(new URL('tests/e2e/vmmanager-admin.spec.ts',root)),'VMmanager browser E2E')
 ok(read("pages/collections.vue").includes("RouterOsDiscovery")&&read("components/RouterOsDiscovery.vue").includes("/routeros-discovery?scope=")&&read("pages/connectors.vue").includes("routeros_api"), "RouterOS real discovery panel and credentials setup")
 ok(read("pages/collections.vue").includes("SnmpDiscovery")&&read("components/SnmpDiscovery.vue").includes("/snmp-discovery?scope=")&&read("pages/collections.vue").includes("snmp.topology"), "SNMP detailed collector UI and plan wiring")
+ok(pages.includes('os-network.vue')&&read('layouts/default.vue').includes('/os-network')&&read('pages/os-network.vue').includes('include_summary'), 'OS / Network dashboard and navigation use real summary API')
+ok(read('pages/os-network.vue').includes('scopedOsTarget')&&read('pages/os-network.vue').includes('onBeforeRouteUpdate')&&read('pages/os-network.vue').includes('NetworkConfigurationBackup'), 'OS / Network scoped navigation and backup UI')
+ok(read('components/OsNetworkTargetOverview.vue').includes('osDiscoveryPath')&&read('components/OsNetworkTargetOverview.vue').includes('/configuration-backups'), 'OS / Network actual snapshots and latest backups')
+ok(existsSync(new URL('tests/e2e/os-network-admin.spec.ts',root)), 'OS / Network browser E2E')
 console.log(`Admin static checks: ${passed} PASS`)
 
 

@@ -241,8 +241,13 @@ final class ConnectorBindingController
     }
     public function index(HttpRequest $r):HttpResponse
     {
-        return HttpResponse::json(['data'=>$this->service->list($this->actor($r,'connectors.targets.read'),self::queryUuid($r),
-            self::integer($r,'limit',50,100),self::integer($r,'offset',0,10000),self::filter($r,'search'),self::filter($r,'provider'),self::filter($r,'state'))],200,['Cache-Control'=>'private, no-store']);
+        $actor=$this->actor($r,'connectors.targets.read');$workspace=self::queryUuid($r);
+        $search=self::filter($r,'search');$provider=self::filter($r,'provider');$state=self::filter($r,'state');
+        $include=self::filter($r,'include_summary');
+        if($include!==null&&!in_array($include,['0','1'],true))throw new HttpException(422,'Invalid summary flag.','validation_failed');
+        $result=['data'=>$this->service->list($actor,$workspace,self::integer($r,'limit',50,100),self::integer($r,'offset',0,10000),$search,$provider,$state)];
+        if($include==='1')$result['summary']=$this->service->summary($actor,$workspace,$search,$provider,$state);
+        return HttpResponse::json($result,200,['Cache-Control'=>'private, no-store']);
     }
     private static function filter(HttpRequest $r,string $name):?string
     { $value=$r->query[$name]??null;if ($value!==null&&!is_string($value)) throw new HttpException(422,'Invalid connector filter.','validation_failed');return $value; }

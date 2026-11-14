@@ -2,7 +2,7 @@
 import { apiError } from '~/composables/useApi'
 import { usableGrant,grantLimits,canPowerResource,isRunPending,canRedrive,canAcknowledge,actionConfirmation,powerActionMatches } from '~/composables/connectorLifecycle'
 import type { LifecycleTarget,LifecycleBinding,ServiceGrant,ConnectorRun,WebhookSource,ConnectorEvent,ConnectorAction,LifecycleResource,CollectorDefinition,CollectionJobPlan } from '~/composables/connectorLifecycle'
-const props=defineProps<{target:LifecycleTarget;binding:LifecycleBinding|null;operations:string[];collectors?:CollectorDefinition[];actions:string[];writeActions:boolean;manage:boolean;busy:boolean;initialTab?:'plans'|'runs'|'actions';initialResource?:string;onlyActions?:boolean}>()
+const props=defineProps<{target:LifecycleTarget;binding:LifecycleBinding|null;operations:string[];collectors?:CollectorDefinition[];actions:string[];writeActions:boolean;manage:boolean;busy:boolean;initialTab?:'plans'|'runs'|'actions';initialResource?:string;onlyActions?:boolean;hideActions?:boolean}>()
 const emit=defineEmits<{(e:'update:busy',v:boolean):void;(e:'changed'):void}>()
 const api=useApi(),auth=useAuth()
 const path=`/connectors/targets/${props.target.id}` // keyed by target in parent
@@ -26,7 +26,7 @@ const exactConfirmation=computed(()=>actionConfirmation(power.action,power.exter
 const oneTime=ref<{id:string;secret:string}|null>(null), revealSecret=ref(false)
 const canGrants=computed(()=>auth.can('connectors.credentials.read'))
 const canRuns=computed(()=>auth.can('inventory.assets.read')&&auth.can('connectors.targets.read'))
-const canActions=computed(()=>auth.can('connectors.actions.read'))
+const canActions=computed(()=>!props.hideActions&&auth.can('connectors.actions.read'))
 const canDelegate=computed(()=>props.manage&&auth.can('vault.credentials.use')&&!!props.binding&&!!props.target.asset_id&&props.target.state==='active')
 const allowedOps=computed(()=>props.operations.filter(op=>op==='health'||(op==='inspect'&&auth.can('inventory.assets.read'))||(op==='sync'&&auth.can('inventory.assets.create')&&auth.can('inventory.assets.update'))))
 const canResolveAction=computed(()=>canDelegate.value&&auth.can('connectors.actions.execute')&&auth.can('inventory.assets.read')&&props.actions.length>0&&(props.target.provider!=='vmmanager'||auth.can('connectors.vmmanager.actions.execute')))

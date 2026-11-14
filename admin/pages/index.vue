@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import {osNetworkUrl} from '~/composables/osNetworkNavigation'
+const route=useRoute()
 const auth = useAuth(); const api = useApi()
 interface Check { ok: boolean; detail: string; elapsed_ms: number }
 interface Overview { checked_at: string; ready: boolean; checks: Record<string, Check>; queue: { available: boolean; stats?: Record<string, number | string> }; scheduler: { available: boolean; stats?: Record<string, unknown> } }
@@ -17,6 +19,7 @@ onMounted(() => { if (auth.can('admin.dashboard.read')) void load() })
 </script>
 <template>
   <div><h1>Обзор инфраструктурной платформы</h1><p class="page-subtitle">Реальное состояние ядра CajeerServers и подключённых сервисов.</p>
+    <section v-if="auth.can('workspaces.read')&&auth.can('connectors.targets.read')" class="panel"><h2>OS / Network</h2><p>Доступность Linux, Windows, SNMP и RouterOS, актуальность снимков, события и резервные копии.</p><NuxtLink class="btn primary" :to="osNetworkUrl(route.query.workspace_id)">Открыть Dashboard OS / Network</NuxtLink></section>
     <UiAlert v-if="!auth.can('admin.dashboard.read')" tone="info" message="Недостаточно прав на просмотр системной панели." />
     <template v-else>
       <div class="toolbar"><span class="muted">{{ data?.checked_at ? `Проверено: ${data.checked_at}` : 'Состояние не загружено' }}</span><button class="btn" :disabled="busy" @click="load">{{ busy ? 'Проверка…' : 'Обновить' }}</button></div>

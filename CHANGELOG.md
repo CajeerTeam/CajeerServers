@@ -1,3 +1,9 @@
+## [0.8.9] — 2026-11-14 — OS / Network Admin UI & E2E
+
+- Самостоятельный OS / Network центр с Dashboard, поиском, пагинацией, deep links и специализированными разделами Linux / Windows / SNMP / RouterOS.
+- Точные SQL-агрегаты по Workspace, состояния сохранённых снимков и запусков, безопасный переход к Inventory, событиям, метрикам, топологии, планам и backup.
+- Браузерный E2E на реальном API/worker и TLS-стенде RouterOS, regression PostgreSQL ACL и транспортные проверки. Канал development до staging/live acceptance.
+
 ## [0.8.8] — 2026-11-14 — Network Configuration Backup
 
 - Реальный RouterOS 7 compact export через pinned HTTPS REST, с временным файлом, ограниченным чтением и удалением.

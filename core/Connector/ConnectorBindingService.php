@@ -132,14 +132,38 @@ final class ConnectorBindingService
         $workspace=self::uuid($workspace);
         if ($limit<1||$limit>100||$offset<0||$offset>10000) throw new HttpException(422,'Invalid pagination.','validation_failed');
         $pdo=$this->db->connection();$this->inventory->workspaceRole($pdo,$workspace,$actor);
-        $filters='';$params=[];
-        if ($search!==null && $search!=='') { $search=self::validateName($search);$filters.=' AND (strpos(lower(t.name),lower(:search_name))>0 OR strpos(lower(t.endpoint_host),lower(:search_host))>0)';$params[':search_name']=$search;$params[':search_host']=$search; }
-        if ($provider!==null && $provider!=='') {if (!in_array($provider,BindingPolicy::PROVIDERS,true)) throw new HttpException(422,'Invalid provider filter.','validation_failed');$filters.=' AND t.provider=:provider';$params[':provider']=$provider;}
-        if ($state!==null && $state!=='') {if (!in_array($state,['active','disabled'],true)) throw new HttpException(422,'Invalid state filter.','validation_failed');$filters.=' AND t.state=:state';$params[':state']=$state;}
+        [$filters,$params]=self::targetFilters($search,$provider,$state);
         $q=$pdo->prepare('SELECT t.id::text,t.workspace_id::text,t.provider,t.name,t.endpoint_host,t.endpoint_port,t.proxmox_profile,t.vmmanager_profile,t.os_network_profile,t.asset_id::text,t.state,t.version,t.created_at::text,t.updated_at::text,h.health_status,h.health_checked_at::text,h.health_success_at::text,h.health_duration_ms,h.health_error_code,h.circuit_open_until::text,h.consecutive_failures FROM connector_targets t JOIN connector_health_current h ON h.target_id=t.id WHERE t.workspace_id=CAST(:ws AS uuid)'.$filters.' ORDER BY t.created_at DESC,t.id DESC LIMIT :limit OFFSET :offset');
         foreach ($params as $key=>$value) $q->bindValue($key,$value,PDO::PARAM_STR);
         $q->bindValue(':ws',$workspace);$q->bindValue(':limit',$limit,PDO::PARAM_INT);$q->bindValue(':offset',$offset,PDO::PARAM_INT);$q->execute();
         return array_map(self::present(...),$q->fetchAll(PDO::FETCH_ASSOC));
+    }
+
+    /** All matching targets, independent of pagination. Same membership and literal filters as list(). */
+    public function summary(string $actor,string $workspace,?string $search=null,?string $provider=null,?string $state=null):array
+    {
+        $workspace=self::uuid($workspace);$pdo=$this->db->connection();$this->inventory->workspaceRole($pdo,$workspace,$actor);
+        [$filters,$params]=self::targetFilters($search,$provider,$state);
+        $sql="SELECT count(*) AS total,
+            count(*) FILTER (WHERE t.state='active' AND h.health_status='healthy') AS healthy,
+            count(*) FILTER (WHERE t.state='active' AND h.health_status IN ('degraded','unreachable','auth_failed')) AS problem,
+            count(*) FILTER (WHERE t.state='disabled' OR h.health_status='disabled') AS disabled,
+            count(*) FILTER (WHERE t.state='active' AND h.health_status NOT IN ('healthy','degraded','unreachable','auth_failed','disabled')) AS unchecked,
+            count(*) FILTER (WHERE t.os_network_profile IS NULL) AS without_profile,
+            count(*) FILTER (WHERE t.asset_id IS NULL) AS unlinked
+            FROM connector_targets t JOIN connector_health_current h ON h.target_id=t.id WHERE t.workspace_id=CAST(:ws AS uuid)".$filters;
+        $q=$pdo->prepare($sql);$q->bindValue(':ws',$workspace,PDO::PARAM_STR);
+        foreach($params as $key=>$value)$q->bindValue($key,$value,PDO::PARAM_STR);
+        $q->execute();return array_map(static fn($v)=>(int)$v,$q->fetch(PDO::FETCH_ASSOC));
+    }
+
+    private static function targetFilters(?string $search,?string $provider,?string $state):array
+    {
+        $filters='';$params=[];
+        if ($search!==null && $search!=='') { $search=self::validateName($search);$filters.=' AND (strpos(lower(t.name),lower(:search_name))>0 OR strpos(lower(t.endpoint_host),lower(:search_host))>0)';$params[':search_name']=$search;$params[':search_host']=$search; }
+        if ($provider!==null && $provider!=='') {if (!in_array($provider,BindingPolicy::PROVIDERS,true)) throw new HttpException(422,'Invalid provider filter.','validation_failed');$filters.=' AND t.provider=:provider';$params[':provider']=$provider;}
+        if ($state!==null && $state!=='') {if (!in_array($state,['active','disabled'],true)) throw new HttpException(422,'Invalid state filter.','validation_failed');$filters.=' AND t.state=:state';$params[':state']=$state;}
+        return [$filters,$params];
     }
 
     public function show(string $actor,string $id):array

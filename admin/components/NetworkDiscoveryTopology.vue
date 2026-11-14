@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { apiError } from '~/composables/useApi'
-const props=defineProps<{workspaceId:string;canWrite:boolean}>()
+const props=defineProps<{workspaceId:string;canWrite:boolean;initialTargetId?:string}>()
+const emit=defineEmits<{(e:'update:mutating',v:boolean):void}>()
 const api=useApi()
 type Device={id:string;label:string;external_id:string;asset_id:string|null;asset_name:string|null}
 type Nic={id:string;device_id:string;name:string;mac:string|null;vlan_id:number|null}
@@ -27,7 +28,7 @@ async function refresh(){
   const request=++generation,ws=props.workspaceId;busy.value=true;error.value='';page.value=null;report.value=null
   if(!ws){busy.value=false;return}
   try{const data=(await api.get<{data:Page}>(`/inventory/network-discovery?workspace_id=${encodeURIComponent(ws)}&limit=${limit.value}&offset=${offset.value}`)).data
-    if(request!==generation)return;page.value=data;if(!data.sources.some(s=>s.target_id===selected.value))selected.value=data.sources[0]?.target_id||''
+    if(request!==generation)return;page.value=data;if(!data.sources.some(s=>s.target_id===selected.value))selected.value=props.initialTargetId?(data.sources.some(s=>s.target_id===props.initialTargetId)?props.initialTargetId:''):(data.sources[0]?.target_id||'')
   }catch(e){if(request===generation)error.value=apiError(e).message}finally{if(request===generation)busy.value=false}
 }
 watch(()=>props.workspaceId,()=>{offset.value=0;selected.value='';networkId.value='';refresh()},{immediate:true})
@@ -35,10 +36,11 @@ watch([selected,search],()=>{rowPage.value=0;report.value=null;networkId.value='
 async function reconcile(){
   const s=source.value,ws=props.workspaceId,request=generation,asset=projection.value?.devices[0]?.asset_id;if(!s||!canImport.value||!s.observed_at||!asset||busy.value)return
   if(!confirm(`Импортировать наблюдения ${s.name} в IPAM? Существующие ручные записи не изменяются.`))return
-  busy.value=true;error.value='';report.value=null
+  busy.value=true;emit('update:mutating',true);error.value='';report.value=null
   try{const result=await api.write<{data:Report}>('POST','/inventory/network-discovery/reconcile',{workspace_id:ws,target_id:s.target_id,asset_id:asset,observed_at:s.observed_at,...(networkId.value.trim()?{network_id:networkId.value.trim()}:{})});if(request===generation)report.value=result.data}
-  catch(e){if(request===generation)error.value=apiError(e).message}finally{if(request===generation)busy.value=false}
+  catch(e){if(request===generation)error.value=apiError(e).message}finally{if(request===generation)busy.value=false;emit('update:mutating',false)}
 }
+onBeforeUnmount(()=>{generation++})
 </script>
 <template>
   <section class="panel">
@@ -46,7 +48,7 @@ async function reconcile(){
     <p>Текущие снимки SSH, WinRM, SNMP, RouterOS, PVE и VMmanager. Только данные не старше 15 минут; связи не создают редактируемых CMDB-отношений.</p>
     <div v-if="error" class="alert" role="alert">{{error}}</div>
     <div class="inline-actions"><button class="btn" :disabled="busy" @click="refresh">Обновить наблюдения</button><button class="btn" :disabled="busy||offset===0" @click="offset-=limit;refresh()">Назад</button><button class="btn" :disabled="busy||!page?.has_more" @click="offset+=limit;refresh()">Далее</button><label>Источников на страницу <select v-model.number="limit" :disabled="busy" @change="offset=0;refresh()"><option :value="1">1</option><option :value="5">5</option><option :value="10">10</option><option :value="20">20</option></select></label><span>Источники {{offset+1}}–{{offset+(page?.sources.length||0)}}</span></div>
-    <div v-if="page" class="field"><label for="network-discovery-source">Источник</label><select id="network-discovery-source" v-model="selected" :disabled="busy"><option v-for="s in page.sources" :key="s.target_id" :value="s.target_id">{{s.name}} · {{s.provider}} · {{s.fresh?'актуален':s.state==='available'?'устарел':s.state}}</option></select></div>
+    <div v-if="page" class="field"><label for="network-discovery-source">Источник</label><select id="network-discovery-source" v-model="selected" :disabled="busy"><option value="" disabled>Выберите источник на странице</option><option v-for="s in page.sources" :key="s.target_id" :value="s.target_id">{{s.name}} · {{s.provider}} · {{s.fresh?'актуален':s.state==='available'?'устарел':s.state}}</option></select></div>
     <p v-if="source">Наблюдение: {{source.observed_at||'нет данных'}}. {{projection?.complete?'Полный снимок':'Неполный или недоступный снимок'}}</p>
     <template v-if="projection">
       <div class="field"><label for="network-discovery-search">Интерфейсы (имя, устройство, MAC)</label><input id="network-discovery-search" v-model="search" /></div>
