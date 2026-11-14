@@ -3,7 +3,7 @@ import {pathToFileURL} from 'node:url'
 
 /** Playwright JSON reporter: missing, skipped, flaky or failed critical tests cannot pass. */
 export function verifyReport(report) {
-  const required=new Map([['data-collection.spec.ts',0],['connector-lifecycle.spec.ts',0],['proxmox-admin.spec.ts',0]])
+  const required=new Map([['data-collection.spec.ts',0],['connector-lifecycle.spec.ts',0],['proxmox-admin.spec.ts',0],['vmmanager-admin.spec.ts',0]])
   const visit=suite=>{
     for(const spec of suite.specs??[]) {
       const file=(spec.file??suite.file??'').split(/[\\/]/).at(-1)

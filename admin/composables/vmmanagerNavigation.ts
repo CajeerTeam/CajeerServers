@@ -1,0 +1,8 @@
+import {queryUuid} from './inventoryNavigation.ts'
+export type VmmanagerView='overview'|'cluster'|'guests'|'network'|'storage'|'templates'|'tasks'|'actions'|'plans'|'metrics'
+export const vmmanagerLabels:Record<VmmanagerView,string>={overview:'Sync Dashboard',cluster:'Кластеры и узлы',guests:'VM и LXD',network:'Сети и IPAM',storage:'Хранилища',templates:'Шаблоны и образы',tasks:'Задачи и события',actions:'Управление гостями',plans:'Планы сбора',metrics:'Метрики'}
+export function guestIdentity(value:unknown):string{return typeof value==='string'&&/^host:[1-9][0-9]{0,9}$/.test(value)&&Number(value.slice(5))<=2147483647?value:''}
+export function vmmanagerViews(provider:string,inventory:boolean,actions:boolean,network:boolean):VmmanagerView[]{return provider==='vmmanager'&&inventory?['overview','cluster','guests',...(network?['network' as const]:[]),'storage','templates','tasks','plans','metrics',...(actions?['actions' as const]:[])]:[]}
+export function vmmanagerView(value:unknown,allowed:VmmanagerView[]):VmmanagerView|undefined{return typeof value==='string'&&allowed.includes(value as VmmanagerView)?value as VmmanagerView:allowed[0]}
+export function scopedVmmanager<T extends {workspace_id:string;provider:string}>(target:T|null,workspace:string):T|null{return target&&target.workspace_id===workspace&&target.provider==='vmmanager'?target:null}
+export function vmmanagerUrl(workspace:unknown,target?:unknown,view?:VmmanagerView,guest?:unknown):string{const p=new URLSearchParams(),w=queryUuid(workspace),t=queryUuid(target),g=guestIdentity(guest);if(w)p.set('workspace_id',w);if(w&&t){p.set('target_id',t);if(view)p.set('view',view);if(view==='actions'&&g)p.set('guest',g)}return '/vmmanager'+(p.size?'?'+p:'')}

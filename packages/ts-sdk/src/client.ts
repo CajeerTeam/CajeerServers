@@ -70,7 +70,7 @@ export class CajeerServersClient {
   createCollectionPlan(id:string,etag:string,input:CollectionPlanInput):Promise<CollectionJobPlan> { return this.write('POST',`${this.target(id)}/collection-plans`,input,{'If-Match':etag}) }
   setCollectionPlanEnabled(id:string,planId:string,enabled:boolean):Promise<CollectionJobPlan> { return this.write('POST',`${this.target(id)}/collection-plans/${this.id(planId)}/state`,{enabled}) }
   runCollectionPlan(id:string,planId:string,key:string,redriveOf?:string):Promise<EnqueuedRun> { return this.write('POST',`${this.target(id)}/collection-plans/${this.id(planId)}/runs`,redriveOf?{redrive_of:redriveOf}:{},{'Idempotency-Key':key}) }
-  runs(id:string,limit=50,offset=0,planId?:string,collector?:string):Promise<Run[]> { return this.data(`${this.target(id)}/runs?limit=${limit}&offset=${offset}${planId?`&plan_id=${this.id(planId)}`:''}${collector?`&collector=${encodeURIComponent(collector)}`:''}`) }
+  runs(id:string,limit=50,offset=0,planId?:string,collector?:string,status?:'succeeded'):Promise<Run[]> { return this.data(`${this.target(id)}/runs?limit=${limit}&offset=${offset}${planId?`&plan_id=${this.id(planId)}`:''}${collector?`&collector=${encodeURIComponent(collector)}`:''}${status?'&status='+status:''}`) }
   vmmanagerCluster(id:string):Promise<VmmanagerClusterState> { return this.data(`${this.target(id)}/vmmanager-cluster`) }
   vmmanagerStorage(id:string):Promise<VmmanagerStorageState> { return this.data(`${this.target(id)}/vmmanager-storage`) }
   vmmanagerTemplates(id:string):Promise<VmmanagerTemplatesState> { return this.data(`${this.target(id)}/vmmanager-templates`) }

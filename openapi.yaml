@@ -1,7 +1,7 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.7.8
+  version: 0.7.9
   description: 'CajeerServers 0.7.1: VMmanager connection profiles, PVE/PBS integration and infrastructure collection.'
 servers:
 - url: /api/v1
@@ -6052,6 +6052,11 @@ paths:
         required: false
         description: Filter by registered collector name, e.g. proxmox.cluster.
         schema: {type: string, pattern: '^[a-z][a-z0-9_.-]{0,63}$'}
+      - name: status
+        in: query
+        required: false
+        description: Filter for successfully completed runs, newest by completion time.
+        schema: {type: string, enum: [succeeded]}
       responses:
         '200':
           description: Success

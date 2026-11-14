@@ -78,5 +78,8 @@ ok(read('pages/collections.vue').includes('VmmanagerNetworkDiscovery')&&read('pa
 ok(read('components/VmmanagerNetworkDiscovery.vue').includes("'/vmmanager-network'")&&read('components/VmmanagerNetworkDiscovery.vue').includes('collector=vmmanager.network'), 'VMmanager network current and history real API')
 ok(read('pages/collections.vue').includes('<VmmanagerTaskHistory') && read('components/VmmanagerTaskHistory.vue').includes('/vmmanager-tasks?'), 'VMmanager task history uses scoped REST endpoint')
 ok(read('components/VmmanagerTaskHistory.vue').includes('next_before') && read('components/VmmanagerTaskHistory.vue').includes('onBeforeUnmount'), 'task history pagination and request lifecycle')
+ok(read('pages/vmmanager.vue').includes('scopedVmmanager')&&read('pages/vmmanager.vue').includes('VmmanagerSyncDashboard')&&read('layouts/default.vue').includes('/vmmanager'),'VMmanager specialized console and dashboard')
+ok(read('components/VmmanagerSyncDashboard.vue').includes('status=succeeded')&&read('components/VmmanagerSyncDashboard.vue').includes('onBeforeUnmount'),'dashboard queries real history and guards lifecycle')
+ok(existsSync(new URL('tests/e2e/vmmanager-admin.spec.ts',root)),'VMmanager browser E2E')
 console.log(`Admin static checks: ${passed} PASS`)
 

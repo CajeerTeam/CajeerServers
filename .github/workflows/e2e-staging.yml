@@ -1,4 +1,4 @@
-name: Admin + Vault + Proxmox/PBS E2E (disposable staging)
+name: Admin + Vault + Proxmox/PBS/VMmanager E2E (disposable staging)
 on:
   workflow_dispatch:
     inputs:
@@ -7,7 +7,7 @@ on:
         type: string
         required: true
       connector_fixture_host:
-        description: 'DNS/IP of the supplied isolated TLS PVE/PBS fixture (PBS CA trusted by staging PHP), reachable from staging PHP'
+        description: 'DNS/IP of the supplied isolated TLS PVE/PBS/VMmanager fixture (PBS and VMmanager CA trusted by staging PHP), reachable from staging PHP'
         type: string
         required: true
       connector_fixture_port:

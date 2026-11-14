@@ -225,7 +225,8 @@ final class ConnectorExecutionService
     {
         $pdo=$this->db->connection();$this->planAccess($pdo,$actor,$target,false);
         if ($limit<1||$limit>100||$offset<0||$offset>10000) throw new HttpException(422,'Invalid pagination.','validation_failed');
-        $q=$pdo->prepare('SELECT p.id FROM collection_plans p JOIN connector_service_grants g ON g.id=p.grant_id WHERE g.target_id=:t ORDER BY p.created_at DESC,p.id DESC LIMIT :lim OFFSET :off');
+        $canNetwork=in_array('inventory.network.read',$this->rbac->permissionsFor(['mode'=>'session','user'=>['id'=>$actor]]),true);
+        $q=$pdo->prepare('SELECT p.id FROM collection_plans p JOIN connector_service_grants g ON g.id=p.grant_id WHERE g.target_id=:t'.($canNetwork?'':" AND p.collector_name IS DISTINCT FROM 'vmmanager.network'").' ORDER BY p.created_at DESC,p.id DESC LIMIT :lim OFFSET :off');
         $q->bindValue('t',$target);$q->bindValue('lim',$limit,PDO::PARAM_INT);$q->bindValue('off',$offset,PDO::PARAM_INT);$q->execute();
         return array_map(fn($id)=>$this->planRow($pdo,$target,$id),$q->fetchAll(PDO::FETCH_COLUMN));
     }
@@ -306,7 +307,7 @@ final class ConnectorExecutionService
         if ($detail && $r['collector_name']!==null) $r['attempt_history']=$this->query($pdo,'SELECT attempt,started_at,finished_at,outcome,error_code FROM collection_run_attempts WHERE run_id=:id ORDER BY attempt',['id'=>$id])->fetchAll(PDO::FETCH_ASSOC);
         return $r;
     }
-    public function runs(string $actor,string $target,int $limit=50,int $offset=0,?string $planId=null,?string $collector=null):array
+    public function runs(string $actor,string $target,int $limit=50,int $offset=0,?string $planId=null,?string $collector=null,?string $status=null):array
     {
         $this->rbac->requireUserPermission($actor,'connectors.targets.read');
         $this->rbac->requireUserPermission($actor,'inventory.assets.read');
@@ -317,7 +318,8 @@ final class ConnectorExecutionService
         if($collector!==null&&!preg_match('/^[a-z][a-z0-9_.-]{0,63}$/D',$collector))throw new HttpException(422,'Invalid collector filter.','validation_failed');
         $canNetwork=in_array('inventory.network.read',$this->rbac->permissionsFor(['mode'=>'session','user'=>['id'=>$actor]]),true);
         if(!$canNetwork&&$collector==='vmmanager.network')$this->rbac->requireUserPermission($actor,'inventory.network.read',$pdo);
-        $q=$pdo->prepare('SELECT id FROM connector_runs WHERE target_id=:id'.($canNetwork?'':" AND collector_name IS DISTINCT FROM 'vmmanager.network'").($planId!==null?' AND collection_plan_id=:plan':'').($collector!==null?' AND collector_name=:collector':'').' ORDER BY created_at DESC,id DESC LIMIT :lim OFFSET :off');
+        if($status!==null&&$status!=='succeeded')throw new HttpException(422,'Invalid run status filter.','validation_failed');
+        $q=$pdo->prepare('SELECT id FROM connector_runs WHERE target_id=:id'.($canNetwork?'':" AND collector_name IS DISTINCT FROM 'vmmanager.network'").($planId!==null?' AND collection_plan_id=:plan':'').($collector!==null?' AND collector_name=:collector':'').($status==='succeeded'?' AND cancelled_at IS NULL AND result IS NOT NULL ORDER BY finished_at DESC NULLS LAST,id DESC':' ORDER BY created_at DESC,id DESC').' LIMIT :lim OFFSET :off');
         if ($planId!==null) $q->bindValue('plan',$planId);
         if ($collector!==null) $q->bindValue('collector',$collector);
         $q->bindValue('id',$target); $q->bindValue('lim',$limit,PDO::PARAM_INT); $q->bindValue('off',$offset,PDO::PARAM_INT); $q->execute();

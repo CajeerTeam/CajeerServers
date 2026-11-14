@@ -101,6 +101,12 @@ try {
     $reject(409,fn()=>$submit('start',22,'db-blocked-guest22-01'),'unknown action blocks next write');
     $authorize();$ok($actions->refresh($principal,$id,$lost['id'],2,true)['status']==='acknowledged','explicit external acknowledgement');
     $ok(count($actions->list($principal,$id,0,'host:21'))===3&&count($actions->list($principal,$id,0,'host:22'))===2,'guest-scoped action history');
+    $success=$execution->runs($actor,$id,1,0,$taskPlan['id'],'vmmanager.tasks','succeeded');$ok(count($success)===1&&$success[0]['status']==='succeeded','dashboard success filter');
+    $pending=$execution->runPlan($actor,$id,$taskPlan['id'],'db-dashboard-queued');
+    $execution->cancel($actor,$id,$pending['id']);
+    $latest=$execution->runs($actor,$id,1,0,$taskPlan['id'],'vmmanager.tasks');$ok($latest[0]['id']===$pending['id']&&$latest[0]['status']==='cancelled','dashboard latest cancelled');
+    $ok($execution->runs($actor,$id,1,0,$taskPlan['id'],'vmmanager.tasks','succeeded')[0]['id']===$success[0]['id'],'dashboard last success survives later cancellation');
+    $reject(422,fn()=>$execution->runs($actor,$id,1,0,null,null,'bad'),'invalid status filter');
     echo "VMmanager power PostgreSQL/Vault/Queue/HTTPS integration: $n PASS\n";
 } catch(Throwable $e){$failed=true;fwrite(STDERR,'FAIL VMmanager PostgreSQL: '.$e::class.': '.$e->getMessage()."\n");}
 finally {

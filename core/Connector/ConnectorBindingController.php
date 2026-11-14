@@ -89,7 +89,13 @@ final class ConnectorBindingController
     }
     public function runs(HttpRequest $r):HttpResponse
     {
-        return HttpResponse::json(['data'=>$this->execution()->runs($this->actor($r,'connectors.targets.read'),self::id($r),self::integer($r,'limit',50,100),self::integer($r,'offset',0,10000),self::filter($r,'plan_id'),self::collectorFilter($r))],200,['Cache-Control'=>'private, no-store']);
+        return HttpResponse::json(['data'=>$this->execution()->runs($this->actor($r,'connectors.targets.read'),self::id($r),self::integer($r,'limit',50,100),self::integer($r,'offset',0,10000),self::filter($r,'plan_id'),self::collectorFilter($r),self::runStatusFilter($r))],200,['Cache-Control'=>'private, no-store']);
+    }
+    private static function runStatusFilter(HttpRequest $r):?string
+    {
+        $value=$r->query['status']??null;
+        if($value!==null&&$value!=='succeeded')throw new HttpException(422,'Invalid run status filter.','validation_failed');
+        return $value;
     }
     private static function collectorFilter(HttpRequest $r):?string
     {

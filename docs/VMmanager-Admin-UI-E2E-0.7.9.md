@@ -1,0 +1,13 @@
+# VMmanager Admin UI & E2E — 0.7.9
+
+Откройте `/vmmanager` в Nuxt Admin, выберите Workspace и VMmanager target. Настройка TLS/Vault остаётся в «Подключения». Панель переиспользует действующие API и PostgreSQL, не хранит credentials в браузере. URL содержит только идентификаторы Workspace/target, раздел и при необходимости host ID.
+
+Sync Dashboard читает актуальные снимки и результаты runs. Последний успешный запуск выбирается отдельно (status=succeeded, сортировка по завершению); не считается доказательством свежести текущего scope. Порог предупреждения 15 минут, для задач 3 минуты. Ограниченная видимость и курсор показываются отдельно. Планы выводятся страницами по 50; сетевые планы фильтруются на сервере по inventory.network.read. Счётчики CMDB/IPAM и состояние последней проверки target выводятся из фактических сохранённых данных. управление, повторный запуск и история доступны через «Планы сбора». Обновление каждые 30 секунд при видимой странице. Для сетей необходимо inventory.network.read; Sync требует inventory.network.manage.
+
+Для управления гостями нужен свежий полный vmmanager.guests Sync, pinned TLS, действующий административный токен, разрешения dispatcher и connectors.vmmanager.actions.execute, активный план vmmanager.tasks. Быстрый переход доступен только из текущего полного снимка; точный CMDB lookup и все серверные проверки остаются обязательными. История и stale snapshots не предлагают быстрые операции.
+
+## E2E
+
+Разверните изолированную staging БД, PHP, Nuxt, scheduler и workers; установите CA fixture в VMMANAGER_CA_FILE и PBS_CA_FILE, настройте CONNECTOR_ALLOWED_NETWORKS и CONNECTOR_WRITE_ACTIONS=true. Запустите `python3 tests/connector-e2e-fixture.py --bind <isolated-ip> --port 8443 --cert <cert> --key <key>`. Не направляйте тесты на реальные гипервизоры. Fixture принимает только синтетические токены; VMmanager состояние изолировано по случайному токену. Укажите E2E_BASE_URL, E2E_ADMIN_EMAIL/PASSWORD/TOTP_SECRET, E2E_CONNECTOR_UI=1, E2E_ALLOW_WRITES=1, E2E_ISOLATED_STAGING=1, E2E_CONNECTOR_FIXTURE_HOST/PORT/PIN. Pin — SHA-256 DER сертификата. После установки зависимостей запустите `bash scripts/verify-browser-e2e.sh`. Сценарий vmmanager-admin обязателен в JSON release report (пропуск/ошибка не проходят gate). Сценарий создаёт отдельный Workspace, выполняет сбор и проверяет UI, действие на synthetic host:21, worker reconciliation, RBAC и scope. Удалите тестовую staging БД после завершения.
+
+Локальная проверка `python3 tests/vmmanager-admin-fixture-integration.py` использует настоящий TLS и PHP драйверы, но не заменяет браузер, PostgreSQL или реальный VMmanager. Новых миграций нет. Release channel development до строгой приёмки.

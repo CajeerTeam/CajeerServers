@@ -44,6 +44,7 @@ jobs:
           python3 tests/connector-https-integration.py
           python3 tests/proxmox-profile-https-integration.py
           python3 tests/proxmox-admin-fixture-integration.py
+          python3 tests/vmmanager-admin-fixture-integration.py
           python3 tests/proxmox-snapshots-https-integration.py
           python3 tests/pbs-backup-https-integration.py
           python3 tests/connector-actions-https-integration.py

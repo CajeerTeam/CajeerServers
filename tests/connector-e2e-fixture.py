@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Disposable HTTPS Proxmox protocol fixture. No access to a real hypervisor.
+"""Disposable HTTPS PVE/PBS/VMmanager protocol fixture. No access to a real hypervisor.
 Run only on an isolated staging management network. The synthetic token is public.
 """
 import argparse
@@ -22,6 +22,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
     tasks = {}
     counter = 0
     snapshots = {}
+    vmm_states = {}
+    vmm_tasks = {}
+    vmm_counter = 1000
 
     def log_message(self, *_):
         pass
@@ -58,7 +61,49 @@ class Handler(http.server.BaseHTTPRequestHandler):
             data[base+'/snapshots'+q]=[{'backup-type':'vm','backup-id':'101','backup-time':now,'size':1073741824,'protected':True,'verification':{'state':'ok'}}]
         self.reply(data.get(self.path),200 if self.path in data else 404)
 
+    def vmm_token(self):
+        token=self.headers.get('x-xsrf-token','')
+        return token if re.fullmatch(r'fixture-vmm-e2e-[a-f0-9]{32}',token) and not self.headers.get('Authorization') else None
+
+    def vmm_reply(self, value, status=200):
+        body=json.dumps(value).encode()
+        self.send_response(status);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)
+
+    def vmm_get(self, token):
+        url=urllib.parse.urlsplit(self.path);q=urllib.parse.parse_qs(url.query);where=q.get('where',[''])[0]
+        if url.path=='/auth/v4/whoami':return self.vmm_reply({'owner_id':7,'roles':['@admin']})
+        if url.path=='/auth/v4/self/handles':return self.vmm_reply({'user_id':7,'handles':{'vm_v3':{'post':['/host/{host_id}/'+x for x in ('start','stop','restart')]}}})
+        guests=[dict(id=i,name='cajeer-e2e-vmm-'+str(i),state=self.vmm_states.get((token,i),False),node={'id':i-20},cluster={'id':i-20,'virtualization_type':'kvm' if i==21 else 'lxd'},account={'id':7},cpu_number=2,ram_mib=1024,hdd_mib=4096,os={'id':1,'name':'E2E Linux'},disk=[{'id':i+100,'size_mib':4096,'storage':{'id':1}}],iface=[{'id':i+200,'mac':f'02:00:00:00:00:{i:02x}','ip':[{'name':f'192.0.2.{i}'}]}],ha_restore_on_fail=False,rescue_mode=False) for i in (21,22)]
+        catalog={
+            '/vm/v3/cluster':[{'id':1,'name':'E2E KVM','virtualization_type':'kvm'},{'id':2,'name':'E2E LXD','virtualization_type':'lxd'}],
+            '/vm/v3/node':[{'id':i,'name':'cajeer-e2e-vmm-node-'+str(i),'state':'active','cluster':{'id':i},'maintenance_mode':False,'cpu_number':8,'ram_mib':{'total':8192,'used':1024}} for i in (1,2)],
+            '/vm/v3/host':guests,'/vm/v3/storage':[{'id':1,'name':'E2E storage','type':'lvm','shared':True,'clusters':[1,2]}],
+            '/vm/v3/os':[{'id':1,'name':'E2E Linux'}],'/vm/v3/preset':[{'id':1,'name':'E2E preset','cpu_number':2}],'/vm/v3/image':[{'id':1,'name':'E2E image'}],'/vm/v3/os/iso':[{'id':1,'name':'E2E ISO'}],
+            '/ip/v3/ipnet':[{'id':1,'name':'192.0.2.0/24','userspace':1,'gateway':'192.0.2.1'}],'/ip/v3/ippool':[{'id':1,'name':'E2E pool','userspace':1,'ipnets':[{'id':1}]}],'/ip/v3/ip':[{'id':i-20,'name':f'192.0.2.{i}','ipnet':1,'ippool':1,'userspace':1,'status':'busy'} for i in (21,22)],
+            '/vm/v3/task':self.vmm_tasks.get(token,[]),
+        }
+        if url.path not in catalog:return self.vmm_reply({'error':{'code':404}},404)
+        rows=catalog[url.path]
+        match=re.fullmatch(r"\(\(consul_id EQ '([0-9]+)'\) AND \(name EQ '(host_start|host_stop|host_restart)'\)\)",where)
+        if url.path=='/vm/v3/task' and match:return self.vmm_reply({'list':[t for t in rows if t['consul_id']==int(match[1]) and t['name']==match[2]]})
+        active="((status EQ 'created') OR (status EQ 'running') OR (status EQ 'deferred'))"
+        if url.path=='/vm/v3/task' and where==active:return self.vmm_reply({'list':[]})
+        m=re.fullmatch(r'id GT ([0-9]+)',where)
+        if not m:return self.vmm_reply({'error':{'code':400}},400)
+        limit=int(q.get('limit',['0,100'])[0].split(',')[1]);return self.vmm_reply({'list':[r for r in rows if r['id']>int(m[1])][:limit]})
+
+    def vmm_post(self, token):
+        match=re.fullmatch(r'/vm/v3/host/(21|22)/(start|stop|restart)',self.path)
+        length=int(self.headers.get('Content-Length','0'))
+        if not match or length!=2 or self.headers.get('Content-Type')!='application/json' or self.rfile.read(length)!=b'{}':return self.vmm_reply({'error':{'code':400}},400)
+        host=int(match[1]);op=match[2];self.vmm_states[token,host]=op!='stop';response={'id':host}
+        for field,name in [('task','host_stop' if op=='restart' else 'host_'+op)]+([('start_task','host_start')] if op=='restart' else []):
+            Handler.vmm_counter+=1;consul=100000+Handler.vmm_counter;self.vmm_tasks.setdefault(token,[]).append(dict(id=Handler.vmm_counter,consul_id=consul,name=name,status='complete',host={'id':host}));response[field]=consul
+        self.vmm_reply(response)
+
     def do_GET(self):
+        if self.vmm_token():
+            with self.lock: return self.vmm_get(self.vmm_token())
         if self.headers.get('Authorization') == PBS_AUTH:
             self.pbs_get()
             return
@@ -113,6 +158,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.reply(task)
 
     def do_POST(self):
+        if self.vmm_token():
+            with self.lock: return self.vmm_post(self.vmm_token())
         if not self.authorized():return
         prefix = f'/api2/json/nodes/{NODE}/qemu/{VM}'
         with self.lock:

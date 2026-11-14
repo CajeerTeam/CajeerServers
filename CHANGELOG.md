@@ -1,3 +1,9 @@
+## [0.7.9] — 2026-11-14 — VMmanager Admin UI & E2E
+
+- Рабочая панель `/vmmanager`: scope, навигация, discovery, метрики, планы, контекстные действия KVM/LXD.
+- Sync Dashboard: свежесть, полнота, последняя попытка и успешный сбор, курсор задач, расписания; фильтр успешных запусков в API/SDK.
+- Изолированный TLS fixture VMmanager, обязательный Playwright сценарий, тесты навигации и freshness.
+
 ## [0.7.8] — 2026-11-14 — Safe Action Dispatcher
 
 - Реальные start/stop/restart VMmanager KVM/LXD через pinned HTTPS, повторный preflight, отдельное RBAC-разрешение, MFA, durable intent и запрет повтора POST.
