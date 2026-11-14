@@ -102,6 +102,7 @@ final class ConnectorExecutionService
             if ($collector!==null) {
                 $this->rbac->requireUserPermission($actor,'inventory.assets.read',$pdo);
                 $this->runtime->collectionRuntime()->validate(new CollectionPlan($collector,$g['operation']),$context);
+                $this->networkPermission($pdo,$actor,$collector,$g['operation']);
             }
             return $this->enqueueLocked($pdo,$g,'manual:'.$key,$collector);
         });
@@ -185,6 +186,7 @@ final class ConnectorExecutionService
     }
     private function networkPermission(PDO $pdo,string $actor,string $collector,string $operation):void
     {
+        if($collector==='routeros.configuration-backup')$this->rbac->requireUserPermission($actor,'network.configuration.backup',$pdo);
         if($collector!=='vmmanager.network')return;
         $this->rbac->requireUserPermission($actor,'inventory.network.read',$pdo);
         if($operation==='sync')$this->rbac->requireUserPermission($actor,'inventory.network.manage',$pdo);
@@ -396,6 +398,7 @@ final class ConnectorExecutionService
                 if ($plan!==null) {
                     $this->rbac->requireUserPermission($g['actor_id'],'inventory.assets.read',$pdo);
                     $this->runtime->collectionRuntime()->validate($plan,$t);
+                    $this->networkPermission($pdo,$g['actor_id'],$plan->collector,$plan->operation);
                 }
                 if (ConnectorHealthMonitor::isOpen($pdo,$g['target_id'])) throw new HttpException(423,'Connector circuit is open. Try after cooldown.','connector_circuit_open');
                 // Session locks survive the transaction and bound remote execution across workers.

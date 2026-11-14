@@ -28,6 +28,7 @@ final class ConnectorRuntimeService
         private readonly ConnectorRegistry $registry,
         private readonly ?CredentialVersionService $versions = null,
         private readonly ?CollectionRuntimeService $collections = null,
+        private readonly ?NetworkConfigurationBackupStore $configurationBackups = null,
     ) {}
 
     public function collectionRuntime(): CollectionRuntimeService
@@ -113,6 +114,8 @@ final class ConnectorRuntimeService
             (new Rbac($this->db,$this->audit))->requireUserPermission($actor,'inventory.assets.read');
         }
         $targetId=$target['id']; $version=$target['version']; $sync=$operation==='sync';
+        $backup=$plan?->collector==='routeros.configuration-backup';
+        if($backup)(new Rbac($this->db,$this->audit))->requireUserPermission($actor,'network.configuration.backup');
         $network=$plan?->collector==='vmmanager.network';
         if($network)(new Rbac($this->db,$this->audit))->requireUserPermission($actor,$sync?'inventory.network.manage':'inventory.network.read');
         if($network&&$sync)(new Rbac($this->db,$this->audit))->requireUserPermission($actor,'inventory.network.read');
@@ -155,7 +158,7 @@ final class ConnectorRuntimeService
         if (!$sync) {
             $result=$operation==='health' ? (new ConnectorHealth($targetId,$elapsed))->toArray()
                 : ['connector_id'=>$targetId,'mode'=>'inspect','discovered'=>count($items),'types'=>$summary];
-            if($snapshot->connection!==[])$result['connection']=$snapshot->connection;
+            if($snapshot->connection!==[]&&!$backup)$result['connection']=$snapshot->connection;
             return $this->db->transaction(function(PDO $pdo) use($actor,$targetId,$operation,$items,$requestId,$guard,$complete,$result,$target,$snapshot,$reconciliation,$elapsed,$collection,$observedAt):array {
                 $this->inventory->lockWorkspace($pdo,$target['workspace_id']);
                 if ($guard!==null) $guard($pdo);
@@ -164,7 +167,7 @@ final class ConnectorRuntimeService
                 $latest=$this->bindings->runtimeContext($actor,$targetId,$target['version'],$operation);
                 if ($latest['credential_id']!==$target['credential_id'] || $latest['credential_version']!==$target['credential_version']) throw new HttpException(409,'Connector binding changed.','conflict');
                 ConnectorHealthMonitor::record($pdo,$target,$elapsed,null);
-                if ($operation==='inspect' && $snapshot->metricSamples===[] && !in_array($collection['collector']??null,['ssh.events','winrm.events','routeros.network','routeros.routing','snmp.device','snmp.interfaces','snmp.topology','winrm.system','winrm.software','winrm.services','winrm.storage','winrm.network','winrm.updates','ssh.system','ssh.software','ssh.services','ssh.storage','ssh.network','proxmox.tasks','vmmanager.tasks','vmmanager.network','vmmanager.storage','vmmanager.templates'],true) && $target['provider']!=='pbs') $result['preview']=$reconciliation->preview($pdo,$actor,$target,$snapshot);
+                if ($operation==='inspect' && $snapshot->metricSamples===[] && !in_array($collection['collector']??null,['routeros.configuration-backup','ssh.events','winrm.events','routeros.network','routeros.routing','snmp.device','snmp.interfaces','snmp.topology','winrm.system','winrm.software','winrm.services','winrm.storage','winrm.network','winrm.updates','ssh.system','ssh.software','ssh.services','ssh.storage','ssh.network','proxmox.tasks','vmmanager.tasks','vmmanager.network','vmmanager.storage','vmmanager.templates'],true) && $target['provider']!=='pbs') $result['preview']=$reconciliation->preview($pdo,$actor,$target,$snapshot);
                 if ($collection!==null && $snapshot->metricSamples!==[]) {
                     $result['metrics']=\Cajeer\Servers\Metrics\MetricStore::ingest($pdo,$target,$collection['metric_samples'],$collection['observed_at']);
                     $this->audit->record($pdo,$actor,'collection.metrics.saved','success','connector_target',$targetId,$result['metrics'],$requestId);
@@ -174,6 +177,14 @@ final class ConnectorRuntimeService
                     PbsStore::save($pdo,$target,$snapshot->connection['pbs_discovery'],$observedAt);
                     $result['discovered']=array_sum($snapshot->connection['pbs_discovery']['counts']);
                     if($collection!==null){$result['collection']['count']=array_sum($snapshot->connection['pbs_discovery']['counts']);$result['collection']['complete']=$snapshot->connection['pbs_discovery']['complete'];}
+                }
+                if(($collection['collector']??null)==='routeros.configuration-backup'){
+                    (new Rbac($this->db,$this->audit))->requireUserPermission($actor,'network.configuration.backup',$pdo);
+                    $this->inventory->workspaceRole($pdo,$target['workspace_id'],$actor,true);
+                    $saved=($this->configurationBackups??new NetworkConfigurationBackupStore())->save($pdo,$target,$snapshot->connection['network_configuration_backup'],$observedAt);
+                    $result['connection']=['network_configuration_backup'=>$saved];
+                    $result['discovered']=$result['collection']['count']=1;$result['collection']['complete']=true;
+                    $this->audit->record($pdo,$actor,'network.configuration.saved','success','connector_target',$targetId,['reason'=>$saved['changed']?'changed':'unchanged'],$requestId);
                 }
                 if(in_array($collection['collector']??null,['ssh.events','winrm.events'],true)){
                     $stats=\Cajeer\Servers\Events\EventStore::save($pdo,$target,$snapshot->connection['system_events']);
@@ -295,6 +306,27 @@ final class ConnectorRuntimeService
         $target=$this->bindings->show($actor,$targetId);
         if($target['provider']!=='vmmanager')throw new HttpException(404,'VMmanager target not found.','not_found');
         return VmmanagerGuestStore::read($this->db->connection(),$target);
+    }
+    public function networkConfigurationBackups(string $actor,string $targetId,int $limit,int $offset,?string $backupId=null,?string $compareId=null):array
+    {
+        return $this->db->transaction(function(PDO $pdo)use($actor,$targetId,$limit,$offset,$backupId,$compareId):array {
+            $rbac=new Rbac($this->db,$this->audit);
+            $rbac->requireUserPermission($actor,'network.configuration.read',$pdo);
+            $rbac->requireUserPermission($actor,'connectors.targets.read',$pdo);
+            $target=$this->bindings->show($actor,$targetId);
+            $this->inventory->lockWorkspace($pdo,$target['workspace_id']);
+            $target=$this->bindings->show($actor,$targetId);
+            if($target['provider']!=='routeros')throw new HttpException(404,'Configuration backup target not found.','not_found');
+            $store=$this->configurationBackups??new NetworkConfigurationBackupStore();
+            if($backupId===null)return $store->list($pdo,$target,$limit,$offset);
+            $row=$store->content($pdo,$target,$backupId);
+            if($compareId!==null){
+                $old=$store->content($pdo,$target,$compareId);
+                $result=['from'=>$old['backup'],'to'=>$row['backup'],'diff'=>NetworkConfigurationBackup::diff($old['content'],$row['content'])];
+            }else $result=$row;
+            $this->audit->record($pdo,$actor,$compareId===null?'network.configuration.exported':'network.configuration.compared','success','network_configuration_backup',$backupId);
+            return $result;
+        });
     }
     public function systemEvents(string $actor,string $targetId,int $limit,?string $before,?int $severity,string $search,?string $source=null,?string $from=null,?string $to=null):array
     {

@@ -66,6 +66,14 @@ final class ConnectorRegistry
         catch(ConnectorTransportException $e){throw new HttpException(502,$e->getMessage(),$e->category);}
         catch(\Throwable){throw new HttpException(502,'RouterOS discovery failed.','connector_failed');}
     }
+    public function networkConfigurationBackup(ConnectorContext $context,string $operation,string $purpose,#[\SensitiveParameter] string $secret):ConnectorResult
+    {
+        $driver=$this->require($context->provider,$operation);
+        if(!$driver instanceof \Cajeer\Servers\Connector\RouterOsConnector||$operation!=='inspect'||!$this->metadata['routeros']->accepts($context->credentialType,$purpose))throw new HttpException(403,'Configuration backup not permitted.','permission_denied');
+        try{return $driver->configurationBackup($context,$secret)->validated($this->metadata['routeros']);}
+        catch(ConnectorTransportException $e){throw new HttpException(502,$e->getMessage(),$e->category);}
+        catch(\Throwable){throw new HttpException(502,'Configuration backup failed.','connector_failed');}
+    }
     public function systemEvents(ConnectorContext $context,string $operation,string $purpose,#[\SensitiveParameter] string $secret,array $previous):ConnectorResult
     {
         $driver=$this->require($context->provider,$operation);

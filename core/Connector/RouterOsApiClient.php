@@ -70,6 +70,30 @@ final class RouterOsApiClient
         }
         return $out;
     }
+    /** Native RouterOS compact export, excluding sensitive fields by default. */
+    public function configurationBackup():string
+    {
+        $this->identity();$this->resource();
+        $name='cajeer-backup-'.bin2hex(random_bytes(16));$created=false;$content='';$failure=null;
+        $call=fn(string $op,int $offset=0)=>$this->https->routerOsBackup($this->context->host,$this->context->port,$name,$op,$offset,$this->auth,$this->caFile,$this->context->osNetworkProfile['primary_pin']);
+        try {
+            $response=$call('create');$created=true;
+            if($response!==''){try{$ack=json_decode($response,true,16,JSON_THROW_ON_ERROR);}catch(\JsonException){self::invalid();}if(!is_array($ack)||isset($ack['error'])||isset($ack['message']))self::invalid();}
+            while(true){
+                if(hrtime(true)>=$this->deadline)throw new ConnectorTransportException('connector_transport_failed');
+                $body=$call('read',strlen($content));
+                try{$rows=json_decode($body,true,16,JSON_THROW_ON_ERROR);}catch(\JsonException){self::invalid();}
+                $chunk=$rows[0]['data']??null;
+                if(!is_array($rows)||!array_is_list($rows)||count($rows)!==1||!is_string($chunk)||strlen($chunk)>32768||strlen($content)+strlen($chunk)>1048576)self::invalid();
+                $content.=$chunk;if(strlen($chunk)<32768)break;
+            }
+            $this->identity();
+            return NetworkConfigurationBackup::validate($content);
+        } catch(\Throwable $e){$failure=$e;throw $e;} finally {
+            // The file name is unique to this attempt. Even ambiguous create failures may leave a file.
+            try{$call('delete');}catch(ConnectorTransportException $e){if($failure===null&&($created||$e->httpStatus!==404))throw $e;}
+        }
+    }
     public function identity():string
     {
         $rows=$this->read('identity');$name=$rows[0]['name']??null;

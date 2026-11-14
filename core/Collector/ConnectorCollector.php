@@ -13,6 +13,7 @@ final readonly class ConnectorCollector implements CollectorInterface
     public function provider(): string {return $this->driver;}
     public function collect(CollectionContext $context, #[\SensitiveParameter] string $secret): ConnectorResult
     {
+        if($this->id==='routeros.configuration-backup')return $this->connectors->networkConfigurationBackup($context->connector,$context->plan->operation,$context->purpose,$secret);
         if(in_array($this->id,['ssh.events','winrm.events'],true))return $this->connectors->systemEvents($context->connector,$context->plan->operation,$context->purpose,$secret,$context->previous);
         if($this->driver==='routeros'&&in_array(substr($this->id,9),\Cajeer\Servers\Connector\RouterOsConnector::SCOPES,true))return $this->connectors->routerosDiscovery($context->connector,$context->plan->operation,$context->purpose,substr($this->id,9),$secret);
         if($this->driver==='ssh'&&in_array(substr($this->id,4),\Cajeer\Servers\Connector\LinuxDiscovery::SCOPES,true))return $this->connectors->linuxDiscovery($context->connector,$context->plan->operation,$context->purpose,substr($this->id,4),$secret);

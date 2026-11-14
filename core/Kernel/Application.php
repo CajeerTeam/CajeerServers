@@ -159,7 +159,7 @@ final class Application
                 $c->get(VaultCrypto::class),$c->get(AuditLogger::class),$c->get(ConnectorRegistry::class)));
         $this->services->singleton(\Cajeer\Servers\Credentials\CredentialVersionController::class,
             fn (ServiceContainer $c): \Cajeer\Servers\Credentials\CredentialVersionController => new \Cajeer\Servers\Credentials\CredentialVersionController(
-                $c->get(AuthenticationService::class),$c->get(Rbac::class),$c->get(\Cajeer\Servers\Credentials\CredentialVersionService::class),$c->get(\Cajeer\Servers\Collector\CollectionRuntimeService::class)));
+                $c->get(AuthenticationService::class),$c->get(Rbac::class),$c->get(\Cajeer\Servers\Credentials\CredentialVersionService::class),$c->get(\Cajeer\Servers\Collector\CollectionRuntimeService::class),new \Cajeer\Servers\Connector\NetworkConfigurationBackupStore($c->get(VaultCrypto::class))));
         $this->services->singleton(\Cajeer\Servers\Credentials\VaultKeyRotation::class,
             fn (ServiceContainer $c): \Cajeer\Servers\Credentials\VaultKeyRotation => new \Cajeer\Servers\Credentials\VaultKeyRotation(
                 $c->get(DatabaseManager::class),$c->get(VaultCrypto::class),$c->get(VaultMasterKey::class),

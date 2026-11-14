@@ -401,6 +401,9 @@ return static function (Router $router, ServiceContainer $container): void {
             $connectors->delete('/targets/{id}/service-grants/{grantId}',static fn(HttpRequest $r):HttpResponse=>$handler()->revokeGrant($r));
             $connectors->get('/targets/{id}/vmmanager-cluster',static fn(HttpRequest $r):HttpResponse=>$handler()->vmmanagerCluster($r));
             $connectors->get('/targets/{id}/vmmanager-guests',static fn(HttpRequest $r):HttpResponse=>$handler()->vmmanagerGuests($r));
+            $connectors->get('/targets/{id}/configuration-backups',static fn(HttpRequest $r):HttpResponse=>$handler()->configurationBackups($r));
+            $connectors->get('/targets/{id}/configuration-backups/{backup}/diff',static fn(HttpRequest $r):HttpResponse=>$handler()->configurationBackupDiff($r));
+            $connectors->get('/targets/{id}/configuration-backups/{backup}/export',static fn(HttpRequest $r):HttpResponse=>$handler()->configurationBackupExport($r));
             $connectors->get('/targets/{id}/system-events',static fn(HttpRequest $r):HttpResponse=>$handler()->systemEvents($r));
             $connectors->get('/targets/{id}/linux-discovery',static fn(HttpRequest $r):HttpResponse=>$handler()->linuxDiscovery($r));
             $connectors->get('/targets/{id}/windows-discovery',static fn(HttpRequest $r):HttpResponse=>$handler()->windowsDiscovery($r));

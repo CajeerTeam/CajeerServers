@@ -15,6 +15,7 @@ final class AcceptMiddleware implements MiddlewareInterface
         if (in_array($request->path, ['/install', '/api/v1/metrics'], true)) return $next($request);
         $requested = ($request->path === '/api/v1/inventory/exports' && ($request->query['format'] ?? 'csv') === 'csv')
             ? 'text/csv' : 'application/json';
+        if(preg_match('~^/api/v1/connectors/targets/[^/]+/configuration-backups/[^/]+/export$~D',$request->path))$requested='application/octet-stream';
         if ($request->method !== 'OPTIONS' && !self::acceptsMedia($request->header('Accept', '*/*'), $requested)) {
             throw new HttpException(406, 'Requested representation is not acceptable.', 'not_acceptable');
         }

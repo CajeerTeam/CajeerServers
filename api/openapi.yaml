@@ -1,7 +1,7 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.8.7
+  version: 0.8.8
   description: 'CajeerServers 0.7.1: VMmanager connection profiles, PVE/PBS integration and infrastructure collection.'
 servers:
 - url: /api/v1
@@ -5445,6 +5445,96 @@ paths:
         '401': {description: Authentication required}
         '403': {description: Permission denied}
         '404': {description: Target not found in Workspace}
+  /connectors/targets/{id}/configuration-backups:
+    get:
+      operationId: listNetworkConfigurationBackups
+      summary: List encrypted RouterOS configuration backup versions
+      security: [{sessionAuth: []}]
+      parameters:
+      - {name: id, in: path, required: true, schema: {type: string, format: uuid}}
+      - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 50}}
+      - {name: offset, in: query, schema: {type: integer, minimum: 0, maximum: 10000, default: 0}}
+      responses:
+        '200':
+          description: Version metadata without configuration contents
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: {$ref: '#/components/schemas/NetworkConfigurationVersion'}
+        '401': {description: Authentication required}
+        '403': {description: Permission denied}
+        '404': {description: Target not found}
+  /connectors/targets/{id}/configuration-backups/{backup}/diff:
+    get:
+      operationId: compareNetworkConfigurationBackups
+      summary: Compare two versions on the same target (requires network.configuration.read)
+      security: [{sessionAuth: []}]
+      parameters:
+      - {name: id, in: path, required: true, schema: {type: string, format: uuid}}
+      - {name: backup, in: path, required: true, schema: {type: string, format: uuid}}
+      - {name: from, in: query, required: true, schema: {type: string, format: uuid}}
+      responses:
+        '200':
+          description: Bounded order-preserving line diff; exact false indicates replacement hunk
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [from, to, diff]
+                    properties:
+                      from: {$ref: '#/components/schemas/NetworkConfigurationVersion'}
+                      to: {$ref: '#/components/schemas/NetworkConfigurationVersion'}
+                      diff:
+                        type: object
+                        required: [added, removed, unchanged_prefix, unchanged_suffix, exact, lines]
+                        properties:
+                          added: {type: integer}
+                          removed: {type: integer}
+                          unchanged_prefix: {type: integer}
+                          unchanged_suffix: {type: integer}
+                          exact: {type: boolean}
+                          lines:
+                            type: array
+                            items:
+                              type: object
+                              required: [op, old_line, new_line, text]
+                              properties:
+                                op: {type: string, enum: [add, remove, context]}
+                                old_line: {type: [integer, 'null']}
+                                new_line: {type: [integer, 'null']}
+                                text: {type: string}
+        '401': {description: Authentication required}
+        '403': {description: Permission denied}
+        '404': {description: Backup or target not found}
+  /connectors/targets/{id}/configuration-backups/{backup}/export:
+    get:
+      operationId: exportNetworkConfigurationBackup
+      summary: Download original RouterOS RSC bytes (requires network.configuration.read)
+      security: [{sessionAuth: []}]
+      parameters:
+      - {name: id, in: path, required: true, schema: {type: string, format: uuid}}
+      - {name: backup, in: path, required: true, schema: {type: string, format: uuid}}
+      responses:
+        '200':
+          description: Original native export with checksum
+          headers:
+            X-Artifact-SHA256: {schema: {type: string, pattern: '^[a-f0-9]{64}$'}}
+            Content-Disposition: {schema: {type: string}}
+          content:
+            application/octet-stream:
+              schema: {type: string, format: binary}
+        '401': {description: Authentication required}
+        '403': {description: Permission denied}
+        '404': {description: Backup or target not found}
   /connectors/targets/{id}/system-events:
     get:
       operationId: listSystemEvents
@@ -11289,6 +11379,19 @@ paths:
           description: Service unavailable
 components:
   schemas:
+    NetworkConfigurationVersion:
+      type: object
+      required: [id, version, target_version, credential_version, identity_hash, sha256, byte_size, observed_at, created_at]
+      properties:
+        id: {type: string, format: uuid}
+        version: {type: integer, minimum: 1}
+        target_version: {type: integer, minimum: 1}
+        credential_version: {type: integer, minimum: 1}
+        identity_hash: {type: string, pattern: '^[a-f0-9]{64}$'}
+        sha256: {type: string, pattern: '^[a-f0-9]{64}$'}
+        byte_size: {type: integer, minimum: 1, maximum: 1048576}
+        observed_at: {type: string, format: date-time}
+        created_at: {type: string, format: date-time}
     IngestionSource:
       type: object
       properties:

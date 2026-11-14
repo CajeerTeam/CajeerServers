@@ -593,3 +593,9 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 - [x] Общие health/inspect/sync/validate_rotation, Vault grants, Queue/Scheduler, Registry и Reconciliation; hardware в Inventory с provenance.
 - [x] Native smoke и реальный TLS WSMan fixture; CI SSH fixture и PostgreSQL hardware test.
 - [ ] Подтвердить SSH fixture с установленной зависимостью, реальный Windows Server, PostgreSQL и production build/E2E на staging.
+
+## 0.8.8 — Network Configuration Backup
+
+- [x] Нативный RouterOS 7 export, шифрование, версии, diff, скачивание и ручные/плановые сборы.
+- [x] Миграция 0060, RBAC, аудит, Admin UI, SDK и тесты.
+- [ ] Live acceptance на реальном RouterOS и production deployment.

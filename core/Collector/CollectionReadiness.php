@@ -34,7 +34,7 @@ final class CollectionReadiness
             if(($rows['vmmanager.storage']['operations']??null)!==['inspect']||($rows['vmmanager.templates']['operations']??null)!==['inspect'])return false;
             if(($rows['vmmanager.network']['operations']??null)!==['inspect','sync'])return false;
             if(($rows['vmmanager.cluster']['operations']??null)!==['inspect','sync']||($rows['vmmanager.guests']['operations']??null)!==['inspect','sync'])return false;
-            foreach(['routeros.network','routeros.routing','routeros.metrics'] as $name)if(($rows[$name]['operations']??null)!==['inspect'])return false;
+            foreach(['routeros.network','routeros.routing','routeros.metrics','routeros.configuration-backup'] as $name)if(($rows[$name]['operations']??null)!==['inspect'])return false;
             if(($rows['routeros.inventory']['operations']??null)!==['inspect','sync'])return false;
             if(($rows['pbs.backups']['operations']??null)!==['inspect'])return false;
             if(($rows['proxmox.tasks']['operations']??null)!==['inspect'])return false;
@@ -44,9 +44,10 @@ final class CollectionReadiness
             return true;
         },'Required collectors and exporters must be registered.');
         $probe('collection_migrations',function()use($c):bool{
-            $v=$c->get(MigrationRunner::class)->validate();return $v['valid']&&count($v['rows'])>=59&&array_column($v['rows'],'status')!==[]&&!array_diff(array_column($v['rows'],'status'),['applied']);
-        },'All PostgreSQL migrations, including 0059, must be applied and checksum-valid.');
+            $v=$c->get(MigrationRunner::class)->validate();return $v['valid']&&count($v['rows'])>=60&&array_column($v['rows'],'status')!==[]&&!array_diff(array_column($v['rows'],'status'),['applied']);
+        },'All PostgreSQL migrations, including 0060, must be applied and checksum-valid.');
         $queries=[
+            'network_configuration_backup_scope'=>"SELECT 1 FROM network_configuration_backups b JOIN connector_targets t ON t.id=b.target_id WHERE b.workspace_id<>t.workspace_id OR t.provider<>'routeros' OR b.target_version>t.version LIMIT 1",
             'system_event_scope'=>"SELECT 1 FROM system_events e JOIN connector_targets t ON t.id=e.target_id WHERE e.workspace_id<>t.workspace_id OR (e.source IN ('ssh','winrm') AND e.source<>t.provider) OR (e.source='syslog' AND t.provider NOT IN ('ssh','winrm','snmp','routeros')) LIMIT 1",
             'system_event_cursor_scope'=>"SELECT 1 FROM system_event_cursors s JOIN connector_targets t ON t.id=s.target_id WHERE t.provider NOT IN ('ssh','winrm') OR s.workspace_id<>t.workspace_id OR s.target_version>t.version LIMIT 1",
             'network_discovery_ipam_scope'=>"SELECT 1 FROM network_discovery_ipam_import p JOIN connector_targets t ON t.id=p.target_id WHERE t.provider NOT IN ('ssh','winrm','routeros') OR p.workspace_id<>t.workspace_id LIMIT 1",

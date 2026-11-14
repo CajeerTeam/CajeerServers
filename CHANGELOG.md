@@ -1,3 +1,10 @@
+## [0.8.8] — 2026-11-14 — Network Configuration Backup
+
+- Реальный RouterOS 7 compact export через pinned HTTPS REST, с временным файлом, ограниченным чтением и удалением.
+- Зашифрованные immutable версии, дедупликация без времени экспорта, ограниченный построчный diff и скачивание исходного `.rsc` с SHA-256.
+- Ручные и плановые сборы через существующую очередь, отдельные права, аудит, миграция 0060 и ротация Vault.
+- Admin UI, OpenAPI, TypeScript SDK, TLS и PostgreSQL regression. Канал development до live acceptance.
+
 ## [0.8.7] — 2026-11-14 — Syslog & System Events
 
 - Syslog receiver: TLS с клиентским сертификатом, TCP/UDP с явным opt-in, RFC3164/5424, bounded framing.

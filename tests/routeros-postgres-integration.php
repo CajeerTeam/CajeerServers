@@ -36,6 +36,8 @@ try {
     $ok(count($runner->run()['applied'])===1&&$runner->run()['applied']===[],'0.8.4 upgrade and replay');
     copy($root.'/migrations/pgsql/0058_network_topology_ipam.sql',$dir.'/migrations/0058_network_topology_ipam.sql');
     $ok(count($runner->run()['applied'])===1&&$runner->run()['applied']===[],'0.8.5 to 0.8.6 upgrade and replay');
+    foreach(['0059_system_events.sql','0060_network_configuration_backup.sql'] as $migration)copy($root.'/migrations/pgsql/'.$migration,$dir.'/migrations/'.$migration);
+    $ok(count($runner->run()['applied'])===2&&$runner->run()['applied']===[],'0.8.7 and 0.8.8 migration replay');
     $password='fixture-only-password-123!';$q=$pdo->prepare('INSERT INTO users(email,name,password_hash,two_factor_enabled) VALUES(:email,:name,:hash,true) RETURNING id::text');
     $q->execute(['email'=>'routeros-test@example.invalid','name'=>'RouterOS integration','hash'=>password_hash($password,PASSWORD_ARGON2ID)]);$actor=(string)$q->fetchColumn();
     $pdo->prepare("INSERT INTO user_roles(user_id,role_id) SELECT :id,id FROM roles WHERE slug='administrator'")->execute(['id'=>$actor]);
@@ -58,7 +60,7 @@ try {
         ->execute(['session'=>$session['id'],'actor'=>$actor,'hash'=>$session['hash'],'csrf'=>hash('sha256','fixture-csrf')]);
     $principal=['mode'=>'session','id'=>$session['id'],'user'=>['id'=>$actor],'mfa_verified'=>true];
     $access=new SecretAccessService($db,$repo,$rbac,$mfa,$limiter,$audit,$vault,$crypto);$history=new HistoryService($db,$repo,$inventory,$audit);
-    $runtime=new ConnectorRuntimeService($db,$repo,$bindings,$access,$history,$audit,$registry,$versions);
+    $runtime=new ConnectorRuntimeService($db,$repo,$bindings,$access,$history,$audit,$registry,$versions,null,new \Cajeer\Servers\Connector\NetworkConfigurationBackupStore($crypto));
     $execution=new ConnectorExecutionService($db,$bindings,$repo,$rbac,$access,$vault,$crypto,$audit,$runtime);
     $asset=$inventory->create($actor,['workspace_id'=>$ws,'type'=>'router','name'=>'RouterOS endpoint']);
     $secret=['username'=>'reader','password'=>'fixture-secret'];
@@ -71,6 +73,17 @@ try {
         $pdo->prepare('UPDATE user_mfa SET last_counter=NULL WHERE user_id=:id')->execute(['id'=>$actor]);
         $access->authorize($principal,$asset['id'],$cid,'api',$password,TwoFactorManager::totp($totpKey,time()));
     };
+    $authorize();$backupPlan=$execution->createPlan($principal,$id,2,['name'=>'RouterOS configuration','collector'=>'routeros.configuration-backup','operation'=>'inspect','ttl_seconds'=>3600,'interval_seconds'=>300]);
+    foreach(['first','repeat','change'] as $attempt){$execution->runPlan($actor,$id,$backupPlan['id'],'backup-'.$attempt);$ok($execution->once()['status']==='succeeded','backup worker '.$attempt);}
+    $backups=$runtime->networkConfigurationBackups($actor,$id,50,0);
+    $ok(count($backups)===2&&(int)$backups[0]['version']===2,'dedup and changed version');
+    $export=$runtime->networkConfigurationBackups($actor,$id,1,0,$backups[0]['id']);
+    $ok(str_contains($export['content'],'action=drop')&&hash('sha256',$export['content'])===$backups[0]['sha256'],'export exact native bytes');
+    $diff=$runtime->networkConfigurationBackups($actor,$id,1,0,$backups[0]['id'],$backups[1]['id']);
+    $ok($diff['diff']['added']===1&&$diff['diff']['removed']===1,'actual diff');
+    $ok((int)$pdo->query("SELECT count(*) FROM connector_runs WHERE collector_name='routeros.configuration-backup' AND result::text LIKE '%/ip firewall filter%'")->fetchColumn()===0,'no config plaintext in run results');
+    $ok((int)$pdo->query("SELECT count(*) FROM network_configuration_backups WHERE position(convert_to('/ip firewall filter','UTF8') in encrypted_payload)>0")->fetchColumn()===0,'encrypted at rest');
+    $reject(404,fn()=>$runtime->networkConfigurationBackups($actor,$id,1,0,'00000000-0000-4000-8000-000000000001'),'missing backup');
     $before=(int)$pdo->query('SELECT count(*) FROM inventory_assets')->fetchColumn();
     foreach(['inventory','network','routing'] as $scope){
         $ok($runtime->routerosDiscovery($actor,$id,$scope)['state']==='not_collected','initial '.$scope);

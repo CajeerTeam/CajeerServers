@@ -136,3 +136,6 @@ export type NetworkDiscoveryReport={created:number;unchanged:number;conflicts:nu
 
 export interface SystemEvent {id:string;source:'syslog'|'ssh'|'winrm';channel:string;event_at:string|null;received_at:string;severity:number;facility:number|null;hostname:string;application:string;message:string}
 export interface SystemEventPage {events:SystemEvent[];next_before:string|null}
+
+export interface NetworkConfigurationVersion {id:string;version:number;target_version:number;credential_version:number;identity_hash:string;sha256:string;byte_size:number;observed_at:string;created_at:string}
+export interface NetworkConfigurationDiff {from:NetworkConfigurationVersion;to:NetworkConfigurationVersion;diff:{added:number;removed:number;unchanged_prefix:number;unchanged_suffix:number;exact:boolean;lines:{op:'add'|'remove'|'context';old_line:number|null;new_line:number|null;text:string}[]}}

@@ -45,6 +45,11 @@ final readonly class RouterOsConnector implements ConnectorInterface, MetricDriv
         $items=$scope==='inventory'?[['type'=>'router','external_id'=>'device','fields'=>['name'=>$name,'status'=>'online']]]:[];
         return new ConnectorResult($items,false,[],OsNetworkProfile::diagnostics($context)+['tls_pinned'=>true,'routeros_discovery'=>$snapshot]);
     }
+    public function configurationBackup(ConnectorContext $context,#[\SensitiveParameter] string $secret):ConnectorResult
+    {
+        $content=$this->client($context,$secret)->configurationBackup();
+        return new ConnectorResult([],false,[],['network_configuration_backup'=>$content]);
+    }
     public function metrics(ConnectorContext $context,#[\SensitiveParameter] string $secret):array
     {
         $api=$this->client($context,$secret);$api->identity();$r=$api->resource();$interfaces=$api->read('interfaces');$api->identity();$samples=[];

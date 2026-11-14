@@ -111,6 +111,19 @@ final class ConnectorBindingController
     {
         return HttpResponse::json(['data'=>$this->runtime->vmmanagerGuests($this->actor($r,'connectors.targets.read'),self::id($r))],200,['Cache-Control'=>'private, no-store']);
     }
+    public function configurationBackups(HttpRequest $r):HttpResponse
+    {
+        return HttpResponse::json(['data'=>$this->runtime->networkConfigurationBackups($this->actor($r,'network.configuration.read'),self::id($r),self::integer($r,'limit',50,100),self::integer($r,'offset',0,10000))]);
+    }
+    public function configurationBackupDiff(HttpRequest $r):HttpResponse
+    {
+        return HttpResponse::json(['data'=>$this->runtime->networkConfigurationBackups($this->actor($r,'network.configuration.read'),self::id($r),1,0,self::id($r,'backup'),\Cajeer\Servers\Credentials\CredentialInput::uuid($r->query['from']??null))]);
+    }
+    public function configurationBackupExport(HttpRequest $r):HttpResponse
+    {
+        $id=self::id($r,'backup');$row=$this->runtime->networkConfigurationBackups($this->actor($r,'network.configuration.read'),self::id($r),1,0,$id);
+        return new HttpResponse(200,$row['content'],['Content-Type'=>'application/octet-stream','Content-Disposition'=>'attachment; filename="routeros-'.$id.'.rsc"','Cache-Control'=>'private, no-store','X-Content-Type-Options'=>'nosniff','X-Artifact-SHA256'=>$row['backup']['sha256']]);
+    }
     public function systemEvents(HttpRequest $r):HttpResponse
     {
         $before=$r->query['before']??null;$severity=$r->query['severity']??null;$search=$r->query['search']??'';$source=$r->query['source']??null;$from=$r->query['from']??null;$to=$r->query['to']??null;
