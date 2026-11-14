@@ -20,6 +20,14 @@ NODES = [dict(id=1, name='vmm-node-a', state='active', cluster={'id': 1, 'name':
 HOSTS = [dict(id=21, name='vmm-guest-a', state=True, node={'id': 1}, cluster={'id': 1, 'virtualization_type': 'kvm', 'name': 'KVM production'}, cpu_number=4, ram_mib=8192, hdd_mib='9007199254740993', os={'id': 12, 'name': 'Ubuntu 24.04'}, account={'id': 7, 'email': 'remote-secret-marker'}, disk=[{'id': 31, 'name': 'root', 'size_mib': '9007199254740993', 'storage': {'id': 6, 'name': 'local'}, 'bus': 'virtio', 'type': 'hard_drive', 'path': 'remote-secret-marker'}], iface=[{'id': 41, 'name': 'eth0', 'mac': '02:00:00:00:00:01', 'model': 'virtio', 'bridge': 'br0', 'ip': [{'name': '192.0.2.21'}, {'name': '2001:db8::21'}]}], ip=[{'name': '192.0.2.21'}], password='remote-secret-marker'),
          dict(id=22, name='vmm-container-b', state=False, node={'id': 2}, cluster={'id': 2, 'virtualization_type': 'lxd'})]
 
+NETWORKS = [dict(id=1, name='192.0.2.0/24', gateway='192.0.2.1', vlan_id=12, userspace=1, network_type='active', total_ip='254', using_ip='3'),
+            dict(id=2, name='2001:db8::/64', gateway='2001:db8::1', userspace=1, network_type='active', total_ip='18446744073709551616', using_ip='1')]
+POOLS = [dict(id=1, name='Public', userspace=1, ipnets=[{'id': 1}, {'id': 2}], total_ip='18446744073709551870', using_ip='4')]
+ADDRESSES = [dict(id=1, name='192.0.2.21', ipnet=1, ippool=1, userspace=1, status='busy', locked=False, note='remote-secret-marker'),
+             dict(id=2, name='2001:db8::21', ipnet=2, ippool=1, userspace=1, status='busy'),
+             dict(id=3, name='192.0.2.1', ipnet=1, ippool=1, status='special', locked=True),
+             dict(id=4, name='2001:db8::/80', ipnet=2, ippool=1, status='busy')]
+
 class Handler(http.server.BaseHTTPRequestHandler):
     calls = []
     anchor_calls = 0
@@ -114,6 +122,24 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 page = page[:1]
             self.reply({'list': page})
             return
+        if path.path.startswith('/ip/v3/') and token != 'fixture-vmm-capabilities' and token != 'fixture-vmm-cap-revoked':
+            rows = [dict(row) for row in {'/ip/v3/ipnet': NETWORKS, '/ip/v3/ippool': POOLS, '/ip/v3/ip': ADDRESSES}[path.path]]
+            if token == 'fixture-vmm-network-denied' and path.path.endswith('/ip'):
+                self.reply({'error': {'code': 42}}, 403); return
+            if token == 'fixture-vmm-network-midfail' and path.path.endswith('/ip') and after > 0:
+                self.reply({'error': {'code': 42}}, 503); return
+            if token == 'fixture-vmm-network-overlap' and path.path.endswith('/ipnet'):
+                rows.append(dict(id=3,name='192.0.2.0/25',userspace=2,network_type='active'))
+            if token == 'fixture-vmm-network-duplicate' and path.path.endswith('/ip'):
+                rows.append(dict(id=5,name='192.0.2.21',ipnet=1,userspace=2,status='busy'))
+            if token == 'fixture-vmm-network-userspace' and path.path.endswith('/ip'):
+                rows[0]['userspace']=0
+            if token == 'fixture-vmm-network-invalid' and path.path.endswith('/ipnet'):
+                rows[0]['name']='192.0.2.5/24'
+            if token == 'fixture-vmm-network-many' and path.path.endswith('/ippool'):
+                rows=[dict(id=i,name=f'Pool {i}',ipnets=[{'id':1}]) for i in range(1,103)]
+            if token == 'fixture-vmm-scoped': rows=rows[:1]
+            self.reply({'list':[row for row in rows if row['id']>after][:limit]}); return
         if path.path not in ('/vm/v3/node', '/vm/v3/host'):
             if token == 'fixture-vmm-capabilities' and path.path == '/ip/v3/ipnet':
                 self.reply({'error': {'code': 42}}, 403)
@@ -147,6 +173,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 if Handler.anchor_calls > 1:
                     rows[0]['name'] = 'other-platform'
         if path.path.endswith('/host'):
+            if token == 'fixture-vmm-network-duplicate-mac':
+                rows[1]['iface']=[{'id':42,'name':'eth0','mac':'02:00:00:00:00:01','ip':[{'name':'192.0.2.22'}]}]
             if token == 'fixture-vmm-scoped':
                 rows = rows[:1]
             if token == 'fixture-vmm-rotated':
@@ -292,6 +320,23 @@ foreach(['midfail'=>'connector_unavailable','duplicate'=>'connector_protocol_err
  try{$guest('fixture-vmm-'.$case);throw new LogicException('accepted '.$case);}catch(HttpException $e){$ok($e->status===502&&$e->errorCode===$category,'guest rejects '.$case);}
 }
 try{$collector->collect($guestPlan,array_diff_key($target,['vmmanager_profile'=>true]),'api_token','fixture-vmm-active');throw new LogicException('missing guest profile');}catch(HttpException $e){$ok($e->errorCode==='collection_invalid','guest profile required');}
+$networkPlan=new \Cajeer\Servers\Collector\CollectionPlan('vmmanager.network','sync');
+$ok($catalog['vmmanager.network']['operations']===['inspect','sync'],'network collector registered');
+$network=static fn(string $token)=>$collector->collect($networkPlan,$target,'api_token',$token);
+$r=$network('fixture-vmm-active');$d=$r->connection['vmmanager_network_discovery'];
+$ok(!$r->complete&&$r->items===[]&&$d['complete']&&$d['counts']===['networks'=>2,'pools'=>1,'addresses'=>4,'interfaces'=>1],'network scoped completeness cannot mark CMDB absent');
+$ok($d['networks'][0]['cidr']==='192.0.2.0/24'&&$d['networks'][0]['vlan_id']===12&&$d['networks'][0]['gateway']==='192.0.2.1','network fields');
+$ok($d['networks'][1]['free_ip']==='18446744073709551615'&&$d['pools'][0]['network_ids']===[1,2],'IPv6 exact free capacity and pool links');
+$ok($d['addresses'][0]['nic_key']==='host:21:nic:41'&&$d['addresses'][1]['nic_key']==='host:21:nic:41'&&$d['interfaces'][0]['mac']==='02:00:00:00:00:01','explicit dual stack NIC links');
+$ok($d['addresses'][2]['status']==='special'&&$d['addresses'][2]['nic_key']===null&&$d['addresses'][3]['issue']==='prefix_allocation','reserved and prefix status preserved');
+$ok(!str_contains(json_encode($d),'remote-secret-marker'),'remote secrets omitted');
+$d=$network('fixture-vmm-scoped')->connection['vmmanager_network_discovery'];$ok(!$d['complete'],'restricted visibility cannot mutate IPAM');
+$d=$network('fixture-vmm-network-overlap')->connection['vmmanager_network_discovery'];$ok($d['networks'][0]['issue']==='overlapping_network'&&$d['networks'][2]['issue']==='overlapping_network','overlap both sides');
+$d=$network('fixture-vmm-network-duplicate')->connection['vmmanager_network_discovery'];$ok($d['addresses'][0]['issue']==='duplicate_address'&&$d['addresses'][4]['issue']==='duplicate_address','duplicate remote addresses conflict');
+$d=$network('fixture-vmm-network-userspace')->connection['vmmanager_network_discovery'];$ok($d['addresses'][0]['issue']==='userspace_mismatch'&&$d['addresses'][0]['userspace']===0,'userspace zero is distinct from unknown');
+$d=$network('fixture-vmm-network-duplicate-mac')->connection['vmmanager_network_discovery'];$ok($d['interfaces'][0]['issue']==='duplicate_mac'&&$d['interfaces'][1]['issue']==='duplicate_mac'&&$d['addresses'][0]['issue']==='duplicate_mac','duplicate MAC blocks both NICs and assignment');
+$d=$network('fixture-vmm-network-many')->connection['vmmanager_network_discovery'];$ok(count($d['pools'])===102,'IPmanager keyset pagination');
+foreach(['network-denied'=>'connector_auth_failed','network-midfail'=>'connector_unavailable','network-invalid'=>'connector_protocol_error'] as $case=>$category){try{$network('fixture-vmm-'.$case);throw new LogicException('accepted '.$case);}catch(HttpException $e){$ok($e->errorCode===$category,'network rejects '.$case);}}
 echo "VMmanager HTTPS integration: $n PASS\n";
 '''
             subprocess.run(['php','-r',code,str(ROOT),str(server.server_port),str(cert)],check=True,timeout=60)

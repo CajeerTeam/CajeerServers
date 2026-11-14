@@ -30,7 +30,7 @@ try {
     $pdo=$db->connection();$ok((int)$pdo->query("SELECT current_setting('server_version_num')")->fetchColumn()>=170000,'PostgreSQL 17+');
     $pdo->exec('CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public');
     $pdo->exec('CREATE SCHEMA "'.$schema.'"');$created=true;$pdo->exec('SET search_path TO "'.$schema.'", public');
-    foreach(glob($root.'/migrations/pgsql/*.sql')?:[] as $file)if(!str_starts_with(basename($file),'0047_')&&!str_starts_with(basename($file),'0048_'))copy($file,$dir.'/migrations/'.basename($file));
+    foreach(glob($root.'/migrations/pgsql/*.sql')?:[] as $file)if(!str_starts_with(basename($file),'0047_')&&!str_starts_with(basename($file),'0048_')&&!str_starts_with(basename($file),'0049_'))copy($file,$dir.'/migrations/'.basename($file));
     (new MigrationRunner($db,$dir.'/migrations'))->run();
     $password='fixture-only-password-123!';$q=$pdo->prepare('INSERT INTO users(email,name,password_hash,two_factor_enabled) VALUES(:email,:name,:hash,true) RETURNING id::text');
     $q->execute(['email'=>'vmm-test@example.invalid','name'=>'VMM integration','hash'=>password_hash($password,PASSWORD_ARGON2ID)]);$actor=(string)$q->fetchColumn();
@@ -142,8 +142,41 @@ try {
     $ok($guestMapped['host:21']['asset_id']===$mapped['host:21']['asset_id']&&$guestMapped['cluster:1']['presence']==='seen','guest identity and cluster isolation');
     $beforeGuestRepeat=$count();$execution->runPlan($actor,$id,$guestPlan['id'],'guest-repeat');$ok($execution->once()['status']==='succeeded'&&$count()===$beforeGuestRepeat,'repeat guest sync no duplicates');
     $ok($execution->status($actor,$id,$guestRun['id'])['result']['connection']['vmmanager_guest_discovery']['guests'][0]['disks'][0]['size_mib']==='9007199254740993','guest history retains precise disk data');
+    copy($root.'/migrations/pgsql/0049_vmmanager_network_discovery.sql',$dir.'/migrations/0049_vmmanager_network_discovery.sql');
+    $ok(count($runner->run()['applied'])===1&&$runner->run()['applied']===[],'upgrade from 0.7.4 and migration idempotency');
+    $ok($runtime->vmmanagerNetwork($actor,$id)['state']==='not_collected','network state initially absent');
+    $ipam=new \Cajeer\Servers\Inventory\IpamService($db,$repo,$audit);
+    $manual=$ipam->create($actor,'network',$ws,['name'=>'Manual overlapping network','cidr'=>'192.0.2.0/25']);
+    $authorize();$inspectPlan=$execution->createPlan($principal,$id,3,['name'=>'Inspect network','collector'=>'vmmanager.network','operation'=>'inspect','ttl_seconds'=>3600,'interval_seconds'=>300]);
+    $inspection=$execution->runPlan($actor,$id,$inspectPlan['id'],'network-inspect');$ok($execution->once()['status']==='succeeded','network inspect worker');
+    $ok($runtime->vmmanagerNetwork($actor,$id)['snapshot']['counts']['addresses']===4&&(int)$pdo->query('SELECT count(*) FROM vmmanager_ipam_import')->fetchColumn()===0,'inspect preserves IPAM');
+    $authorize();$networkPlan=$execution->createPlan($principal,$id,3,['name'=>'Sync network','collector'=>'vmmanager.network','operation'=>'sync','ttl_seconds'=>3600,'interval_seconds'=>300]);
+    $networkRun=$execution->runPlan($actor,$id,$networkPlan['id'],'network-sync');$ok($execution->once()['status']==='succeeded','network sync worker');
+    $network=$runtime->vmmanagerNetwork($actor,$id);$report=$network['snapshot']['ipam_sync'];
+    $ok($network['state']==='available'&&$report['created']===3&&$report['conflicts']>=2&&$ipam->show($actor,'network',$ws,$manual['id'])['version']===1,'manual CIDR collision does not mutate manual network');
+    $ipam->delete($actor,'network',$ws,$manual['id'],1);
+    $runNetwork=static function(string $key)use($execution,$actor,$id,$networkPlan,$runtime,$ok):array{
+        $r=$execution->runPlan($actor,$id,$networkPlan['id'],$key);$ok($execution->once()['status']==='succeeded','network repeat worker');return $runtime->vmmanagerNetwork($actor,$id)['snapshot']['ipam_sync'];
+    };
+    $report=$runNetwork('network-after-conflict');$ok($report['created']===3&&$report['unchanged']===3,'import resumes when manual collision removed');
+    $ok((int)$pdo->query('SELECT count(*) FROM vmmanager_ipam_import')->fetchColumn()===6,'provenance for two networks, NIC and three IPs');
+    $qip=$pdo->prepare("SELECT host(a.address) AS address,i.asset_id::text FROM inventory_ip_addresses a JOIN inventory_interfaces i ON i.id=a.interface_id WHERE a.workspace_id=:ws ORDER BY a.address");$qip->execute(['ws'=>$ws]);$assigned=$qip->fetchAll(PDO::FETCH_ASSOC);
+    $ok(count($assigned)===2&&$assigned[0]['asset_id']===$uuid&&$assigned[1]['asset_id']===$uuid,'dual stack IPAM assignments use exact guest mapping');
+    $report=$runNetwork('network-idempotent');$ok($report['created']===0&&$report['unchanged']===6,'repeat sync idempotent');
+    $address=$pdo->query("SELECT id::text,version FROM inventory_ip_addresses WHERE address='192.0.2.1'::inet")->fetch(PDO::FETCH_ASSOC);
+    $ipam->update($actor,'address',$ws,$address['id'],(int)$address['version'],['description'=>'Operator edit']);
+    $report=$runNetwork('network-manual-edit');$ok($report['conflicts']>=1&&$ipam->show($actor,'address',$ws,$address['id'])['description']==='Operator edit','manual edit protected by ownership version');
+    $ok($execution->status($actor,$id,$networkRun['id'])['result']['connection']['vmmanager_network_discovery']['ipam_sync']['created']===3,'network run history retains original report');
+    $q->execute(['id'=>$id]);$networkMapped=array_column($q->fetchAll(PDO::FETCH_ASSOC),null,'external_id');$ok($networkMapped['host:21']['presence']==='seen'&&$networkMapped['cluster:1']['presence']==='seen','network sync does not reconcile CMDB absence');
+    // Revoke network read independently of connector and Inventory access, then restore the fixture role.
+    $pdo->exec("DELETE FROM role_permissions rp USING roles r,permissions p WHERE rp.role_id=r.id AND rp.permission_id=p.id AND r.slug='administrator' AND p.scope='inventory.network.read'");
+    $reject(403,fn()=>$runtime->vmmanagerNetwork($actor,$id),'network state read requires network permission');
+    $reject(403,fn()=>$execution->status($actor,$id,$networkRun['id']),'network history requires network permission');
+    $reject(403,fn()=>$execution->runs($actor,$id,20,0,null,'vmmanager.network'),'network history filter requires network permission');
+    $pdo->exec("INSERT INTO role_permissions(role_id,permission_id) SELECT r.id,p.id FROM roles r CROSS JOIN permissions p WHERE r.slug='administrator' AND p.scope='inventory.network.read'");
     $bindings->update($actor,$id,3,['vmmanager_profile'=>$profile]);$ok($runtime->vmmanagerCluster($actor,$id)['state']==='stale','profile revision invalidates current cluster snapshot');
     $ok($runtime->vmmanagerGuests($actor,$id)['state']==='stale','profile revision invalidates guest snapshot');
+    $ok($runtime->vmmanagerNetwork($actor,$id)['state']==='stale','profile revision invalidates network snapshot');
     echo "VMmanager PostgreSQL/Vault/Queue/HTTPS integration: $n PASS\n";
 } catch(Throwable $e){$failed=true;fwrite(STDERR,'FAIL VMmanager PostgreSQL: '.$e::class.': '.$e->getMessage()."\n");}
 finally {

@@ -1,3 +1,8 @@
+## [0.7.5] — 2026-11-14 — Network & IPAM Discovery
+
+- Рабочий `vmmanager.network`: сети, IP-пулы, IPv4/IPv6, NIC и привязки к гостям через IPmanager API v3.
+- Атомарный Inspect/Sync, provenance IPAM, безопасный повторный импорт, конфликтные CIDR/адреса, защита ручных правок, история и Admin UI.
+
 ## [0.7.4] — 2026-11-14 — VM & Container Inventory
 
 - Рабочий коллектор `vmmanager.guests`: pinned HTTPS, keyset host/node discovery, нормализованная конфигурация KVM/LXD, точные MiB, диски, NIC/IP, ОС и размещение.

@@ -183,6 +183,12 @@ final class ConnectorExecutionService
         if (!$row) throw new HttpException(404,'Collection plan not found.','not_found');
         return $row;
     }
+    private function networkPermission(PDO $pdo,string $actor,string $collector,string $operation):void
+    {
+        if($collector!=='vmmanager.network')return;
+        $this->rbac->requireUserPermission($actor,'inventory.network.read',$pdo);
+        if($operation==='sync')$this->rbac->requireUserPermission($actor,'inventory.network.manage',$pdo);
+    }
     private function planAccess(PDO $pdo,string $actor,string $target,bool $write):array
     {
         $this->rbac->requireUserPermission($actor,$write?'connectors.credentials.manage':'connectors.targets.read',$pdo);
@@ -206,6 +212,7 @@ final class ConnectorExecutionService
             $t=$this->planAccess($pdo,$actor,$target,true);
             $ctx=$this->bindings->runtimeContext($actor,$target,$version,$plan->operation);
             $this->runtime->collectionRuntime()->validate($plan,$ctx);
+            $this->networkPermission($pdo,$actor,$plan->collector,$plan->operation);
             if ((int)$this->query($pdo,'SELECT count(*) FROM collection_plans p JOIN connector_service_grants g ON g.id=p.grant_id WHERE g.target_id=:t AND g.revoked_at IS NULL AND g.expires_at>clock_timestamp()',['t'=>$target])->fetchColumn()>=20) throw new HttpException(429,'Too many collection plans.','rate_limited');
             // Fresh MFA delegation and plan creation are one transaction. Dedicated grant never has a generic schedule.
             $g=$this->issue($principal,$target,$version,$plan->operation,$body['ttl_seconds']);
@@ -231,6 +238,7 @@ final class ConnectorExecutionService
                 if ($p['actor_id']!==$actor) $this->deny();
                 $g=$this->grant($pdo,$p['grant_id'],true);$ctx=$this->context($pdo,$g);
                 $this->runtime->collectionRuntime()->validate(new CollectionPlan($p['collector_name'],$g['operation']),$ctx);
+                $this->networkPermission($pdo,$g['actor_id'],$p['collector_name'],$g['operation']);
             }
             if (in_array($p['enabled'],[true,'t',1,'1'],true)===$enabled) return $p;
             $due=$enabled?(new CollectionSchedule($p['interval_seconds']===null?null:(int)$p['interval_seconds'],$p['cron_expression'],$p['timezone']))->next(new \DateTimeImmutable((string)$pdo->query('SELECT clock_timestamp()')->fetchColumn())):$p['next_due_at'];
@@ -248,6 +256,7 @@ final class ConnectorExecutionService
             if ($p['actor_id']!==$actor) $this->deny();
             $g=$this->grant($pdo,$p['grant_id'],true);$ctx=$this->context($pdo,$g);
             $this->runtime->collectionRuntime()->validate(new CollectionPlan($p['collector_name'],$g['operation']),$ctx);
+                $this->networkPermission($pdo,$g['actor_id'],$p['collector_name'],$g['operation']);
             if ($redrive!==null) {
                 $redrive=CredentialInput::uuid($redrive);
                 $r=$this->runRow($pdo,$redrive);
@@ -271,6 +280,7 @@ final class ConnectorExecutionService
                 try {
                     $ctx=$this->context($pdo,$g);$this->rbac->requireUserPermission($g['actor_id'],'inventory.assets.read',$pdo);
                     $this->runtime->collectionRuntime()->validate(new CollectionPlan($p['collector_name'],$g['operation']),$ctx);
+                $this->networkPermission($pdo,$g['actor_id'],$p['collector_name'],$g['operation']);
                     $due=(new CollectionSchedule($p['interval_seconds']===null?null:(int)$p['interval_seconds'],$p['cron_expression'],$p['timezone']))->next(new \DateTimeImmutable((string)$pdo->query('SELECT clock_timestamp()')->fetchColumn()));
                 } catch(HttpException $e) {
                     $this->query($pdo,'UPDATE collection_plans SET enabled=false WHERE id=:id',['id'=>$p['id']]);
@@ -288,7 +298,7 @@ final class ConnectorExecutionService
     }
     private function runRow(PDO $pdo,string $id,bool $detail=true):array
     {
-        $r=$this->query($pdo,"SELECT r.id,r.grant_id,r.target_id,r.workspace_id,r.collector_name,r.collection_plan_id,r.redrive_of,r.created_at,r.finished_at,r.cancelled_at,r.error_code,".($detail?"r.result":"r.result #- '{collection,observations}' #- '{collection,metric_samples}' #- '{connection,vmmanager_guest_discovery,guests}' #- '{connection,vmmanager_cluster_discovery,nodes}' #- '{connection,vmmanager_cluster_discovery,clusters}' #- '{connection,cluster_discovery,nodes}' #- '{connection,guest_discovery,guests}' #- '{connection,storage_network_discovery,nodes}' #- '{connection,storage_network_discovery,guests}' #- '{connection,storage_network_discovery,definitions}' #- '{connection,pbs_discovery,datastores}' #- '{connection,pbs_discovery,namespaces}' #- '{connection,pbs_discovery,groups}' #- '{connection,pbs_discovery,snapshots}' #- '{connection,pbs_discovery,jobs}' #- '{connection,pbs_discovery,issues}'")." AS result,g.operation,CASE WHEN r.cancelled_at IS NOT NULL THEN 'cancelled' WHEN r.result IS NOT NULL THEN 'succeeded' WHEN r.error_code IS NOT NULL OR j.status IN ('failed','completed') OR j.id IS NULL THEN 'failed' WHEN j.status='running' THEN 'running' ELSE 'queued' END AS status,COALESCE(j.attempts,0) AS attempts FROM connector_runs r JOIN connector_service_grants g ON g.id=r.grant_id LEFT JOIN queue_jobs j ON j.id=r.id WHERE r.id=:id",['id'=>CredentialInput::uuid($id)])->fetch(PDO::FETCH_ASSOC);
+        $r=$this->query($pdo,"SELECT r.id,r.grant_id,r.target_id,r.workspace_id,r.collector_name,r.collection_plan_id,r.redrive_of,r.created_at,r.finished_at,r.cancelled_at,r.error_code,".($detail?"r.result":"r.result #- '{collection,observations}' #- '{collection,metric_samples}' #- '{connection,vmmanager_network_discovery,networks}' #- '{connection,vmmanager_network_discovery,pools}' #- '{connection,vmmanager_network_discovery,addresses}' #- '{connection,vmmanager_network_discovery,interfaces}' #- '{connection,vmmanager_network_discovery,ipam_sync,issues}' #- '{connection,vmmanager_guest_discovery,guests}' #- '{connection,vmmanager_cluster_discovery,nodes}' #- '{connection,vmmanager_cluster_discovery,clusters}' #- '{connection,cluster_discovery,nodes}' #- '{connection,guest_discovery,guests}' #- '{connection,storage_network_discovery,nodes}' #- '{connection,storage_network_discovery,guests}' #- '{connection,storage_network_discovery,definitions}' #- '{connection,pbs_discovery,datastores}' #- '{connection,pbs_discovery,namespaces}' #- '{connection,pbs_discovery,groups}' #- '{connection,pbs_discovery,snapshots}' #- '{connection,pbs_discovery,jobs}' #- '{connection,pbs_discovery,issues}'")." AS result,g.operation,CASE WHEN r.cancelled_at IS NOT NULL THEN 'cancelled' WHEN r.result IS NOT NULL THEN 'succeeded' WHEN r.error_code IS NOT NULL OR j.status IN ('failed','completed') OR j.id IS NULL THEN 'failed' WHEN j.status='running' THEN 'running' ELSE 'queued' END AS status,COALESCE(j.attempts,0) AS attempts FROM connector_runs r JOIN connector_service_grants g ON g.id=r.grant_id LEFT JOIN queue_jobs j ON j.id=r.id WHERE r.id=:id",['id'=>CredentialInput::uuid($id)])->fetch(PDO::FETCH_ASSOC);
         if (!$r) throw new HttpException(404,'Connector run not found.','not_found');
         if ($r['status']==='failed' && $r['error_code']===null) $r['error_code']='lease_exhausted';
         unset($r['idempotency_key']);
@@ -305,7 +315,9 @@ final class ConnectorExecutionService
         $pdo=$this->db->connection();
         if ($planId!==null) $this->planRow($pdo,$target,$planId);
         if($collector!==null&&!preg_match('/^[a-z][a-z0-9_.-]{0,63}$/D',$collector))throw new HttpException(422,'Invalid collector filter.','validation_failed');
-        $q=$pdo->prepare('SELECT id FROM connector_runs WHERE target_id=:id'.($planId!==null?' AND collection_plan_id=:plan':'').($collector!==null?' AND collector_name=:collector':'').' ORDER BY created_at DESC,id DESC LIMIT :lim OFFSET :off');
+        $canNetwork=in_array('inventory.network.read',$this->rbac->permissionsFor(['mode'=>'session','user'=>['id'=>$actor]]),true);
+        if(!$canNetwork&&$collector==='vmmanager.network')$this->rbac->requireUserPermission($actor,'inventory.network.read',$pdo);
+        $q=$pdo->prepare('SELECT id FROM connector_runs WHERE target_id=:id'.($canNetwork?'':" AND collector_name IS DISTINCT FROM 'vmmanager.network'").($planId!==null?' AND collection_plan_id=:plan':'').($collector!==null?' AND collector_name=:collector':'').' ORDER BY created_at DESC,id DESC LIMIT :lim OFFSET :off');
         if ($planId!==null) $q->bindValue('plan',$planId);
         if ($collector!==null) $q->bindValue('collector',$collector);
         $q->bindValue('id',$target); $q->bindValue('lim',$limit,PDO::PARAM_INT); $q->bindValue('off',$offset,PDO::PARAM_INT); $q->execute();
@@ -317,7 +329,9 @@ final class ConnectorExecutionService
         $this->rbac->requireUserPermission($actor,'inventory.assets.read');
         $target=CredentialInput::uuid($target);
         $this->bindings->show($actor,$target); $r=$this->runRow($this->db->connection(),$id);
-        if ($r['target_id']!==$target) throw new HttpException(404,'Connector run not found.','not_found'); return $r;
+        if ($r['target_id']!==$target) throw new HttpException(404,'Connector run not found.','not_found');
+        if($r['collector_name']==='vmmanager.network')$this->rbac->requireUserPermission($actor,'inventory.network.read');
+        return $r;
     }
     public function cancel(string $actor,string $target,string $id):array
     {
@@ -330,6 +344,7 @@ final class ConnectorExecutionService
             $row=$this->runRow($pdo,$id);
             if ($row['target_id']!==$target) throw new HttpException(404,'Connector run not found.','not_found');
             if ($row['collector_name']!==null) $this->rbac->requireUserPermission($actor,'inventory.assets.read',$pdo);
+            if($row['collector_name']==='vmmanager.network')$this->rbac->requireUserPermission($actor,'inventory.network.read',$pdo);
             if (!in_array($row['status'],['queued','running'],true)) return $row;
             $changed=$this->query($pdo,'UPDATE connector_runs SET cancelled_at=clock_timestamp(),finished_at=clock_timestamp() WHERE id=:id AND finished_at IS NULL',['id'=>$id]);
             if ($changed->rowCount()===1) {

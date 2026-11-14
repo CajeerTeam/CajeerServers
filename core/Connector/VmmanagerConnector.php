@@ -39,6 +39,12 @@ final class VmmanagerConnector implements ConnectorInterface, \Cajeer\Servers\Me
         return $this->discover($context,'inspect',$secret,'guests');
     }
 
+    public function network(ConnectorContext $context,#[\SensitiveParameter] string $secret):ConnectorResult
+    {
+        if($context->vmmanagerProfile===null)throw new ConnectorTransportException('connector_trust_failed');
+        return $this->discover($context,'inspect',$secret,'network');
+    }
+
     private function discover(ConnectorContext $context,string $operation,#[\SensitiveParameter] string $secret,string $scope):ConnectorResult
     {
         $manifest = $this->manifest();
@@ -89,6 +95,21 @@ final class VmmanagerConnector implements ConnectorInterface, \Cajeer\Servers\Me
                 if($this->api->identity($context,$token,$deadline)!==$identity)throw new ConnectorTransportException('connector_auth_failed');
                 // This collector has no guests; never claim completeness for the target-wide reconciliation.
                 return new ConnectorResult($items,false,connection:$connection+['vmmanager_cluster_discovery'=>$details]);
+            }
+            if($scope==='network'){
+                $nodes=$this->clusterPages($context,'nodes',$token,$deadline,self::LIMIT);
+                $hosts=$this->clusterPages($context,'guests',$token,$deadline,self::LIMIT-count($nodes));
+                $visible=array_values(array_filter($nodes,static fn($r)=>VmmanagerApiClient::id($r->id??null)===$profile['anchor_id']));
+                VmmanagerProfile::verify($profile,array_map(static fn($r)=>['id'=>VmmanagerApiClient::id($r->id),'name'=>$r->name??null],$visible));
+                $full=$identity['administrator']&&$identity['owner_id']===$identity['trustee_id'];
+                [$guestDetails]=VmmanagerGuestDiscovery::build($nodes,$hosts,$full);
+                $networks=$this->clusterPages($context,'networks',$token,$deadline,self::LIMIT);
+                $pools=$this->clusterPages($context,'pools',$token,$deadline,self::LIMIT-count($networks));
+                $addresses=$this->clusterPages($context,'addresses',$token,$deadline,self::LIMIT-count($networks)-count($pools));
+                $details=VmmanagerNetworkDiscovery::build($networks,$pools,$addresses,$guestDetails['guests'],$full);
+                $this->anchor($context,$token,$deadline);
+                if($this->api->identity($context,$token,$deadline)!==$identity)throw new ConnectorTransportException('connector_auth_failed');
+                return new ConnectorResult([],false,connection:$connection+['vmmanager_network_discovery'=>$details]);
             }
             if($scope==='guests'){
                 $nodes=$this->clusterPages($context,'nodes',$token,$deadline,self::LIMIT);

@@ -113,6 +113,9 @@ final class ConnectorRuntimeService
             (new Rbac($this->db,$this->audit))->requireUserPermission($actor,'inventory.assets.read');
         }
         $targetId=$target['id']; $version=$target['version']; $sync=$operation==='sync';
+        $network=$plan?->collector==='vmmanager.network';
+        if($network)(new Rbac($this->db,$this->audit))->requireUserPermission($actor,$sync?'inventory.network.manage':'inventory.network.read');
+        if($network&&$sync)(new Rbac($this->db,$this->audit))->requireUserPermission($actor,'inventory.network.read');
         $this->checkPermissions($this->db->connection(),$actor,$operation);
         $started=microtime(true);
         $reconciliation=$this->reconciliation();
@@ -138,7 +141,7 @@ final class ConnectorRuntimeService
         $elapsed=(int)round((microtime(true)-$started)*1000);
         $items=$snapshot->items;
         $collection=$plan===null?null:(new CollectionResult($plan,$snapshot,$observedAt))->toArray();
-        if ($sync && count($items)===0) {
+        if ($sync && !$network && count($items)===0) {
             // An empty API result may be a temporary failure; never modify CMDB on empty discovery.
             throw new HttpException(409,'Remote inventory is empty. No changes were applied.','empty_inventory');
         }
@@ -161,7 +164,7 @@ final class ConnectorRuntimeService
                 $latest=$this->bindings->runtimeContext($actor,$targetId,$target['version'],$operation);
                 if ($latest['credential_id']!==$target['credential_id'] || $latest['credential_version']!==$target['credential_version']) throw new HttpException(409,'Connector binding changed.','conflict');
                 ConnectorHealthMonitor::record($pdo,$target,$elapsed,null);
-                if ($operation==='inspect' && $snapshot->metricSamples===[] && ($collection['collector']??null)!=='proxmox.tasks' && $target['provider']!=='pbs') $result['preview']=$reconciliation->preview($pdo,$actor,$target,$snapshot);
+                if ($operation==='inspect' && $snapshot->metricSamples===[] && !in_array($collection['collector']??null,['proxmox.tasks','vmmanager.network'],true) && $target['provider']!=='pbs') $result['preview']=$reconciliation->preview($pdo,$actor,$target,$snapshot);
                 if ($collection!==null && $snapshot->metricSamples!==[]) {
                     $result['metrics']=\Cajeer\Servers\Metrics\MetricStore::ingest($pdo,$target,$collection['metric_samples'],$collection['observed_at']);
                     $this->audit->record($pdo,$actor,'collection.metrics.saved','success','connector_target',$targetId,$result['metrics'],$requestId);
@@ -176,6 +179,13 @@ final class ConnectorRuntimeService
                     $result['connection']['task_discovery']=ProxmoxTaskStore::save($pdo,$target,$snapshot->connection['task_discovery'],$collection['observed_at']);
                     $result['collection']['count']=$result['connection']['task_discovery']['observed_count'];
                     $result['connection']['task_discovery']['actions_reconciled']=ConnectorActionService::reconcileTasks($pdo,$target,$this->audit,$actor);
+                }
+                if(($collection['collector']??null)==='vmmanager.network'){
+                    (new Rbac($this->db,$this->audit))->requireUserPermission($actor,'inventory.network.read',$pdo);
+                    $details=$snapshot->connection['vmmanager_network_discovery'];
+                    VmmanagerNetworkStore::save($pdo,$target,$details,$observedAt);
+                    $result['discovered']=$result['collection']['count']=array_sum($details['counts']);
+                    $result['collection']['complete']=$details['complete'];
                 }
                 if(($collection['collector']??null)==='vmmanager.cluster')VmmanagerClusterStore::save($pdo,$target,$snapshot->connection['vmmanager_cluster_discovery'],$observedAt);
                 if(($collection['collector']??null)==='vmmanager.guests')VmmanagerGuestStore::save($pdo,$target,$snapshot->connection['vmmanager_guest_discovery'],$observedAt);
@@ -199,6 +209,21 @@ final class ConnectorRuntimeService
             if ($guard!==null) $guard($pdo);
             $this->checkPermissions($pdo,$actor,'sync');
             ConnectorHealthMonitor::record($pdo,$target,$elapsed,null);
+            if(($collection['collector']??null)==='vmmanager.network'){
+                (new Rbac($this->db,$this->audit))->requireUserPermission($actor,'inventory.network.manage',$pdo);
+                (new Rbac($this->db,$this->audit))->requireUserPermission($actor,'inventory.network.read',$pdo);
+                $details=$snapshot->connection['vmmanager_network_discovery'];
+                // Validate snapshot freshness before applying IPAM changes; everything commits together.
+                VmmanagerNetworkStore::save($pdo,$target,$details,$observedAt);
+                $report=VmmanagerIpamSync::apply($pdo,$target,$details);
+                $details['ipam_sync']=$report;
+                VmmanagerNetworkStore::save($pdo,$target,$details,$observedAt);
+                $collection['count']=array_sum($details['counts']);$collection['complete']=$details['complete'];
+                $result=['connector_id'=>$targetId,'mode'=>'sync','discovered'=>$collection['count'],'types'=>$summary,'collection'=>$collection,'connection'=>array_replace($snapshot->connection,['vmmanager_network_discovery'=>$details])];
+                $this->audit->record($pdo,$actor,'connector.ipam.synced','success','connector_target',$targetId,['count'=>$report['created']+$report['updated'],'reason'=>$report['applied']?'ipam_sync':'restricted_visibility'],$requestId);
+                if($complete!==null)$complete($pdo,$result);
+                return $result;
+            }
             $delta=$reconciliation->apply($pdo,$actor,$target,$snapshot,$generation,$observedAt,$requestId);
             $this->audit->record($pdo,$actor,'connector.inventory.synced','success','connector_target',$targetId,
                 ['count'=>count($items),'complete'=>$snapshot->complete,'blocked'=>$delta['snapshot']['blocked']],$requestId);
@@ -228,6 +253,13 @@ final class ConnectorRuntimeService
         $target=$this->bindings->show($actor,$targetId);
         if($target['provider']!=='vmmanager')throw new HttpException(404,'VMmanager target not found.','not_found');
         return VmmanagerGuestStore::read($this->db->connection(),$target);
+    }
+    public function vmmanagerNetwork(string $actor,string $targetId):array
+    {
+        (new Rbac($this->db,$this->audit))->requireUserPermission($actor,'inventory.network.read');
+        $target=$this->bindings->show($actor,$targetId);
+        if($target['provider']!=='vmmanager')throw new HttpException(404,'VMmanager target not found.','not_found');
+        return VmmanagerNetworkStore::read($this->db->connection(),$target);
     }
     public function proxmoxCluster(string $actor,string $targetId):array
     {

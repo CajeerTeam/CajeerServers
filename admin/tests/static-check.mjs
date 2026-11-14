@@ -74,4 +74,6 @@ ok(read('components/ConnectorLifecycle.vue').includes('external_id=')&&read('com
 ok(existsSync(new URL('tests/e2e/proxmox-admin.spec.ts',root)),'real staging Proxmox/PBS browser scenario')
 ok(read('pages/collections.vue').includes('VmmanagerGuestDiscovery')&&read('pages/collections.vue').includes("'vmmanager.guests'"), 'VMmanager detailed guest panel and plan')
 ok(read('components/VmmanagerGuestDiscovery.vue').includes("'/vmmanager-guests'")&&read('components/VmmanagerGuestDiscovery.vue').includes('collector=vmmanager.guests'), 'VMmanager guest current and history real API')
+ok(read('pages/collections.vue').includes('VmmanagerNetworkDiscovery')&&read('pages/collections.vue').includes("'inventory.network.read'"), 'VMmanager network panel protected by IPAM read permission')
+ok(read('components/VmmanagerNetworkDiscovery.vue').includes("'/vmmanager-network'")&&read('components/VmmanagerNetworkDiscovery.vue').includes('collector=vmmanager.network'), 'VMmanager network current and history real API')
 console.log(`Admin static checks: ${passed} PASS`)
