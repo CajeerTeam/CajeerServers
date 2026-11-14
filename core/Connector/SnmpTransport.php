@@ -35,7 +35,7 @@ final class SnmpTransport
         for($i=0;$i<min(count($a),count($b));$i++) if ((int)$a[$i] !== (int)$b[$i]) return (int)$a[$i]<=>(int)$b[$i];
         return count($a)<=>count($b);
     }
-    private static function walk(object $session,string $root,float $deadline,int $limit=64):array
+    private static function walk(object $session,string $root,float $deadline,int $limit=64,int $valueLimit=4096):array
     {
         $cursor=$root;$out=[];
         for ($i=0;$i<=$limit;$i++) {
@@ -44,10 +44,30 @@ final class SnmpTransport
             if(!is_string($oid)||!is_string($value)) self::bad();$oid=self::numeric($oid);
             if (self::compare($oid,$cursor)<=0) self::bad();
             if (!str_starts_with($oid,$root.'.')) return $out;
-            if ($i===$limit||strlen($value)>4096) self::bad();
+            if ($i===$limit||strlen($value)>$valueLimit) self::bad();
             $out[substr($oid,strlen($root)+1)]=$value;$cursor=$oid;
         }
         self::bad();
+    }
+    /** Bounded multi-column GETNEXT. Each column has its own monotonic cursor and subtree. */
+    private static function walkColumns(object $session,array $roots,float $deadline,int $limit):array
+    {
+        $out=array_fill_keys($roots,[]);$cursors=array_combine($roots,$roots);
+        while($cursors!==[]){
+            self::checkTime($deadline);$keys=array_keys($cursors);$values=array_values($cursors);
+            $batch=count($values)>1&&method_exists($session,'nextBatch')?$session->nextBatch($values):null;
+            if($batch===null){$batch=[];foreach($values as $cursor){self::checkTime($deadline);$batch[]=$session->next($cursor);}}
+            if(count($batch)!==count($keys))self::bad();
+            foreach($keys as $i=>$root){
+                [$oid,$value]=$batch[$i];if($oid===null&&$value===null){unset($cursors[$root]);continue;}
+                if(!is_string($oid)||!is_string($value))self::bad();$oid=self::numeric($oid);
+                if(self::compare($oid,$cursors[$root])<=0)self::bad();
+                if(!str_starts_with($oid,$root.'.')){unset($cursors[$root]);continue;}
+                if(count($out[$root])>=$limit||strlen($value)>512)self::bad();
+                $out[$root][substr($oid,strlen($root)+1)]=$value;$cursors[$root]=$oid;
+            }
+        }
+        return $out;
     }
     private static function index(string $value):int
     { if (!preg_match('/^[1-9][0-9]{0,9}$/D',$value)||(int)$value>2147483647) self::bad();return (int)$value; }
@@ -69,6 +89,21 @@ final class SnmpTransport
     private function requireTrust(ConnectorContext $context):void
     {
         if(($this->requireProfile&&$context->osNetworkProfile===null)||($context->osNetworkProfile!==null&&$context->credentialType!=='snmp_v3'))OsNetworkProfile::mismatch();
+    }
+    /** Advanced discovery requires an individually verified SNMPv3 profile. */
+    public function discovery(ConnectorContext $context,#[\SensitiveParameter] array $credential,string $scope):array
+    {
+        if($context->provider!=='snmp'||$context->credentialType!=='snmp_v3'||$context->osNetworkProfile===null)OsNetworkProfile::mismatch();
+        if(($credential['privacy_protocol']??null)!=='aes128')throw new ConnectorTransportException('connector_auth_failed');
+        $ip=$this->policy->resolve($context->host);
+        $session=$this->factory!==null?($this->factory)($ip,$context->port,$context->credentialType,$credential):new SnmpSession($ip,$context->port,$context->credentialType,$credential);
+        $deadline=microtime(true)+60;
+        try {
+            $this->verifyProfile($context,$session);
+            $result=(new SnmpDiscovery(fn(string $root,int $limit)=>self::walk($session,$root,$deadline,$limit,512),fn(array $roots,int $limit)=>self::walkColumns($session,$roots,$deadline,$limit)))->collect($session,$scope);
+            self::checkTime($deadline);$this->verifyProfile($context,$session);self::checkTime($deadline);
+            return $result;
+        } finally {$session->close();}
     }
     public function metrics(ConnectorContext $context,#[\SensitiveParameter] array $credential):array
     {

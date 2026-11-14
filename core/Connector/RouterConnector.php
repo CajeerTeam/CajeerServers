@@ -10,6 +10,13 @@ final class RouterConnector implements ConnectorInterface, \Cajeer\Servers\Metri
     public function __construct(private readonly SnmpTransport $transport) {}
     public function manifest():ConnectorManifest
     {return new ConnectorManifest('snmp','snmp',$this->transport->credentialTypes(),ConnectorManifest::OPERATIONS,['router'],'snmp');}
+    public function discovery(ConnectorContext $context,string $scope,#[\SensitiveParameter] string $secret):ConnectorResult
+    {
+        if(!in_array($scope,SnmpDiscovery::SCOPES,true)||$context->credentialType!=='snmp_v3')OsNetworkProfile::mismatch();
+        $credential=CredentialProfile::decodeForInternalUse($context->credentialType,$secret);
+        try{return new ConnectorResult([],false,[],OsNetworkProfile::diagnostics($context)+['snmp_discovery'=>$this->transport->discovery($context,$credential,$scope)]);}
+        finally{foreach($credential as &$value)if(is_string($value))sodium_memzero($value);unset($value);}
+    }
     public function metrics(ConnectorContext $context,#[\SensitiveParameter] string $secret):array
     {
         $credential=CredentialProfile::decodeForInternalUse($context->credentialType,$secret);

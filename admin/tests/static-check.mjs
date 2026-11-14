@@ -81,5 +81,7 @@ ok(read('components/VmmanagerTaskHistory.vue').includes('next_before') && read('
 ok(read('pages/vmmanager.vue').includes('scopedVmmanager')&&read('pages/vmmanager.vue').includes('VmmanagerSyncDashboard')&&read('layouts/default.vue').includes('/vmmanager'),'VMmanager specialized console and dashboard')
 ok(read('components/VmmanagerSyncDashboard.vue').includes('status=succeeded')&&read('components/VmmanagerSyncDashboard.vue').includes('onBeforeUnmount'),'dashboard queries real history and guards lifecycle')
 ok(existsSync(new URL('tests/e2e/vmmanager-admin.spec.ts',root)),'VMmanager browser E2E')
+ok(read("pages/collections.vue").includes("SnmpDiscovery")&&read("components/SnmpDiscovery.vue").includes("/snmp-discovery?scope=")&&read("pages/collections.vue").includes("snmp.topology"), "SNMP detailed collector UI and plan wiring")
 console.log(`Admin static checks: ${passed} PASS`)
+
 

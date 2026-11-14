@@ -28,6 +28,13 @@ try{$profile=['engine_id'=>bin2hex($session->get('.1.3.6.1.6.3.10.2.1.1.0')),'ob
 $trusted=new ConnectorContext('snmp','127.0.0.1',$port,'snmp_v3',null,null,$profile);
 $strict=new ConnectorRegistry(new RouterConnector(new SnmpTransport($policy,true,null,true)));
 foreach(['health','inspect','sync','validate_rotation'] as $op)$ok($strict->execute($trusted,$op,'snmp',$c3)->connection['profile_verified'],'native profile '.$op);
+$runtime=new \Cajeer\Servers\Collector\CollectionRuntimeService(\Cajeer\Servers\Collector\CollectorRegistry::forConnectors($strict));
+$target=['provider'=>'snmp','endpoint_host'=>'127.0.0.1','endpoint_port'=>$port,'credential_type'=>'snmp_v3','purpose'=>'snmp','os_network_profile'=>$profile];
+foreach(['device','interfaces','topology'] as $scope){
+    $result=$runtime->collect(new \Cajeer\Servers\Collector\CollectionPlan('snmp.'.$scope,'inspect'),$target,'snmp_v3',$c3);
+    $snapshot=$result->connection['snmp_discovery'];$ok($snapshot['scope']===$scope&&!$snapshot['complete']&&$result->connection['profile_verified'],'native advanced '.$scope);
+    if($scope==='interfaces')$ok(count($snapshot['sections']['interfaces'])>0&&in_array('127.0.0.1',array_column($snapshot['sections']['addresses'],'address'),true),'native advanced IF/IP-MIB');
+}
 $reject(fn()=>$strict->execute($v3,'health','snmp',$c3));
 $reject(fn()=>$strict->execute(new ConnectorContext('snmp','127.0.0.1',$port,'snmp_v3',null,null,array_replace($profile,['engine_id'=>'800000000000'])),'health','snmp',$c3));
 $reject(fn()=>$strict->execute(new ConnectorContext('snmp','127.0.0.1',$port,'snmp_v2c',null,null,$profile),'health','snmp',$c2));

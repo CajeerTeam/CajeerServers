@@ -1,3 +1,9 @@
+## [0.8.4] — 2026-11-14 — Advanced SNMP Discovery
+
+- SNMPv3 authPriv discovery устройства, ENTITY-MIB, IF-MIB/IF-X-MIB, IP-MIB, VLAN/Q-BRIDGE и LLDP с точным сопоставлением портов.
+- Ограниченный multi-varbind GETNEXT, fallback, проверка идентичности и uptime; независимые Inspect-снимки, история, API/SDK и Admin UI.
+- Миграция 0056, тесты MIB и native SNMP integration; канал development до строгой приёмки.
+
 ## [0.8.3] — 2026-11-14 — Windows Discovery
 
 - Реальные фиксированные PowerShell/CIM/registry пробы через pinned WinRM HTTPS: system, software, services, storage, network, updates.

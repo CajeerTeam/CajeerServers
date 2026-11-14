@@ -2,6 +2,10 @@
 
 **CajeerServers** — русскоязычная self-hosted веб-оболочка для наблюдения и управления инфраструктурой. Это **не ОС**, не прошивка и не замена Proxmox/VMmanager. В 0.4.0 добавлена реальная серверная проверка ожидающей версии Credentials Vault через Proxmox с MFA и блокировкой активации без proof; в 0.3.9 добавлена работающая админ-панель Credentials Vault с browser E2E для изолированного staging; в 0.3.8 добавлены шифрованные CLI-backups и offline recovery; в 0.3.7 реализована read-only интеграция Proxmox VE через HTTPS; в 0.4.4 добавлена read-only интеграция VMmanager 6; в 0.4.5 добавлены рабочие SSH и WinRM драйверы; в 0.4.6 добавлены SNMP и постоянный Connector Health; custom поддерживается через доверенный PHP SDK.
 
+## Версия 0.8.4 — Advanced SNMP Discovery
+
+Три исполняемых SNMPv3 сборщика (`snmp.device`, `snmp.interfaces`, `snmp.topology`), ENTITY/IF/IP/Q-BRIDGE/LLDP, пакетный GETNEXT и независимые снимки. Миграция 0056. [Документация](docs/Advanced-SNMP-Discovery-0.8.4.md).
+
 ## Версия 0.8.3 — Windows Discovery
 
 Шесть исполняемых WinRM/CIM сборщиков Windows: система, программы, службы, диски, сеть и установленные QFE/признаки перезагрузки. Защищённый TLS, независимые снимки, история, Admin UI и SDK. Миграция 0055. [Документация](docs/Windows-Discovery-0.8.3.md).

@@ -15,6 +15,7 @@ final readonly class ConnectorCollector implements CollectorInterface
     {
         if($this->driver==='ssh'&&in_array(substr($this->id,4),\Cajeer\Servers\Connector\LinuxDiscovery::SCOPES,true))return $this->connectors->linuxDiscovery($context->connector,$context->plan->operation,$context->purpose,substr($this->id,4),$secret);
         if($this->driver==='winrm'&&in_array(substr($this->id,6),\Cajeer\Servers\Connector\WindowsDiscovery::SCOPES,true))return $this->connectors->windowsDiscovery($context->connector,$context->plan->operation,$context->purpose,substr($this->id,6),$secret);
+        if($this->driver==='snmp'&&in_array(substr($this->id,5),\Cajeer\Servers\Connector\SnmpDiscovery::SCOPES,true))return $this->connectors->snmpDiscovery($context->connector,$context->plan->operation,$context->purpose,substr($this->id,5),$secret);
         if($this->id==='vmmanager.storage')return $this->connectors->vmmanagerStorage($context->connector,$context->plan->operation,$context->purpose,$secret);
         if($this->id==='vmmanager.tasks')return $this->connectors->vmmanagerTasks($context->connector,$context->plan->operation,$context->purpose,$secret,$context->previous);
         if($this->id==='vmmanager.templates')return $this->connectors->vmmanagerTemplates($context->connector,$context->plan->operation,$context->purpose,$secret);

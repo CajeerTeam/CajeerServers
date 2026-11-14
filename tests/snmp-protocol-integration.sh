@@ -20,5 +20,6 @@ pid=$!
 sleep 1
 kill -0 "$pid" || { cat "$tmp/log" >&2; exit 1; }
 MIBS='' php tests/snmp-protocol-integration.php "$port"
+if [[ "${1:-}" == "--postgres" ]]; then MIBS='' php tests/snmp-discovery-postgres-integration.php "$port"; fi
 kill "$pid"; wait "$pid" || true; pid=''
 MIBS='' php tests/snmp-protocol-integration.php "$port" --offline

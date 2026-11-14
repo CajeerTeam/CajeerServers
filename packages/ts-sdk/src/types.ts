@@ -37,6 +37,9 @@ export interface LinuxDiscoveryState {state:'not_collected'|'stale'|'available';
 export type WindowsDiscoveryScope='system'|'software'|'services'|'storage'|'network'|'updates'
 export interface WindowsDiscoverySnapshot {scope:WindowsDiscoveryScope;complete:boolean;counts:Record<string,number>;sections:Record<string,Record<string,string|null>[]>}
 export interface WindowsDiscoveryState {state:'not_collected'|'stale'|'available';observed_at:string|null;snapshot:WindowsDiscoverySnapshot|null}
+export type SnmpDiscoveryScope='device'|'interfaces'|'topology'
+export interface SnmpDiscoverySnapshot {scope:SnmpDiscoveryScope;complete:boolean;counts:Record<string,number>;sections:Record<string,Record<string,string|null>[]>}
+export interface SnmpDiscoveryState {state:'not_collected'|'stale'|'available';observed_at:string|null;snapshot:SnmpDiscoverySnapshot|null}
 export interface VmmanagerStorageState {state:'not_collected'|'stale'|'available';observed_at:string|null;snapshot:VmmanagerStorageSnapshot|null}
 export interface VmmanagerTemplatesState {state:'not_collected'|'stale'|'available';observed_at:string|null;snapshot:VmmanagerTemplatesSnapshot|null}
 export interface VmmanagerGuestSnapshot {schema_version:1;complete:boolean;visibility:'administrator'|'restricted';counts:{nodes:number;guests:number;unlinked_guests:number};guests:VmmanagerGuest[]}

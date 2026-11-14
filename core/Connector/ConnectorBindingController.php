@@ -123,6 +123,12 @@ final class ConnectorBindingController
         if(!is_string($scope))throw new HttpException(422,'Invalid Windows discovery scope.','validation_failed');
         return HttpResponse::json(['data'=>$this->runtime->windowsDiscovery($this->actor($r,'connectors.targets.read'),self::id($r),$scope)],200,['Cache-Control'=>'private, no-store']);
     }
+    public function snmpDiscovery(HttpRequest $r):HttpResponse
+    {
+        $scope=$r->query['scope']??'device';
+        if(!is_string($scope))throw new HttpException(422,'Invalid Snmp discovery scope.','validation_failed');
+        return HttpResponse::json(['data'=>$this->runtime->snmpDiscovery($this->actor($r,'connectors.targets.read'),self::id($r),$scope)],200,['Cache-Control'=>'private, no-store']);
+    }
     public function vmmanagerStorage(HttpRequest $r):HttpResponse
     {
         return HttpResponse::json(['data'=>$this->runtime->vmmanagerStorage($this->actor($r,'connectors.targets.read'),self::id($r))],200,['Cache-Control'=>'private, no-store']);

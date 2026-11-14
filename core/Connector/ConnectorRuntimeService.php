@@ -164,7 +164,7 @@ final class ConnectorRuntimeService
                 $latest=$this->bindings->runtimeContext($actor,$targetId,$target['version'],$operation);
                 if ($latest['credential_id']!==$target['credential_id'] || $latest['credential_version']!==$target['credential_version']) throw new HttpException(409,'Connector binding changed.','conflict');
                 ConnectorHealthMonitor::record($pdo,$target,$elapsed,null);
-                if ($operation==='inspect' && $snapshot->metricSamples===[] && !in_array($collection['collector']??null,['winrm.system','winrm.software','winrm.services','winrm.storage','winrm.network','winrm.updates','ssh.system','ssh.software','ssh.services','ssh.storage','ssh.network','proxmox.tasks','vmmanager.tasks','vmmanager.network','vmmanager.storage','vmmanager.templates'],true) && $target['provider']!=='pbs') $result['preview']=$reconciliation->preview($pdo,$actor,$target,$snapshot);
+                if ($operation==='inspect' && $snapshot->metricSamples===[] && !in_array($collection['collector']??null,['snmp.device','snmp.interfaces','snmp.topology','winrm.system','winrm.software','winrm.services','winrm.storage','winrm.network','winrm.updates','ssh.system','ssh.software','ssh.services','ssh.storage','ssh.network','proxmox.tasks','vmmanager.tasks','vmmanager.network','vmmanager.storage','vmmanager.templates'],true) && $target['provider']!=='pbs') $result['preview']=$reconciliation->preview($pdo,$actor,$target,$snapshot);
                 if ($collection!==null && $snapshot->metricSamples!==[]) {
                     $result['metrics']=\Cajeer\Servers\Metrics\MetricStore::ingest($pdo,$target,$collection['metric_samples'],$collection['observed_at']);
                     $this->audit->record($pdo,$actor,'collection.metrics.saved','success','connector_target',$targetId,$result['metrics'],$requestId);
@@ -184,6 +184,12 @@ final class ConnectorRuntimeService
                 if(isset($snapshot->connection['windows_discovery'])&&$collection!==null){
                     $details=$snapshot->connection['windows_discovery'];
                     WindowsDiscoveryStore::save($pdo,$target,$details,$observedAt,$details['scope']);
+                    $result['discovered']=$result['collection']['count']=array_sum($details['counts']);
+                    $result['collection']['complete']=$details['complete'];
+                }
+                if(isset($snapshot->connection['snmp_discovery'])&&$collection!==null){
+                    $details=$snapshot->connection['snmp_discovery'];
+                    SnmpDiscoveryStore::save($pdo,$target,$details,$observedAt,$details['scope']);
                     $result['discovered']=$result['collection']['count']=array_sum($details['counts']);
                     $result['collection']['complete']=$details['complete'];
                 }
@@ -293,6 +299,14 @@ final class ConnectorRuntimeService
         $target=$this->bindings->show($actor,$targetId);
         if($target['provider']!=='winrm')throw new HttpException(404,'Windows target not found.','not_found');
         return WindowsDiscoveryStore::read($this->db->connection(),$target,$scope);
+    }
+    public function snmpDiscovery(string $actor,string $targetId,string $scope):array
+    {
+        (new Rbac($this->db,$this->audit))->requireUserPermission($actor,'inventory.assets.read');
+        if(!in_array($scope,SnmpDiscovery::SCOPES,true))throw new HttpException(422,'Invalid Snmp discovery scope.','validation_failed');
+        $target=$this->bindings->show($actor,$targetId);
+        if($target['provider']!=='snmp')throw new HttpException(404,'Snmp target not found.','not_found');
+        return SnmpDiscoveryStore::read($this->db->connection(),$target,$scope);
     }
     public function vmmanagerStorage(string $actor,string $targetId):array
     {

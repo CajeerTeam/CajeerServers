@@ -403,6 +403,7 @@ return static function (Router $router, ServiceContainer $container): void {
             $connectors->get('/targets/{id}/vmmanager-guests',static fn(HttpRequest $r):HttpResponse=>$handler()->vmmanagerGuests($r));
             $connectors->get('/targets/{id}/linux-discovery',static fn(HttpRequest $r):HttpResponse=>$handler()->linuxDiscovery($r));
             $connectors->get('/targets/{id}/windows-discovery',static fn(HttpRequest $r):HttpResponse=>$handler()->windowsDiscovery($r));
+            $connectors->get('/targets/{id}/snmp-discovery',static fn(HttpRequest $r):HttpResponse=>$handler()->snmpDiscovery($r));
             $connectors->get('/targets/{id}/vmmanager-storage',static fn(HttpRequest $r):HttpResponse=>$handler()->vmmanagerStorage($r));
             $connectors->get('/targets/{id}/vmmanager-templates',static fn(HttpRequest $r):HttpResponse=>$handler()->vmmanagerTemplates($r));
             $connectors->get('/targets/{id}/vmmanager-network',static fn(HttpRequest $r):HttpResponse=>$handler()->vmmanagerNetwork($r));

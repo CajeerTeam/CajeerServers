@@ -102,13 +102,15 @@ jobs:
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.4'
-          extensions: pdo_pgsql, sodium, mbstring, intl, openssl, pcntl, posix
+          extensions: pdo_pgsql, sodium, mbstring, intl, openssl, pcntl, posix, snmp
           coverage: none
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       - name: SSH transport dependencies
         run: python3 -m pip install -r core/Connector/agents/requirements.txt
+      - name: SNMP test daemon
+        run: sudo apt-get update -qq && sudo apt-get install -y snmpd
       - name: PostgreSQL workspace, Inventory CRUD, IPAM and Topology integration
         run: |
           php tests/database-postgres-integration.php
@@ -133,6 +135,7 @@ jobs:
           php tests/proxmox-profile-postgres-integration.php
           php tests/connector-reconciliation-postgres-integration.php
           php tests/host-hardware-postgres-integration.php
+          bash tests/snmp-protocol-integration.sh --postgres
           python3 tests/host-transport-integration.py --ssh --postgres
           php tests/connector-health-postgres-integration.php
           php tests/collection-plans-postgres-integration.php

@@ -53,5 +53,15 @@ final class SnmpSession
         if (!is_array($v)||count($v)!==1||!is_string(array_key_first($v))||!is_string(reset($v))) throw new ConnectorTransportException('connector_protocol_error');
         return [array_key_first($v),reset($v)];
     }
+    /** Multi-varbind GETNEXT. Duplicate returned OIDs collapse in ext-snmp; caller retries individually. */
+    public function nextBatch(array $oids):?array
+    {
+        if(count($oids)<2||count($oids)>16)throw new \InvalidArgumentException('Invalid SNMP batch.');
+        try{$v=$this->call(fn()=>@$this->session->getnext(array_values($oids)),true);}
+        catch(ConnectorTransportException $e){if($e->category==='connector_protocol_error')return null;throw $e;}
+        if(!is_array($v)||count($v)!==count($oids))return null;
+        $out=[];foreach($v as $oid=>$value){if(!is_string($oid)||!is_string($value))return null;$out[]=[$oid,$value];}
+        return $out;
+    }
     public function close():void { if (isset($this->session)) @$this->session->close(); }
 }
