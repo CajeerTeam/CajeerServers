@@ -30,7 +30,7 @@ try {
     $pdo=$db->connection();$ok((int)$pdo->query("SELECT current_setting('server_version_num')")->fetchColumn()>=170000,'PostgreSQL 17+');
     $pdo->exec('CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public');
     $pdo->exec('CREATE SCHEMA "'.$schema.'"');$created=true;$pdo->exec('SET search_path TO "'.$schema.'", public');
-    foreach(glob($root.'/migrations/pgsql/*.sql')?:[] as $file)if(!str_starts_with(basename($file),'0054_'))copy($file,$dir.'/migrations/'.basename($file));
+    foreach(glob($root.'/migrations/pgsql/*.sql')?:[] as $file)if(strcmp(substr(basename($file),0,4),'0054')<0)copy($file,$dir.'/migrations/'.basename($file));
     $runner=new MigrationRunner($db,$dir.'/migrations');$runner->run();
     copy($root.'/migrations/pgsql/0054_linux_discovery.sql',$dir.'/migrations/0054_linux_discovery.sql');
     $ok(count($runner->run()['applied'])===1&&$runner->run()['applied']===[],'0.8.1 upgrade and replay');

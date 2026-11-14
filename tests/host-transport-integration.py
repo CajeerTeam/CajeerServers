@@ -27,6 +27,17 @@ METRICS={'identity':'aabbccdd-eeff-0011-2233-445566778899','cpu_ratio':0.35,'mem
 DATA = {'identity':'aabbccdd-eeff-0011-2233-445566778899','name':'win-test','os_family':'windows','os_name':'Windows Server','os_version':'10.0','cpu_count':4,'memory_bytes':8589934592,'disks':[{'name':'Disk0','size_bytes':123456}], 'interfaces':[{'name':'NIC','addresses':['192.0.2.1','2001:db8::1']}]}
 
 
+# Wire-level fixture responses, not executions of PowerShell on Windows.
+WINDOWS_SECTIONS={
+ 'system':{'system':[{'hostname':'win-test','os_name':'Windows Server 2025','os_version':'10.0','build':'26100','architecture':'64-bit','product_type':'3','manufacturer':'Fixture','model':'VM','cpu_count':'4','memory_bytes':'8589934592','memory_available_bytes':'4294967296','boot_time':'2026-11-13T00:00:00.0000000Z'}],'processors':[{'id':'CPU0','model':'Fixture CPU','cores':'2','logical_processors':'4','max_clock_mhz':'3000'}]},
+ 'software':{'applications':[{'id':'App','registry_view':'Registry64','name':'Fixture app','version':'1.0','publisher':'Fixture','install_date':None}]},
+ 'services':{'services':[{'name':'WinRM','display_name':'Windows Remote Management','state':'Running','start_mode':'Auto','status':'OK','process_id':'100'}]},
+ 'storage':{'disks':[{'id':'disk0','index':'0','model':'Fixture disk','interface_type':'SCSI','size_bytes':'18446744073709551615','status':'OK'}],'partitions':[{'id':'disk0-part0','disk_index':'0','index':'0','type':'GPT','size_bytes':'1000','offset_bytes':'1024'}],'volumes':[{'id':'volume0','drive_letter':'C:','label':'System','filesystem':'NTFS','size_bytes':'1000','available_bytes':'500'}]},
+ 'network':{'interfaces':[{'index':'1','name':'NIC','mac':'00:11:22:33:44:55','speed_bps':'1000000000','status':'2'}],'addresses':[{'index':'1','address':'2001:db8::1','prefix':'64','family':'IPv6','state':'Preferred'}],'routes':[{'index':'1','destination':'::/0','gateway':'fe80::1','family':'IPv6','metric':'1'}]},
+ 'updates':{'hotfixes':[{'id':'KB123456','description':'Security Update','installed_on':'11/14/2026'}],'reboot':[{'cbs':'true','windows_update':'false','pending_file_rename':'false','detected':'true'}]},
+}
+
+
 def execute(provider, port, credential, **kwargs):
     request = {'provider': provider, 'host':'localhost','port':port,'type':'winrm' if provider=='winrm' else 'ssh_password', 'python':sys.executable,'credential':credential, 'networks':['127.0.0.0/8','::1/128'], **kwargs}
     proc = subprocess.run(['php', str(ROOT/'tests/host-transport-fixture.php')], input=json.dumps(request), capture_output=True, text=True, timeout=100)
@@ -57,18 +68,36 @@ class Handler(http.server.BaseHTTPRequestHandler):
             assert root.findtext('.//'+TAG(SHELL,'Command'))=='powershell.exe'
             args=root.findtext('.//'+TAG(SHELL,'Arguments'))
             code=base64.b64decode(args.split()[-1]).decode('utf-16-le')
-            assert 'Get-CimInstance' in code and 'fixture-secret' not in code and 'EncodedCommand' in args
+            assert 'fixture-secret' not in code and 'EncodedCommand' in args
+            server.scope=next((scope for scope in WINDOWS_SECTIONS if code==(ROOT/'core/Connector/agents'/f'windows_{scope}.ps1').read_text()),None)
+            if server.scope is None: assert 'Get-CimInstance' in code
+            else: assert 'MachineGuid' in code and 'Win32_Product' not in code
+            server.chunk_offset=0
+            server.receives=0
             server.metrics='Win32_PerfFormattedData_PerfOS_Processor' in code
             ET.SubElement(body,TAG(SHELL,'CommandId')).text=CMD_ID
         elif action==SHELL+'/Receive':
             assert root.find('.//'+TAG(SHELL,'DesiredStream')).get('CommandId')==CMD_ID
             if server.mode=='bad-output': payload=b'{bad-json'
             elif server.mode=='oversize': payload=b'x'*270000
-            else: payload=json.dumps(METRICS if server.metrics else DATA).encode()
+            else:
+                value=METRICS if server.metrics else DATA
+                if server.scope:
+                    import copy
+                    value={'scope':server.scope,'identity':DATA['identity'],'sections':copy.deepcopy(WINDOWS_SECTIONS[server.scope])}
+                    if server.mode=='identity': value['identity']='12345678-1234-1234-1234-123456789abc'
+                    if server.mode=='extra': next(iter(value['sections'].values()))[0]['secret']='fixture-secret'
+                    if server.mode=='large':
+                        assert server.scope=='software'
+                        value['sections']['applications']=[{**WINDOWS_SECTIONS['software']['applications'][0],'id':str(i),'name':'x'*400} for i in range(850)]
+                payload=json.dumps(value).encode()
             # Exercise multiple Receive calls and stream assembly.
             server.receives+=1
-            done=server.receives%2==0 or server.mode!='ok'
-            chunk=payload if server.mode!='ok' else (payload[:len(payload)//2] if not done else payload[len(payload)//2:])
+            if server.mode=='large':
+                chunk=payload[server.chunk_offset:server.chunk_offset+90000];server.chunk_offset+=len(chunk);done=server.chunk_offset==len(payload)
+            else:
+                done=server.receives%2==0 or server.mode!='ok'
+                chunk=payload if server.mode!='ok' else (payload[:len(payload)//2] if not done else payload[len(payload)//2:])
             ET.SubElement(body,TAG(SHELL,'Stream'),Name='stdout',CommandId=CMD_ID).text=base64.b64encode(chunk).decode()
             state=ET.SubElement(body,TAG(SHELL,'CommandState'),State=SHELL+'/CommandState/'+('Done' if done else 'Running'))
             if done: ET.SubElement(state,TAG(SHELL,'ExitCode')).text='1' if server.mode=='nonzero' else '0'
@@ -103,6 +132,29 @@ def https_test(tmp):
         assert execute('winrm',port,cred,profile=profile)['error']=='connector_trust_failed'
         assert execute('winrm',port,cred,ca=str(cert),profile=profile,operation='validate_rotation')['connection']['identity_verified']
         print('WinRM profile: 9 scenarios PASS')
+        for scope in WINDOWS_SECTIONS:
+            out=execute('winrm',port,cred,ca=str(cert),profile=profile,collector='winrm.'+scope,operation='inspect')
+            snap=out['connection']['windows_discovery'];assert snap['scope']==scope and snap['sections']==WINDOWS_SECTIONS[scope] and snap['complete'],out
+            assert out['items']==[] and not out['complete'] and 'identity' not in snap and server.actions[-1]==TRANSFER+'Delete'
+        n=len(server.requests)
+        assert execute('winrm',port,cred,ca=str(cert),collector='winrm.system',operation='inspect')['error']=='collection_invalid'
+        assert execute('winrm',port,cred,ca=str(cert),profile=profile,collector='winrm.system',operation='sync')['error']=='collection_invalid'
+        assert execute('winrm',port,cred,ca=str(cert),profile={**profile,'primary_pin':'0'*64},collector='winrm.system',operation='inspect')['error']=='connector_trust_failed'
+        assert len(server.requests)==n
+        for mode,code in [('identity','connector_trust_failed'),('extra','connector_protocol_error'),('nonzero','connector_protocol_error')]:
+            server.mode=mode
+            out=execute('winrm',port,cred,ca=str(cert),profile=profile,collector='winrm.system',operation='inspect')
+            assert out['error']==code and 'fixture-secret' not in json.dumps(out),out
+            assert server.actions[-1]==TRANSFER+'Delete'
+        server.mode='large'
+        out=execute('winrm',port,cred,ca=str(cert),profile=profile,collector='winrm.software',operation='inspect')
+        assert out['connection']['windows_discovery']['counts']['applications']==850 and server.receives>2,out
+        server.mode='ok'
+        print('Windows Discovery HTTPS: 13 scenarios PASS')
+        if '--postgres' in sys.argv:
+            profile_path=tmp/'windows-profile.json';profile_path.write_text(json.dumps(profile))
+            subprocess.run(['php',str(ROOT/'tests/windows-discovery-postgres-integration.php'),str(port),str(profile_path),sys.executable,str(cert)],check=True,timeout=300)
+
         out=execute('winrm',port,cred,ca=str(cert),collector='winrm.inventory');assert out['complete'] and out['items'][0]['fields']['attributes']['host_hardware']['cpu_count']==4, out
         out=execute('winrm',port,cred,ca=str(cert),collector='winrm.metrics',operation='inspect');assert len(out['metric_samples'])==7 and out['metric_samples'][5]['value']=='18446744073709551615',out
         out=execute('winrm',port,cred,ca=str(cert),operation='health');assert not out['complete'],out
@@ -220,8 +272,6 @@ def ssh_test(tmp):
 
 
 if __name__=='__main__':
-    if '--postgres' in sys.argv and '--ssh' not in sys.argv:
-        sys.exit('--postgres requires --ssh')
     if '--ssh' in sys.argv:
         try:
             import paramiko

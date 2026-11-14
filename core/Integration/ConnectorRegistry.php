@@ -66,6 +66,16 @@ final class ConnectorRegistry
         catch(ConnectorTransportException $e){throw new HttpException(502,$e->getMessage(),$e->category);}
         catch(\Throwable){throw new HttpException(502,'Linux discovery failed.','connector_failed');}
     }
+    public function supportsWindowsDiscovery():bool
+    {return ($this->drivers['winrm']??null) instanceof \Cajeer\Servers\Connector\WindowsConnector;}
+    public function windowsDiscovery(ConnectorContext $context,string $operation,string $purpose,string $scope,#[\SensitiveParameter] string $secret):ConnectorResult
+    {
+        $driver=$this->require($context->provider,$operation);
+        if(!$driver instanceof \Cajeer\Servers\Connector\WindowsConnector||$operation!=='inspect'||!$this->metadata['winrm']->accepts($context->credentialType,$purpose))throw new HttpException(403,'Windows discovery not permitted.','permission_denied');
+        try{return $driver->discovery($context,$scope,$secret)->validated($this->metadata['winrm']);}
+        catch(ConnectorTransportException $e){throw new HttpException(502,$e->getMessage(),$e->category);}
+        catch(\Throwable){throw new HttpException(502,'Windows discovery failed.','connector_failed');}
+    }
     public function supportsVmmanagerCluster():bool
     {return ($this->drivers['vmmanager']??null) instanceof \Cajeer\Servers\Connector\VmmanagerConnector;}
     public function vmmanagerCluster(ConnectorContext $context,string $operation,string $purpose,#[\SensitiveParameter] string $secret):ConnectorResult

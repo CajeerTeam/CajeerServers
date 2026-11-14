@@ -11,7 +11,7 @@ export interface CollectorDefinition { name:string; provider:Provider; operation
 export interface CollectionSnapshot { schema_version:1; collector:string; sink:'result'|'inventory'|'metrics'; metric_samples?:MetricSample[]; observed_at:string; complete:boolean; count:number; observations?:{type:AssetType;external_id:string;fields:Record<string,unknown>;parent_external_id?:string}[] }
 export interface Driver { collectors?:CollectorDefinition[]; provider: Provider; purpose: string; credentialTypes: string[]; operations: (Operation | 'validate_rotation')[]; resourceTypes: AssetType[]; transport: string; actions: (PowerAction | SnapshotAction)[]; write_actions_enabled: boolean }
 export type OsNetworkProfile = {primary_pin:string;identity_hash:string;key_type?:'ssh-ed25519'|'ssh-rsa'|'ecdsa-sha2-nistp256'|'ecdsa-sha2-nistp384'|'ecdsa-sha2-nistp521'} | {engine_id:string;object_id:string}
-export interface OsNetworkConnection {linux_discovery?:Partial<LinuxDiscoverySnapshot>;provider:'ssh'|'winrm'|'snmp';profile_verified:boolean;identity_verified:boolean;trust_mode:'ssh_pin'|'tls_pin'|'snmpv3_identity'|'known_hosts'|'tls_ca'|'snmp_legacy'}
+export interface OsNetworkConnection {linux_discovery?:Partial<LinuxDiscoverySnapshot>;windows_discovery?:Partial<WindowsDiscoverySnapshot>;provider:'ssh'|'winrm'|'snmp';profile_verified:boolean;identity_verified:boolean;trust_mode:'ssh_pin'|'tls_pin'|'snmpv3_identity'|'known_hosts'|'tls_ca'|'snmp_legacy'}
 export interface VmmanagerProfile { primary_pin:string; anchor_id:number; anchor_node:string }
 export type VmmanagerCapability = 'available'|'denied'|'not_found'
 export type VmmanagerActionCapability = 'advertised'|'not_advertised'|'unknown'
@@ -34,6 +34,9 @@ export interface VmmanagerTemplatesSnapshot extends VmmanagerCatalogBase {unknow
 export type LinuxDiscoveryScope='system'|'software'|'services'|'storage'|'network'
 export interface LinuxDiscoverySnapshot {scope:LinuxDiscoveryScope;complete:boolean;counts:Record<string,number>;sections:Record<string,Record<string,string|null>[]>}
 export interface LinuxDiscoveryState {state:'not_collected'|'stale'|'available';observed_at:string|null;snapshot:LinuxDiscoverySnapshot|null}
+export type WindowsDiscoveryScope='system'|'software'|'services'|'storage'|'network'|'updates'
+export interface WindowsDiscoverySnapshot {scope:WindowsDiscoveryScope;complete:boolean;counts:Record<string,number>;sections:Record<string,Record<string,string|null>[]>}
+export interface WindowsDiscoveryState {state:'not_collected'|'stale'|'available';observed_at:string|null;snapshot:WindowsDiscoverySnapshot|null}
 export interface VmmanagerStorageState {state:'not_collected'|'stale'|'available';observed_at:string|null;snapshot:VmmanagerStorageSnapshot|null}
 export interface VmmanagerTemplatesState {state:'not_collected'|'stale'|'available';observed_at:string|null;snapshot:VmmanagerTemplatesSnapshot|null}
 export interface VmmanagerGuestSnapshot {schema_version:1;complete:boolean;visibility:'administrator'|'restricted';counts:{nodes:number;guests:number;unlinked_guests:number};guests:VmmanagerGuest[]}

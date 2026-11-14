@@ -1,3 +1,9 @@
+## [0.8.3] — 2026-11-14 — Windows Discovery
+
+- Реальные фиксированные PowerShell/CIM/registry пробы через pinned WinRM HTTPS: system, software, services, storage, network, updates.
+- Независимые снимки и история, PostgreSQL 0055, API, SDK и Admin UI.
+- Нормализация, TLS/WSMan fixture и PostgreSQL/worker regression. Канал development до live acceptance.
+
 ## [0.8.2] — 2026-11-14 — Debian / Ubuntu Discovery
 
 - Реальные фиксированные SSH-пробы system/software/services/storage/network, проверка identity и ограничений вывода.

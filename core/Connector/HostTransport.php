@@ -10,7 +10,7 @@ final class HostTransport
 
     public function collect(ConnectorContext $context,#[\SensitiveParameter] array $credential,bool $metrics=false,?string $scope=null):array
     {
-        if($scope!==null&&($context->provider!=='ssh'||$metrics||!in_array($scope,LinuxDiscovery::SCOPES,true)||$context->osNetworkProfile===null))OsNetworkProfile::mismatch();
+        if($scope!==null&&(!in_array($context->provider,['ssh','winrm'],true)||$metrics||!in_array($scope,$context->provider==='winrm'?WindowsDiscovery::SCOPES:LinuxDiscovery::SCOPES,true)||$context->osNetworkProfile===null))OsNetworkProfile::mismatch();
         if (!str_starts_with($this->python,'/') || !is_file($this->python) || !is_executable($this->python) || !function_exists('proc_open'))
             throw new ConnectorTransportException('connector_dependency_missing');
         if($this->requireProfile&&$context->osNetworkProfile===null)OsNetworkProfile::mismatch();
