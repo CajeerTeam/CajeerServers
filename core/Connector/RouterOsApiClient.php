@@ -79,20 +79,30 @@ final class RouterOsApiClient
         try {
             $response=$call('create');$created=true;
             if($response!==''){try{$ack=json_decode($response,true,16,JSON_THROW_ON_ERROR);}catch(\JsonException){self::invalid();}if(!is_array($ack)||isset($ack['error'])||isset($ack['message']))self::invalid();}
-            while(true){
+            // A short chunk is not proof of EOF. Verify the native file size before and after reading.
+            $size=$this->backupSize($call('stat'),$name.'.rsc');
+            while(strlen($content)<$size){
                 if(hrtime(true)>=$this->deadline)throw new ConnectorTransportException('connector_transport_failed');
                 $body=$call('read',strlen($content));
                 try{$rows=json_decode($body,true,16,JSON_THROW_ON_ERROR);}catch(\JsonException){self::invalid();}
                 $chunk=$rows[0]['data']??null;
-                if(!is_array($rows)||!array_is_list($rows)||count($rows)!==1||!is_string($chunk)||strlen($chunk)>32768||strlen($content)+strlen($chunk)>1048576)self::invalid();
-                $content.=$chunk;if(strlen($chunk)<32768)break;
+                if(!is_array($rows)||!array_is_list($rows)||count($rows)!==1||!is_string($chunk)||$chunk===''||strlen($chunk)>32768||strlen($content)+strlen($chunk)>$size)self::invalid();
+                $content.=$chunk;
             }
+            if($this->backupSize($call('stat'),$name.'.rsc')!==$size)self::invalid();
             $this->identity();
             return NetworkConfigurationBackup::validate($content);
         } catch(\Throwable $e){$failure=$e;throw $e;} finally {
             // The file name is unique to this attempt. Even ambiguous create failures may leave a file.
             try{$call('delete');}catch(ConnectorTransportException $e){if($failure===null&&($created||$e->httpStatus!==404))throw $e;}
         }
+    }
+    private function backupSize(string $body,string $name):int
+    {
+        try{$rows=json_decode($body,true,16,JSON_THROW_ON_ERROR);}catch(\JsonException){self::invalid();}
+        $row=$rows[0]??null;$size=$row['size']??null;
+        if(!is_array($rows)||!array_is_list($rows)||count($rows)!==1||($row['name']??null)!==$name||!is_string($size)||!preg_match('/^[1-9][0-9]{0,6}$/D',$size)||(int)$size>NetworkConfigurationBackup::MAX_BYTES)self::invalid();
+        return (int)$size;
     }
     public function identity():string
     {

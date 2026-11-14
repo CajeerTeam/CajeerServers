@@ -291,19 +291,17 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 - [ ] Safe action dispatcher.
 - [ ] Sync status dashboard.
 
-## 0.9.0 — OS / Network Connectors
+## 0.9.0 — OS / Network Connectors Stable
 
-Цель: получить данные с Windows/Linux/роутеров без OS-level зависимости.
+Цель: проверенная интеграция Linux, Windows и сетевых устройств. [Реализация и условия приёмки](docs/OS-Network-Connectors-Stable-0.9.0.md).
 
-- [ ] Debian/Ubuntu connector.
-- [ ] Windows connector.
-- [ ] Router connector.
-- [ ] SSH optional capability.
-- [ ] WinRM / PowerShell Remoting optional capability.
-- [ ] SNMP collector.
-- [ ] RouterOS API connector draft.
-- [ ] Syslog ingestion draft.
-- [ ] Network device config backup draft.
+- [x] Debian/Ubuntu SSH discovery и метрики, корректное EOF.
+- [x] Windows WinRM discovery, CIM-метрики, Event Log, WSMan correlation.
+- [x] SNMPv3 inventory, расширенная discovery и topology, контроль стабильности таблиц.
+- [x] RouterOS 7 REST, метрики, маршруты и firewall metadata, проверка целостности нативного config export.
+- [x] Syslog/system events, Workspace topology/IPAM и OS / Network Admin UI из 0.8.x сохранены.
+- [x] Исполняемый live-acceptance CLI, transport regressions, Windows native CI; строгий release gate требует реальные устройства.
+- [ ] Подтверждённый оператором live acceptance всех провайдеров, полный staging/browser и PostgreSQL. Канал остаётся development до прохождения.
 
 ## 1.0.0 — Stable Core Release
 

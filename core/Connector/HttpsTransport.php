@@ -31,11 +31,11 @@ final class HttpsTransport
     /** Fixed RouterOS configuration export commands; no caller-controlled console input. */
     public function routerOsBackup(string $host,int $port,string $name,string $operation,int $offset,#[\SensitiveParameter] string $authorization,?string $caFile,string $pin):string
     {
-        if(!preg_match('/^cajeer-backup-[a-f0-9]{32}$/D',$name)||$offset<0||$offset>1048576||!in_array($operation,['create','read','delete'],true))throw new RuntimeException('Invalid RouterOS export request.');
+        if(!preg_match('/^cajeer-backup-[a-f0-9]{32}$/D',$name)||$offset<0||$offset>1048576||!in_array($operation,['create','stat','read','delete'],true))throw new RuntimeException('Invalid RouterOS export request.');
         $file=$name.'.rsc';
-        $path=match($operation){'create'=>'/rest/export','read'=>'/rest/file/read','delete'=>'/rest/file/'.$file};
+        $path=match($operation){'create'=>'/rest/export','read'=>'/rest/file/read','stat'=>'/rest/file?name='.rawurlencode($file).'&.proplist=name%2Csize','delete'=>'/rest/file/'.$file};
         $payload=match($operation){'create'=>json_encode(['file'=>$name,'compact'=>''],JSON_THROW_ON_ERROR),'read'=>json_encode(['file'=>$file,'chunk-size'=>'32768','offset'=>(string)$offset],JSON_THROW_ON_ERROR),default=>''};
-        return $this->request($operation==='delete'?'DELETE':'POST',$host,$port,$path,$authorization,$caFile,'Authorization',payload:$payload,extraHeaders:$operation==='delete'?'':"Content-Type: application/json\r\n",accept2xx:true,pin:$pin);
+        return $this->request(match($operation){'delete'=>'DELETE','stat'=>'GET',default=>'POST'},$host,$port,$path,$authorization,$caFile,'Authorization',payload:$payload,extraHeaders:in_array($operation,['delete','stat'],true)?'':"Content-Type: application/json\r\n",accept2xx:true,pin:$pin);
     }
     /** Only explicit snapshot operations; no arbitrary body or force flags. */
     public function snapshotWrite(string $host,int $port,string $base,string $op,string $name,#[\SensitiveParameter] string $authorization,?string $caFile=null,?string $pin=null):string

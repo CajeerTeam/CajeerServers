@@ -10,6 +10,8 @@ final class HostTransport
 
     public function collect(ConnectorContext $context,#[\SensitiveParameter] array $credential,bool $metrics=false,?string $scope=null,array $previous=[]):array
     {
+        if(!in_array($context->provider,['ssh','winrm'],true)||!in_array($context->credentialType,$context->provider==='ssh'?['ssh_password','ssh_private_key']:['winrm'],true))
+            throw new ConnectorTransportException('connector_auth_failed');
         if($scope!==null&&(!in_array($context->provider,['ssh','winrm'],true)||$metrics||!in_array($scope,array_merge(['events'],$context->provider==='winrm'?WindowsDiscovery::SCOPES:LinuxDiscovery::SCOPES),true)||$context->osNetworkProfile===null))OsNetworkProfile::mismatch();
         if (!str_starts_with($this->python,'/') || !is_file($this->python) || !is_executable($this->python) || !function_exists('proc_open'))
             throw new ConnectorTransportException('connector_dependency_missing');
@@ -26,11 +28,11 @@ final class HostTransport
         $pipes=[];
         $process=@proc_open([$this->python,'-I',__DIR__.'/agents/host_transport.py'],[0=>['pipe','r'],1=>['pipe','w'],2=>['file','/dev/null','w']],$pipes,__DIR__,['PATH'=>'/usr/bin:/bin','LANG'=>'C.UTF-8']);
         if (!is_resource($process)) { sodium_memzero($payload); throw new ConnectorTransportException('connector_dependency_missing'); }
-        $output=''; $offset=0; $deadline=microtime(true)+90;
+        $output=''; $offset=0; $deadline=hrtime(true)+90_000_000_000;
         try {
             stream_set_blocking($pipes[0],false); stream_set_blocking($pipes[1],false);
             while (true) {
-                if (microtime(true)>=$deadline) throw new ConnectorTransportException('connector_transport_failed');
+                if (hrtime(true)>=$deadline) throw new ConnectorTransportException('connector_transport_failed');
                 $read=[$pipes[1]]; $write=isset($pipes[0])?[$pipes[0]]:[]; $except=[];
                 if (@stream_select($read,$write,$except,0,200000)===false) throw new ConnectorTransportException('connector_transport_failed');
                 if ($write) {

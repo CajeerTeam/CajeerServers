@@ -1,3 +1,13 @@
+## [0.9.0] — 2026-11-14 — OS / Network Connectors Stable
+
+- SSH drains stdout/stderr through EOF, including late channel data; HostTransport uses monotonic deadline and validates credential/provider.
+- WinRM correlates SOAP faults and CommandState, bounds per-call deadlines; PowerShell metrics reject missing CIM fields and emit UTF-8.
+- Linux CPU probe retries invalid tick deltas, verifies identity around metrics; PHP validates integer byte totals.
+- SNMP accepts zero interfaces, rejects a changing interface count, uses monotonic deadlines.
+- RouterOS exports verify native byte length before/after reads, handle short nonempty chunks, reject truncated export and retain cleanup.
+- Operator live acceptance CLI runs all four production drivers, verifies expected device/interface, metrics/scopes/events/export, emits safe report and fails closed. Required by strict release verification.
+- Added native Windows PowerShell 5.1 CI job and transport/acceptance regression tests. No schema migration. Development channel retained pending live/staging verification.
+
 ## [0.8.9] — 2026-11-14 — OS / Network Admin UI & E2E
 
 - Самостоятельный OS / Network центр с Dashboard, поиском, пагинацией, deep links и специализированными разделами Linux / Windows / SNMP / RouterOS.

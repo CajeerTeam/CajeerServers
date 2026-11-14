@@ -16,7 +16,7 @@ final class SnmpTransport
     public function __construct(private readonly EndpointPolicy $policy,private readonly bool $legacy=false,private readonly ?\Closure $factory=null,private readonly bool $requireProfile=false) {}
     public function credentialTypes():array { return $this->legacy?['snmp_v3','snmp_v2c']:['snmp_v3']; }
     private static function bad():never { throw new ConnectorTransportException('connector_protocol_error'); }
-    private static function checkTime(float $deadline):void { if (microtime(true)>=$deadline) throw new ConnectorTransportException('connector_transport_failed'); }
+    private static function checkTime(float $deadline):void { if ((hrtime(true)/1e9)>=$deadline) throw new ConnectorTransportException('connector_transport_failed'); }
     private static function text(string $value,int $limit):string
     {
         if (!preg_match('//u',$value)||strlen($value)>4096) self::bad();
@@ -97,7 +97,7 @@ final class SnmpTransport
         if(($credential['privacy_protocol']??null)!=='aes128')throw new ConnectorTransportException('connector_auth_failed');
         $ip=$this->policy->resolve($context->host);
         $session=$this->factory!==null?($this->factory)($ip,$context->port,$context->credentialType,$credential):new SnmpSession($ip,$context->port,$context->credentialType,$credential);
-        $deadline=microtime(true)+60;
+        $deadline=(hrtime(true)/1e9)+60;
         try {
             $this->verifyProfile($context,$session);
             $result=(new SnmpDiscovery(fn(string $root,int $limit)=>self::walk($session,$root,$deadline,$limit,512),fn(array $roots,int $limit)=>self::walkColumns($session,$roots,$deadline,$limit)))->collect($session,$scope);
@@ -111,7 +111,7 @@ final class SnmpTransport
         if($context->credentialType==='snmp_v3'&&($credential['privacy_protocol']??null)!=='aes128')throw new ConnectorTransportException('connector_auth_failed');
         $this->requireTrust($context);
         $ip=$this->policy->resolve($context->host);$session=$this->factory!==null?($this->factory)($ip,$context->port,$context->credentialType,$credential):new SnmpSession($ip,$context->port,$context->credentialType,$credential);
-        $deadline=microtime(true)+45;$out=[];
+        $deadline=(hrtime(true)/1e9)+45;$out=[];
         try{
             $this->verifyProfile($context,$session);
             $uptime=$session->get('.1.3.6.1.2.1.1.3.0');if(!preg_match('/^[0-9]{1,10}$/D',$uptime)|| (float)$uptime>4294967295)self::bad();
@@ -121,7 +121,7 @@ final class SnmpTransport
                     $out[]=\Cajeer\Servers\Metrics\MetricBatch::sample($metric,$value,'device',['if_index'=>(string)$idx],'counter','bytes');}
             }
             foreach(['.1.3.6.1.2.1.2.2.1.14'=>'snmp.interface.receive_errors','.1.3.6.1.2.1.2.2.1.20'=>'snmp.interface.transmit_errors'] as $oid=>$metric){foreach(self::walk($session,$oid,$deadline) as $idx=>$value){$idx=self::index((string)$idx);if(!preg_match('/^[0-9]{1,10}$/D',$value)||(float)$value>4294967295)self::bad();$out[]=\Cajeer\Servers\Metrics\MetricBatch::sample($metric,$value,'device',['if_index'=>(string)$idx],'counter','errors');}}
-            $this->verifyProfile($context,$session);
+            $this->verifyProfile($context,$session);self::checkTime($deadline);
             return $out;
         }finally{$session->close();}
     }
@@ -132,15 +132,17 @@ final class SnmpTransport
         $this->requireTrust($context);
         $ip=$this->policy->resolve($context->host);
         $session=$this->factory!==null?($this->factory)($ip,$context->port,$context->credentialType,$credential):new SnmpSession($ip,$context->port,$context->credentialType,$credential);
-        $deadline=microtime(true)+45;
+        $deadline=(hrtime(true)/1e9)+45;
         try {
             $this->verifyProfile($context,$session);
             $name=self::text($session->get(self::NAME),255);self::checkTime($deadline);
             $object=self::numeric($session->get(self::OBJECT));self::checkTime($deadline);
             $result=['name'=>$name!==''?$name:$context->host,'object_id'=>$object];
-            if ($probe) {$this->verifyProfile($context,$session);return $result;}
+            if ($probe) {$this->verifyProfile($context,$session);self::checkTime($deadline);return $result;}
             $result['description']=self::text($session->get(self::DESCRIPTION),512);
-            $expected=self::index($session->get(self::IF_NUMBER));if($expected>64) self::bad();
+            $count=$session->get(self::IF_NUMBER);
+            if(!preg_match('/^(?:0|[1-9][0-9]?)$/D',$count)||(int)$count>64)self::bad();
+            $expected=(int)$count;
             $names=self::walk($session,self::IF_DESCR,$deadline);$states=self::walk($session,self::IF_STATUS,$deadline);
             if (count($names)!==$expected||count($names)!==count($states)||array_diff_key($names,$states)) self::bad();
             $interfaces=[];$addresses=[];
@@ -153,9 +155,11 @@ final class SnmpTransport
                 $interfaces[$idx]['addresses'][$addr]=$addr;$addresses[$addr]=$addr;
                 if(count($addresses)>64)self::bad();
             }
+            self::checkTime($deadline);
+            if($session->get(self::IF_NUMBER)!==$count)self::bad();
             ksort($interfaces,SORT_NUMERIC);foreach($interfaces as &$row){ksort($row['addresses'],SORT_STRING);$row['addresses']=array_values($row['addresses']);}unset($row);
             ksort($addresses,SORT_STRING);$result['interfaces']=array_values($interfaces);$result['addresses']=array_values($addresses);
-            $this->verifyProfile($context,$session);
+            $this->verifyProfile($context,$session);self::checkTime($deadline);
             return $result;
         } finally {$session->close();}
     }

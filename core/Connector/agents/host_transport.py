@@ -29,6 +29,30 @@ def fail(code='connector_protocol_error'):
     raise Failure(code)
 
 
+def read_ssh_channel(channel, limit):
+    """Drain stdout/stderr through EOF, not merely through the exit-status packet."""
+    output = bytearray()
+    stderr = 0
+    deadline = time.monotonic() + 35
+    while True:
+        if time.monotonic() >= deadline:
+            fail('connector_transport_failed')
+        if channel.recv_ready():
+            output.extend(channel.recv(16384))
+        if channel.recv_stderr_ready():
+            stderr += len(channel.recv_stderr(16384))
+        if len(output) + stderr > limit:
+            fail()
+        # Exit status can arrive before the final channel data/EOF.
+        if (channel.exit_status_ready() and (channel.eof_received or channel.closed)
+                and not channel.recv_ready() and not channel.recv_stderr_ready()):
+            if channel.recv_exit_status() != 0:
+                fail()
+            break
+        time.sleep(.01)
+    return json.loads(output)
+
+
 def ssh_collect(req):
     import paramiko
     from cryptography.hazmat.primitives import serialization
@@ -104,24 +128,7 @@ def ssh_collect(req):
                 command += ' ' + shlex.quote(json.dumps(req.get('previous') or {}) if scope == 'events' else scope)
             limit = 800000 if scope else MAX
             channel.exec_command(command)
-            output = bytearray()
-            stderr = 0
-            deadline = time.monotonic() + 35
-            while True:
-                if time.monotonic() >= deadline:
-                    fail('connector_transport_failed')
-                if channel.recv_ready():
-                    output.extend(channel.recv(16384))
-                if channel.recv_stderr_ready():
-                    stderr += len(channel.recv_stderr(16384))
-                if len(output) + stderr > limit:
-                    fail()
-                if channel.exit_status_ready() and not channel.recv_ready() and not channel.recv_stderr_ready():
-                    if channel.recv_exit_status() != 0:
-                        fail()
-                    break
-                time.sleep(.01)
-            return json.loads(output)
+            return read_ssh_channel(channel, limit)
         finally:
             channel.close()
     except paramiko.AuthenticationException:
@@ -152,8 +159,8 @@ def add(parent, ns, name, value=None, **attrs):
 
 
 class PinnedHTTPS(http.client.HTTPSConnection):
-    def __init__(self, host, port, ip, context, pin=None):
-        super().__init__(host, port, timeout=12, context=context)
+    def __init__(self, host, port, ip, context, pin=None, timeout=12):
+        super().__init__(host, port, timeout=timeout, context=context)
         self.ip = ip
         self.pin = pin
 
@@ -183,8 +190,10 @@ class WinRM:
         self.deadline = time.monotonic() + 65
 
     def call(self, action, body=None, shell=None, cleanup=False):
-        if not cleanup and time.monotonic() >= self.deadline:
+        remaining = self.deadline - time.monotonic()
+        if not cleanup and remaining <= 0:
             fail('connector_transport_failed')
+        timeout = 5 if cleanup else min(12, remaining)
         envelope = ET.Element(tag(SOAP, 'Envelope'))
         header = add(envelope, SOAP, 'Header')
         add(header, ADDR, 'To', self.endpoint)
@@ -212,7 +221,7 @@ class WinRM:
         content = add(envelope, SOAP, 'Body')
         if body is not None:
             content.append(body)
-        conn = PinnedHTTPS(self.req['host'], self.req['port'], self.req['ip'], self.context, (self.req.get('profile') or {}).get('primary_pin'))
+        conn = PinnedHTTPS(self.req['host'], self.req['port'], self.req['ip'], self.context, (self.req.get('profile') or {}).get('primary_pin'), timeout=timeout)
         try:
             conn.request('POST', '/wsman', ET.tostring(envelope, encoding='utf-8', xml_declaration=True),
                          {'Content-Type': 'application/soap+xml;charset=UTF-8', 'Authorization': self.auth, 'Connection': 'close'})
@@ -230,16 +239,21 @@ class WinRM:
             root = ET.fromstring(raw)
             if root.tag != tag(SOAP, 'Envelope'):
                 fail()
-            fault = root.find('.//' + tag(SOAP, 'Fault'))
+            # Correlate even faults before considering a Receive timeout retry.
+            headers = root.findall(tag(SOAP, 'Header'))
+            bodies = root.findall(tag(SOAP, 'Body'))
+            if len(headers) != 1 or len(bodies) != 1:
+                fail()
+            relates = headers[0].findall(tag(ADDR, 'RelatesTo'))
+            if len(relates) != 1 or relates[0].text != message:
+                fail()
+            fault = bodies[0].find(tag(SOAP, 'Fault'))
             if fault is not None:
                 # WSMan Receive may expire while the command is still running. Retry within the overall deadline.
-                if action == SHELL + '/Receive' and any(n.get('Code') == '2150858793' for n in fault.iter()):
+                if response.status == 500 and action == SHELL + '/Receive' and any(n.get('Code') == '2150858793' for n in fault.iter()):
                     return None
                 fail()
             if response.status != 200:
-                fail()
-            relates = root.findtext('.//' + tag(ADDR, 'RelatesTo'))
-            if relates != message:
                 fail()
             return root
         finally:
@@ -295,6 +309,8 @@ class WinRM:
                     if len(out) + stderr > (800000 if scope else MAX):
                         fail()
                 state = result.find('.//' + tag(SHELL, 'CommandState'))
+                if state is not None and state.get('CommandId') not in (None, cmd):
+                    fail()
                 if state is not None and state.get('State') == SHELL + '/CommandState/Done':
                     if state.findtext(tag(SHELL, 'ExitCode')) != '0' or stderr:
                         fail()
@@ -322,7 +338,7 @@ def main():
         else:
             fail()
         output = json.dumps({'data': data}, ensure_ascii=req.get('scope')!='events', separators=(',', ':'))
-        if len(output) > (800000 if req.get('scope') else MAX):
+        if len(output.encode('utf-8')) > (800000 if req.get('scope') else MAX):
             fail()
         print(output)
     except Failure as e:

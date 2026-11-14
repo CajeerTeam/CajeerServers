@@ -13,7 +13,20 @@ AGENT=ROOT/'core/Connector/agents/linux_discovery.py'
 spec=importlib.util.spec_from_file_location('probe',AGENT)
 probe=importlib.util.module_from_spec(spec);spec.loader.exec_module(probe)
 
+metric_spec=importlib.util.spec_from_file_location('metric_probe',ROOT/'core/Connector/agents/linux_metrics.py')
+metric=importlib.util.module_from_spec(metric_spec);metric_spec.loader.exec_module(metric)
+
 class Tests(unittest.TestCase):
+    def test_cpu_counter_discontinuity(self):
+        with patch.object(metric,'cpu',side_effect=[(10,5),(10,5),(10,5),(12,4),(12,4),(22,8)]),patch.object(metric.time,'sleep'):
+            self.assertAlmostEqual(metric.cpu_ratio(),0.6)
+        with patch.object(metric,'cpu',return_value=(10,5)),patch.object(metric.time,'sleep'):
+            with self.assertRaises(ValueError):metric.cpu_ratio()
+
+    def test_metric_identity_change(self):
+        with patch.object(metric,'identity',side_effect=['a'*32,'b'*32]):
+            with self.assertRaisesRegex(ValueError,'identity changed'):metric.collect()
+
     def normalize(self,raw):
         p=subprocess.run(['php',str(ROOT/'tests/linux-discovery-smoke.php'),'--normalize'],input=json.dumps(raw),text=True,capture_output=True,check=True)
         return json.loads(p.stdout)

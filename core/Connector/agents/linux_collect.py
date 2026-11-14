@@ -27,5 +27,7 @@ for x in query(['ip', '-j', 'address', 'show']):
     if x['ifname'] == 'lo':
         continue
     interfaces.append({'name': x['ifname'], 'addresses': [a['local'] for a in x.get('addr_info', []) if a['family'] in ('inet', 'inet6')]})
+if identity != read('/etc/machine-id'):
+    raise ValueError('identity changed')
 print(json.dumps({'identity': identity, 'name': socket.gethostname(), 'os_family': os_id if os_id in ('debian', 'ubuntu') else 'linux',
                   'os_name': os_name, 'os_version': os_version, 'cpu_count': os.cpu_count(), 'memory_bytes': memory, 'disks': disks, 'interfaces': interfaces}, separators=(',', ':')))

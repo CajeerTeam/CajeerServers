@@ -57,6 +57,7 @@ jobs:
           python3 tests/vmmanager-https-integration.py
           python3 tests/vmmanager-power-https-integration.py
           python3 tests/host-transport-integration.py --ssh
+          python3 tests/os-network-live-acceptance-integration.py
           bash tests/snmp-protocol-integration.sh
       - name: Build and test TypeScript connector SDK
         run: |
@@ -174,3 +175,18 @@ jobs:
           PG_DUMP_BINARY: /usr/lib/postgresql/${{ matrix.pg }}/bin/pg_dump
           PG_RESTORE_BINARY: /usr/lib/postgresql/${{ matrix.pg }}/bin/pg_restore
         run: php tests/backup-postgres-integration.php
+  windows-native-agents:
+    name: Windows Server / native PowerShell CIM and Event Log
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: sodium, openssl
+          coverage: none
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Execute production PowerShell probes and PHP normalizers
+        run: python tests/windows-native-agent-integration.py

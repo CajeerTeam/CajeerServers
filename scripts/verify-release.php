@@ -50,7 +50,7 @@ $steps++;
 fwrite(STDOUT, sprintf("PHP lint: %d files, %d failures\n", count($phpFiles), $lintErrors));
 if ($lintErrors > 0 || $phpFiles === []) $failures++;
 
-foreach (['runtime', 'http', 'database', 'installer', 'auth', 'security', 'infrastructure', 'observability', 'admin', 'release', 'inventory-readiness', 'workspaces', 'inventory', 'ipam', 'topology', 'network-discovery', 'system-events', 'catalog', 'history', 'transfer', 'cmdb-integrity', 'import-dispatch', 'vault-crypto', 'vault-crud', 'vault-profiles', 'vault-access', 'vault-rotation', 'vault-bindings', 'vault-stable', 'proxmox-runtime', 'proxmox-profile', 'proxmox-cluster', 'proxmox-guests', 'proxmox-storage-network', 'proxmox-tasks', 'connector-runtime', 'connector-execution', 'connector-reconciliation', 'vmmanager-runtime', 'host-runtime', 'os-network-profile', 'linux-discovery', 'windows-discovery', 'snmp-health', 'snmp-discovery', 'connector-events', 'connector-actions', 'proxmox-snapshots', 'pbs-backup', 'connector-stability', 'collector-runtime', 'script-registry', 'script-execution', 'script-output', 'collection-plans', 'metrics', 'ingestion', 'data-exchange', 'collection-stability', 'backup'] as $suite) {
+foreach (['runtime', 'http', 'database', 'installer', 'auth', 'security', 'infrastructure', 'observability', 'admin', 'release', 'inventory-readiness', 'workspaces', 'inventory', 'ipam', 'topology', 'network-discovery', 'system-events', 'catalog', 'history', 'transfer', 'cmdb-integrity', 'import-dispatch', 'vault-crypto', 'vault-crud', 'vault-profiles', 'vault-access', 'vault-rotation', 'vault-bindings', 'vault-stable', 'proxmox-runtime', 'proxmox-profile', 'proxmox-cluster', 'proxmox-guests', 'proxmox-storage-network', 'proxmox-tasks', 'connector-runtime', 'connector-execution', 'connector-reconciliation', 'vmmanager-runtime', 'host-runtime', 'os-network-profile', 'linux-discovery', 'windows-discovery', 'snmp-health', 'snmp-discovery', 'connector-events', 'connector-actions', 'proxmox-snapshots', 'pbs-backup', 'connector-stability', 'collector-runtime', 'script-registry', 'script-execution', 'script-output', 'collection-plans', 'metrics', 'ingestion', 'data-exchange', 'collection-stability', 'network-configuration-backup', 'backup'] as $suite) {
     $run($suite . ' smoke', [PHP_BINARY, 'tests/' . $suite . '-smoke.php'], $root);
 }
 $run('Admin frontend static', ['node', 'tests/static-check.mjs'], $root . '/admin');
@@ -74,7 +74,9 @@ $run('RouterOS REST HTTPS integration', ['python3','tests/routeros-https-integra
 $run('Syslog socket integration', ['python3','tests/syslog-receiver-integration.py'], $root);
 $run('Linux event probe integration', ['python3','tests/linux-events-integration.py'], $root);
 $run('Linux discovery probe integration', ['python3','tests/linux-discovery-integration.py'], $root);
+$run('Host transport stream regression', ['python3','tests/host-transport-stream-regression.py'], $root);
 $run('WinRM HTTPS protocol and trust integration', ['python3','tests/host-transport-integration.py'], $root);
+$run('OS / Network live acceptance fixture', ['python3','tests/os-network-live-acceptance-integration.py'], $root, null, 240);
 $run('VMmanager live acceptance fixture', ['python3','tests/vmmanager-live-acceptance-integration.py'], $root);
 
 if ($strict) {
@@ -92,6 +94,9 @@ if ($strict) {
     $vmmanagerAcceptance=getenv('CAJEER_VMMANAGER_ACCEPTANCE_CONFIG');
     if (!$vmmanagerAcceptance) { fwrite(STDERR, "FAIL: strict verification requires CAJEER_VMMANAGER_ACCEPTANCE_CONFIG for operator-owned VMmanager acceptance.\n"); $failures++; }
     else { $run('VMmanager live acceptance', [PHP_BINARY,'scripts/verify-vmmanager-live.php',$vmmanagerAcceptance], $root, null, 900); }
+    $osNetworkAcceptance=getenv('CAJEER_OS_NETWORK_ACCEPTANCE_CONFIG');
+    if (!$osNetworkAcceptance) { fwrite(STDERR, "FAIL: strict verification requires CAJEER_OS_NETWORK_ACCEPTANCE_CONFIG for operator-owned SSH/WinRM/SNMP/RouterOS acceptance.\n"); $failures++; }
+    else { $run('OS / Network live acceptance', [PHP_BINARY,'scripts/verify-os-network-live.php',$osNetworkAcceptance], $root, null, 3600); }
     $run('RouterOS PostgreSQL integration', ['python3','tests/routeros-https-integration.py','--postgres'], $root);
     $run('PBS HTTPS integration', ['python3','tests/pbs-backup-https-integration.py'], $root);
     $run('Proxmox snapshot HTTPS integration', ['python3','tests/proxmox-snapshots-https-integration.py'], $root);

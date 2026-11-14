@@ -1,12 +1,14 @@
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
+function Identity { return [string](Get-ItemPropertyValue -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Cryptography' -Name 'MachineGuid') }
+$before = Identity
 $os = Get-CimInstance -ClassName Win32_OperatingSystem
 $cs = Get-CimInstance -ClassName Win32_ComputerSystem
 $disks = @(Get-CimInstance -ClassName Win32_DiskDrive | ForEach-Object { @{ name = [string]$_.DeviceID; size_bytes = [long]$_.Size } })
 $interfaces = @(Get-CimInstance -ClassName Win32_NetworkAdapterConfiguration -Filter 'IPEnabled=True' | ForEach-Object { @{ name = [string]$_.SettingID; addresses = @($_.IPAddress | ForEach-Object { ([string]$_).Split('%')[0] }) } })
 $result = @{
- identity = [string](Get-ItemPropertyValue -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Cryptography' -Name 'MachineGuid')
+ identity = $before
  name = [string]$cs.Name
  os_family = 'windows'
  os_name = [string]$os.Caption
@@ -16,4 +18,5 @@ $result = @{
  disks = $disks
  interfaces = $interfaces
 }
+if ((Identity) -ne $before) { throw 'Identity changed' }
 $result | ConvertTo-Json -Depth 5 -Compress

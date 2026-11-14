@@ -120,7 +120,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if not self.routeros_user():return self.send_error(401)
         url=urllib.parse.urlsplit(self.path);p=url.path
         if '.proplist' not in urllib.parse.parse_qs(url.query):return self.send_error(400)
-        if p=='/rest/system/identity':
+        if p=='/rest/file':
+            name=urllib.parse.parse_qs(url.query).get('name',[''])[0]
+            with self.lock:
+                content=self.routeros_files.get((self.routeros_user(),name))
+            data=[] if content is None else [{'name':name,'size':str(len(content.encode()))}]
+        elif p=='/rest/system/identity':
             data={'name':'router01'}
         elif p=='/rest/system/resource':data=[{'version':'7.16.2 (stable)','platform':'MikroTik','cpu-load':'10','total-memory':'9007199254740993','free-memory':'100','board-name':'CHR'}]
         elif p=='/rest/system/routerboard':data={'routerboard':'false','model':'CHR'}

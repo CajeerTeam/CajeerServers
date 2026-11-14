@@ -10,11 +10,12 @@ $n=0;$ok=static function(bool $v,string $label)use(&$n):void {if(!$v)throw new R
 $reject=static function(callable $f,string $label)use($ok):void {try{$f();}catch(Throwable){$ok(true,$label);return;}throw new RuntimeException('Expected rejection: '.$label);};
 // Fixture speaks the same GET/GETNEXT session contract. No credentials or arbitrary OIDs enter the result.
 final class FixtureSnmp {
-    public bool $closed=false;public int $calls=0;public bool $cycle=false;public bool $badStatus=false;public bool $oversize=false;
-    public function get(string $oid):string {$this->calls++;return match($oid){'.1.3.6.1.2.1.1.5.0'=>'router-lab','.1.3.6.1.2.1.1.2.0'=>'.1.3.6.1.4.1.8072.3.2.10','.1.3.6.1.2.1.2.1.0'=>'2','.1.3.6.1.2.1.1.1.0'=>"Test device\nOS",default=>throw new RuntimeException('Unexpected OID')};}
+    public bool $closed=false;public int $calls=0;public bool $cycle=false;public bool $badStatus=false;public bool $oversize=false;public bool $empty=false;public bool $changing=false;private int $counts=0;
+    public function get(string $oid):string {$this->calls++;return match($oid){'.1.3.6.1.2.1.1.5.0'=>'router-lab','.1.3.6.1.2.1.1.2.0'=>'.1.3.6.1.4.1.8072.3.2.10','.1.3.6.1.2.1.2.1.0'=>$this->empty?'0':($this->changing&&++$this->counts>1?'3':'2'),'.1.3.6.1.2.1.1.1.0'=>"Test device\nOS",default=>throw new RuntimeException('Unexpected OID')};}
     public function next(string $oid):array {
         $this->calls++;if($this->cycle)return [$oid,'1'];
         $data=['.1.3.6.1.2.1.2.2.1.2.2'=>'eth0','.1.3.6.1.2.1.2.2.1.2.7'=>'eth7','.1.3.6.1.2.1.2.2.1.8.2'=>'1','.1.3.6.1.2.1.2.2.1.8.7'=>$this->badStatus?'unknown':'2','.1.3.6.1.2.1.4.20.1.2.192.0.2.10'=>'2','.1.3.6.1.2.1.4.34.1.3.2.16.32.1.13.184.0.0.0.0.0.0.0.0.0.0.0.1'=>'7','.1.3.6.1.2.1.5.1.0'=>'0'];
+        if($this->empty)$data=['.1.3.6.1.2.1.5.1.0'=>'0'];
         if($this->oversize)for($i=8;$i<73;$i++)$data['.1.3.6.1.2.1.2.2.1.2.'.$i]='x'.$i;
         uksort($data,fn($a,$b)=>array_map('intval',explode('.',$a))<=>array_map('intval',explode('.',$b)));
         // Numeric lexicographic OID comparison, not PHP array-length comparison.
@@ -40,6 +41,8 @@ $reject(fn()=>$registry->execute($ctx,'sync','snmp',json_encode(['username'=>'re
 $reject(fn()=>$registry->execute($ctx,'sync','snmp',str_replace('aes128','aes256',$secret)),'unsupported AES256 rejected');
 $reject(fn()=>$registry->execute(new ConnectorContext('snmp','192.0.2.1',1161,'snmp_v3'),'health','snmp',$secret),'network denied');
 foreach(['cycle','badStatus','oversize'] as $flag){$session=new FixtureSnmp();$session->$flag=true;$reject(fn()=>$registry->execute($ctx,'sync','snmp',$secret),$flag);$ok($session->closed,'failed session closed');}
+$session=new FixtureSnmp();$session->empty=true;$empty=$registry->execute($ctx,'sync','snmp',$secret);$ok($empty->items[0]['fields']['attributes']['network_device']['interfaces']===[]&&$session->closed,'zero interfaces valid');
+$session=new FixtureSnmp();$session->changing=true;$reject(fn()=>$registry->execute($ctx,'sync','snmp',$secret),'interface count changed');
 $event=['workspace_id'=>'11111111-1111-4111-8111-111111111111','external_id'=>'manual','event_key'=>'e1','type'=>'router','fields'=>$item['fields']];
 $reject(fn()=>ObservationInput::normalize($event),'public observations cannot forge network metadata');
 $ok(ObservationInput::normalize($event,true)['fields']['attributes']===$item['fields']['attributes'],'internal network attributes');

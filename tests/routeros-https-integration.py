@@ -16,7 +16,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             assert set(data)=={'file','compact'} and data['file'].startswith('cajeer-backup-')
             Handler.exports+=1
             content='# 2026-11-14 12:00:00 by RouterOS 7.16.2\n/ip firewall filter\nadd chain=input action=accept\n'
-            if self.mode=='backup_large':content+='# '+('a'*300+'\n')*160
+            if self.mode in ('backup_large','backup_short','backup_truncated','backup_size_changed'):content+='# '+('a'*300+'\n')*160
             if self.mode=='backup_partial':content+='#error exporting /ip/firewall\n'
             if self.mode=='backup_empty':content=''
             if self.mode=='backup_changed' or (self.mode=='ok' and Handler.exports>=3):content=content.replace('action=accept','action=drop')
@@ -25,7 +25,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if self.mode=='backup_read_fail':self.send_error(503);return
             assert set(data)=={'file','offset','chunk-size'} and data['chunk-size']=='32768'
             if data['file'] not in Handler.files:self.send_error(404);return
-            content=Handler.files[data['file']];off=int(data['offset']);self.reply([{'data':content[off:off+32768]}]);return
+            content=Handler.files[data['file']];off=int(data['offset'])
+            if self.mode=='backup_truncated' and off>0:content=''
+            self.reply([{'data':content[off:off+(1024 if self.mode=='backup_short' else 32768)]}]);return
         self.send_error(405)
     def do_DELETE(self):
         self.requests.append(('DELETE',self.path))
@@ -38,7 +40,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if self.headers.get('Authorization')!=AUTH or self.mode=='auth': self.send_error(401);return
         url=urllib.parse.urlsplit(self.path);p=url.path
         assert '.proplist' in urllib.parse.parse_qs(url.query)
-        if p=='/rest/system/identity':
+        if p=='/rest/file':
+            name=urllib.parse.parse_qs(url.query)['name'][0];content=Handler.files.get(name)
+            size=len(content.encode()) if content is not None else 0
+            if self.mode=='backup_size_changed' and sum(path.startswith('/rest/file?') for method,path in Handler.requests)>1:size+=1
+            data=[] if content is None else [{'name':name,'size':str(size)}]
+        elif p=='/rest/system/identity':
             Handler.identities+=1
             name='other' if self.mode=='identity' or (self.mode=='changed' and Handler.identities>1) else 'router01'
             data={'name':name}
@@ -83,7 +90,7 @@ $profile=['primary_pin'=>$mode==='pin'?str_repeat('0',64):$pin,'identity_hash'=>
 $target=['provider'=>'routeros','endpoint_host'=>$mode==='hostname'?'wrong.test':'router.test','endpoint_port'=>(int)$port,'credential_type'=>'routeros_api','purpose'=>'api','os_network_profile'=>$mode==='no_profile'?null:$profile];
 $secret=json_encode(['username'=>'reader','password'=>'fixture-secret']);
 $runtime=new CollectionRuntimeService(CollectorRegistry::forConnectors($registry));
-$expected=match($mode){'auth'=>'connector_auth_failed','pin','identity','changed','untrusted','hostname'=>'connector_trust_failed','redirect','bad','duplicate','v6'=>'connector_protocol_error','backup_read_fail','failure'=>'connector_unavailable','backup_partial','backup_empty'=>'connector_protocol_error','no_profile','sync_routing'=>'collection_invalid',default=>null};
+$expected=match($mode){'auth'=>'connector_auth_failed','pin','identity','changed','untrusted','hostname'=>'connector_trust_failed','redirect','bad','duplicate','v6'=>'connector_protocol_error','backup_read_fail','failure'=>'connector_unavailable','backup_partial','backup_empty','backup_truncated','backup_size_changed'=>'connector_protocol_error','no_profile','sync_routing'=>'collection_invalid',default=>null};
 try {
   if(str_starts_with($mode,'backup_')){
     $r=$runtime->collect(new CollectionPlan('routeros.configuration-backup','inspect'),$target,'routeros_api',$secret);
@@ -119,14 +126,15 @@ with tempfile.TemporaryDirectory() as tmp:
     subprocess.run(['openssl','req','-x509','-newkey','rsa:2048','-nodes','-days','1','-keyout',str(key),'-out',str(cert),'-subj','/CN=router.test','-addext','subjectAltName=DNS:router.test'],check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
     pin=hashlib.sha256(ssl.PEM_cert_to_DER_cert(cert.read_text())).hexdigest()
     server=http.server.ThreadingHTTPServer(('127.0.0.1',0),Handler);ctx=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER);ctx.load_cert_chain(cert,key);server.socket=ctx.wrap_socket(server.socket,server_side=True);threading.Thread(target=server.serve_forever,daemon=True).start()
-    modes=['ok','inventory','sync','network','metrics','health','rotation','acl','missing','auth','pin','identity','changed','untrusted','hostname','redirect','bad','duplicate','v6','failure','no_profile','sync_routing','backup_ok','backup_large','backup_partial','backup_empty','backup_read_fail','backup_changed']
+    modes=['ok','inventory','sync','network','metrics','health','rotation','acl','missing','auth','pin','identity','changed','untrusted','hostname','redirect','bad','duplicate','v6','failure','no_profile','sync_routing','backup_ok','backup_large','backup_partial','backup_empty','backup_read_fail','backup_changed','backup_short','backup_truncated','backup_size_changed']
     try:
         for mode in modes:
             Handler.mode=mode;Handler.requests=[];Handler.identities=0
             subprocess.run(['php','-r',PHP,mode,str(cert),str(server.server_port),pin],cwd=ROOT,check=True,timeout=45)
             if mode.startswith('backup_'):
                 assert not Handler.files and Handler.requests[-1][0]=='DELETE',mode
-                assert sum(method=='POST' and path=='/rest/file/read' for method,path in Handler.requests)>=1
+                if mode!='backup_empty':assert sum(method=='POST' and path=='/rest/file/read' for method,path in Handler.requests)>=1
+                if mode=='backup_short':assert sum(method=='POST' and path=='/rest/file/read' for method,path in Handler.requests)>2
             else:assert all(method=='GET' for method,_ in Handler.requests)
             if mode in ['pin','untrusted','hostname','no_profile','sync_routing']:assert not Handler.requests,mode
             print('PASS',mode,flush=True)

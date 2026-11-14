@@ -84,6 +84,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
             ET.SubElement(body,TAG(SHELL,'CommandId')).text=CMD_ID
         elif action==SHELL+'/Receive':
             assert root.find('.//'+TAG(SHELL,'DesiredStream')).get('CommandId')==CMD_ID
+            if server.mode in ('timeout-fault','foreign-fault') and server.receives==0:
+                server.receives+=1
+                if server.mode=='foreign-fault':header.find(TAG(ADDR,'RelatesTo')).text='uuid:'+str(uuid.uuid4())
+                fault=ET.SubElement(body,TAG(SOAP,'Fault'))
+                ET.SubElement(fault,TAG(WS,'WSManFault'),Code='2150858793')
+                raw=ET.tostring(envelope,encoding='utf-8');self.send_response(500);self.send_header('Content-Length',str(len(raw)));self.end_headers();self.wfile.write(raw);return
             if server.mode=='bad-output': payload=b'{bad-json'
             elif server.mode=='oversize': payload=b'x'*270000
             else:
@@ -117,6 +123,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 chunk=payload if server.mode!='ok' else (payload[:len(payload)//2] if not done else payload[len(payload)//2:])
             ET.SubElement(body,TAG(SHELL,'Stream'),Name='stdout',CommandId=CMD_ID).text=base64.b64encode(chunk).decode()
             state=ET.SubElement(body,TAG(SHELL,'CommandState'),State=SHELL+'/CommandState/'+('Done' if done else 'Running'))
+            if server.mode=='foreign-command':state.set('CommandId',str(uuid.uuid4()))
             if done: ET.SubElement(state,TAG(SHELL,'ExitCode')).text='1' if server.mode=='nonzero' else '0'
         elif action==TRANSFER+'Delete':
             assert root.find('.//'+TAG(WS,'Selector')).text==SHELL_ID
@@ -194,6 +201,13 @@ def https_test(tmp):
             assert 'fixture-secret' not in json.dumps(out)
             if mode!='redirect':assert server.actions[-1]==TRANSFER+'Delete'
         assert execute('winrm',port,cred,ca=str(cert),networks=['192.0.2.0/24'])['error']=='connector_trust_failed'
+        server.mode='timeout-fault'
+        assert execute('winrm',port,cred,ca=str(cert))['complete'] and server.receives==2
+        for mode in ('foreign-fault','foreign-command'):
+            server.mode=mode
+            out=execute('winrm',port,cred,ca=str(cert));assert out['error']=='connector_protocol_error',out
+            assert server.receives==1 and server.actions[-1]==TRANSFER+'Delete'
+        print('WinRM correlated fault and command state: 3 scenarios PASS')
     finally:
         server.shutdown();server.server_close();thread.join()
     print('WinRM HTTPS fixture: 14 scenarios PASS')
@@ -232,7 +246,13 @@ def ssh_test(tmp):
                         assert args[2]==(ROOT/'core/Connector/agents/linux_discovery.py').read_text()
                 assert 'fixture-secret' not in args[2]
                 proc=subprocess.run([sys.executable,'-c',*args[2:]],capture_output=True,timeout=35)
-                channel.sendall(proc.stdout);channel.sendall_stderr(proc.stderr);channel.send_exit_status(proc.returncode);channel.shutdown_write()
+                # Real SSH exit status is not an EOF marker. Deliver a late stdout tail.
+                if proc.returncode==0:
+                    channel.sendall(proc.stdout[:len(proc.stdout)//2]);channel.send_exit_status(0)
+                    __import__('time').sleep(.08);channel.sendall(proc.stdout[len(proc.stdout)//2:])
+                else:
+                    channel.sendall(proc.stdout);channel.send_exit_status(proc.returncode)
+                channel.sendall_stderr(proc.stderr);channel.shutdown_write()
             threading.Thread(target=run,daemon=True).start();return True
     listener=socket.socket();listener.bind(('127.0.0.1',0));listener.listen(8);listener.settimeout(.2);port=listener.getsockname()[1]
     stop=threading.Event()
