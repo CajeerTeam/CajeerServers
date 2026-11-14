@@ -178,6 +178,7 @@ final class ConnectorRuntimeService
                 if(($collection['collector']??null)==='vmmanager.tasks'){
                     $result['connection']['vmmanager_task_discovery']=VmmanagerTaskStore::save($pdo,$target,$snapshot->connection['vmmanager_task_discovery'],$collection['observed_at']);
                     $result['discovered']=$result['collection']['count']=$result['connection']['vmmanager_task_discovery']['observed_count'];
+                    $result['connection']['vmmanager_task_discovery']['actions_reconciled']=ConnectorActionService::reconcileVmmanager($pdo,$target,$snapshot->connection['vmmanager_task_discovery']['action_checks']??[],$this->audit,$actor);
                 }
                 if(($collection['collector']??null)==='proxmox.tasks'){
                     $result['connection']['task_discovery']=ProxmoxTaskStore::save($pdo,$target,$snapshot->connection['task_discovery'],$collection['observed_at']);

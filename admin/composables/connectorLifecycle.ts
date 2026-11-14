@@ -1,5 +1,5 @@
 /** Pure UI policy helpers. The API remains authoritative for all authorization. */
-export interface LifecycleTarget { provider?:string; proxmox_profile?:unknown; id:string; workspace_id:string; name:string; version:number; etag:string; state:string; asset_id:string|null }
+export interface LifecycleTarget { provider?:string; proxmox_profile?:unknown; vmmanager_profile?:unknown; id:string; workspace_id:string; name:string; version:number; etag:string; state:string; asset_id:string|null }
 export interface LifecycleBinding { credential_id:string; purpose:string; credential_version:number|string }
 export interface ServiceGrant {
   id:string; collection_plan_id?:string|null; actor_id:string; operation:'health'|'inspect'|'sync'; target_version:number|string; credential_id:string; credential_version:number|string;
@@ -20,11 +20,11 @@ export function grantLimits(ttl:number,interval:number|null):boolean {
   return Number.isInteger(ttl)&&ttl>=60&&ttl<=2592000&&(interval===null||(Number.isInteger(interval)&&interval>=60&&interval<=86400))
 }
 export function canPowerResource(r:LifecycleResource):boolean {
-  return r.presence==='seen'&&!!r.asset_id&&!r.conflict_code&&((r.resource_type==='virtual_machine'&&/^qemu:[1-9][0-9]{0,8}$/.test(r.external_id))||(r.resource_type==='container'&&/^lxc:[1-9][0-9]{0,8}$/.test(r.external_id)))
+  return r.presence==='seen'&&!!r.asset_id&&!r.conflict_code&&((r.resource_type==='virtual_machine'&&/^qemu:[1-9][0-9]{0,8}$/.test(r.external_id))||(r.resource_type==='container'&&/^lxc:[1-9][0-9]{0,8}$/.test(r.external_id))||(['virtual_machine','container'].includes(r.resource_type)&&/^host:[1-9][0-9]{0,9}$/.test(r.external_id)&&Number(r.external_id.slice(5))<=2147483647))
 }
 export function isRunPending(status:string):boolean {return ['queued','running'].includes(status)}
 export function canRedrive(status:string):boolean {return ['dead_letter','cancelled'].includes(status)}
 export function canAcknowledge(status:string):boolean {return ['unknown','dispatching','submitted'].includes(status)}
 export function actionConfirmation(action:string,external:string):string {return `${action} ${external}`}
 
-export function powerActionMatches(action:string,external:string):boolean { return /^(vm|lxc)\.(start|shutdown|stop|reboot|snapshot\.(create|delete|rollback))$/.test(action)&&/^(qemu|lxc):[1-9][0-9]{0,8}$/.test(external)&&(action.startsWith('vm.')===external.startsWith('qemu:')) }
+export function powerActionMatches(action:string,external:string):boolean { if (/^vmmanager\.host\.(start|stop|reboot)$/.test(action)) return /^host:[1-9][0-9]{0,9}$/.test(external)&&Number(external.slice(5))<=2147483647; return /^(vm|lxc)\.(start|shutdown|stop|reboot|snapshot\.(create|delete|rollback))$/.test(action)&&/^(qemu|lxc):[1-9][0-9]{0,8}$/.test(external)&&(action.startsWith('vm.')===external.startsWith('qemu:')) }

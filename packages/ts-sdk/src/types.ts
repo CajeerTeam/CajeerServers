@@ -2,14 +2,14 @@ export type AssetType = 'server' | 'hypervisor_node' | 'cluster' | 'virtual_mach
 export interface InfrastructureAsset { id: string; type: AssetType; name: string; status: string; source: string }
 export type Provider = 'proxmox' | 'vmmanager' | 'ssh' | 'winrm' | 'snmp' | 'custom' | 'prometheus' | 'pbs'
 export type Operation = 'health' | 'inspect' | 'sync'
-export type PowerAction = 'vm.start' | 'vm.shutdown' | 'vm.stop' | 'vm.reboot' | 'lxc.start' | 'lxc.shutdown' | 'lxc.stop' | 'lxc.reboot'
+export type PowerAction = 'vm.start' | 'vm.shutdown' | 'vm.stop' | 'vm.reboot' | 'lxc.start' | 'lxc.shutdown' | 'lxc.stop' | 'lxc.reboot' | 'vmmanager.host.start' | 'vmmanager.host.stop' | 'vmmanager.host.reboot'
 export type SnapshotAction = `${'vm'|'lxc'}.snapshot.${'create'|'delete'|'rollback'}`
 export interface ProxmoxSnapshot { name:string; parent:string|null; created_at:number|null; state:string|null; description:string; revision:string }
 export interface ProxmoxGuestAccess { node:string; type:'qemu'|'lxc'; vmid:number; snapshots?:ProxmoxSnapshot[]; url?:string }
 
 export interface CollectorDefinition { name:string; provider:Provider; operations:('inspect'|'sync')[]; resource_types:AssetType[] }
 export interface CollectionSnapshot { schema_version:1; collector:string; sink:'result'|'inventory'|'metrics'; metric_samples?:MetricSample[]; observed_at:string; complete:boolean; count:number; observations?:{type:AssetType;external_id:string;fields:Record<string,unknown>;parent_external_id?:string}[] }
-export interface Driver { collectors?:CollectorDefinition[]; provider: Provider; purpose: string; credentialTypes: string[]; operations: (Operation | 'validate_rotation')[]; resourceTypes: AssetType[]; transport: string; actions: PowerAction[]; write_actions_enabled: boolean }
+export interface Driver { collectors?:CollectorDefinition[]; provider: Provider; purpose: string; credentialTypes: string[]; operations: (Operation | 'validate_rotation')[]; resourceTypes: AssetType[]; transport: string; actions: (PowerAction | SnapshotAction)[]; write_actions_enabled: boolean }
 export interface VmmanagerProfile { primary_pin:string; anchor_id:number; anchor_node:string }
 export type VmmanagerCapability = 'available'|'denied'|'not_found'
 export type VmmanagerActionCapability = 'advertised'|'not_advertised'|'unknown'

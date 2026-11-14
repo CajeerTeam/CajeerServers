@@ -5,8 +5,8 @@ namespace Cajeer\Servers\Connector;
 use Cajeer\Servers\Credentials\CredentialProfile;
 use RuntimeException;
 
-/** VMmanager 6 Hosting/Infrastructure, VM API v3, read-only token authentication. */
-final class VmmanagerConnector implements ConnectorInterface, \Cajeer\Servers\Metrics\MetricDriver
+/** VMmanager 6 Hosting/Infrastructure, VM API v3, scoped token authentication and confirmed power actions. */
+final class VmmanagerConnector implements ConnectorInterface, ConnectorActionDriver, \Cajeer\Servers\Metrics\MetricDriver
 {
     private readonly VmmanagerApiClient $api;
     private const PAGE = 100;
@@ -20,6 +20,90 @@ final class VmmanagerConnector implements ConnectorInterface, \Cajeer\Servers\Me
     {
         return new ConnectorManifest('vmmanager','api',['vmmanager_api','api_token'],
             ['inspect','sync','validate_rotation','health'],['hypervisor_node','virtual_machine','container','cluster'],'https');
+    }
+
+    public function actions():array {return VmmanagerPowerPolicy::ACTIONS;}
+
+    private function withActionToken(ConnectorContext $context,#[\SensitiveParameter] string $secret,callable $fn):mixed
+    {
+        if($context->provider!=='vmmanager'||$context->vmmanagerProfile===null||!$this->manifest()->accepts($context->credentialType,'api'))throw new ConnectorTransportException('connector_trust_failed');
+        $decoded=CredentialProfile::decodeForInternalUse($context->credentialType,$secret);
+        $token=is_array($decoded)?$decoded['token']:$decoded;$expiry=is_array($decoded)?($decoded['expires_at']??null):null;unset($decoded);
+        try{
+            $deadline=microtime(true)+self::DEADLINE;
+            if($expiry!==null){$end=(new \DateTimeImmutable($expiry))->getTimestamp();if($end<=time())throw new ConnectorTransportException('connector_auth_failed');$deadline=min($deadline,(float)$end);}
+            $this->anchor($context,$token,$deadline);$identity=$this->api->identity($context,$token,$deadline);
+            // Only a non-delegated admin can prove visibility of competing tasks.
+            if(!$identity['administrator']||$identity['owner_id']!==$identity['trustee_id'])throw new ConnectorTransportException('connector_auth_failed');
+            return $fn($token,$deadline,$identity);
+        }finally{sodium_memzero($token);}
+    }
+    private function liveGuest(ConnectorContext $context,int $id,#[\SensitiveParameter] string $token,float $deadline):array
+    {
+        $host=$this->api->exact($context,'guests',$id,$token,$deadline);
+        $nodeRef=$host->node??null;$nodeId=VmmanagerApiClient::id($nodeRef instanceof \stdClass?($nodeRef->id??null):$nodeRef);
+        $node=$this->api->exact($context,'nodes',$nodeId,$token,$deadline);
+        [$details]=VmmanagerGuestDiscovery::build([$node],[$host],true);
+        $guest=$details['guests'][0];
+        // Require actual names, not discovery fallbacks, for mutation identity.
+        if(!is_string($host->name??null)||$guest['name']!==$host->name)VmmanagerPowerPolicy::deny('guest_identity_conflict');
+        return [$guest,$host,$node];
+    }
+    private function actionPreflight(ConnectorContext $context,string $action,string $external,#[\SensitiveParameter] string $token,float $deadline,array $identity):array
+    {
+        if(!VmmanagerPowerPolicy::matches($action,$external))throw new \InvalidArgumentException('Invalid VMmanager action.');
+        $id=(int)substr($external,5);$op=VmmanagerPowerPolicy::operation($action);
+        if(($this->api->actionCapabilities($context,$token,$deadline,$identity)[$op]??null)!=='advertised')VmmanagerPowerPolicy::deny('capability_unavailable');
+        [$guest,$host,$node]=$this->liveGuest($context,$id,$token,$deadline);
+        VmmanagerPowerPolicy::preflight($action,$guest,$host,$node);
+        if($this->api->activeTasks($context,$id,$token,$deadline)!==[])VmmanagerPowerPolicy::deny('guest_task_pending');
+        $this->anchor($context,$token,$deadline);
+        if($this->api->identity($context,$token,$deadline)!==$identity)throw new ConnectorTransportException('connector_auth_failed');
+        return ['node'=>(string)$guest['node_id'],'guest'=>$guest,'fingerprint'=>VmmanagerPowerPolicy::fingerprint($guest),'digest'=>hash('sha256',json_encode($guest,JSON_THROW_ON_ERROR)),'identity'=>$identity];
+    }
+    public function prepareAction(ConnectorContext $context,string $action,string $externalId,#[\SensitiveParameter] string $secret):array
+    {
+        return $this->withActionToken($context,$secret,fn($token,$deadline,$identity)=>$this->actionPreflight($context,$action,$externalId,$token,$deadline,$identity));
+    }
+    public function dispatchAction(ConnectorContext $context,string $action,array $resource,#[\SensitiveParameter] string $secret):string
+    {
+        $attempted=false;
+        try{
+            return $this->withActionToken($context,$secret,function($token,$deadline,$identity)use($context,$action,$resource,&$attempted):string{
+                $fresh=$this->actionPreflight($context,$action,$resource['guest']['external_id'],$token,$deadline,$identity);
+                if($fresh!==$resource)VmmanagerPowerPolicy::deny('guest_identity_conflict');
+                // Everything after this boundary is ambiguous on failure: never retry a POST.
+                $attempted=true;
+                $response=$this->api->power($context,$resource['guest']['id'],VmmanagerPowerPolicy::operation($action),$token,$deadline);
+                return VmmanagerPowerPolicy::receipt($action,$resource,$response);
+            });
+        }catch(\Throwable $e){if(!$attempted)throw new ConnectorActionNotSentException($e);throw $e;}
+    }
+    private function checkAction(ConnectorContext $context,string $node,string $task,#[\SensitiveParameter] string $token,float $deadline,array $identity):string
+    {
+        $receipt=VmmanagerPowerPolicy::parse($task);if($receipt['owner']!==$identity['owner_id'])throw new ConnectorTransportException('connector_auth_failed');$failed=false;$pending=false;$missing=false;
+        foreach($receipt['tasks'] as [$id,$name]){
+            $remote=$this->api->actionTask($context,$id,$name,$receipt['host'],$token,$deadline);
+            if($remote===null&&$receipt['op']==='restart'&&$name==='host_stop')$remote=$this->api->actionTask($context,$id,'host_restart',$receipt['host'],$token,$deadline);
+            if($remote===null){$missing=true;continue;}
+            if(!VmmanagerTaskDiscovery::terminal($remote['state'])){$pending=true;continue;}
+            if($remote['state']==='failed')$failed=true;
+        }
+        if($pending)return 'submitted';
+        if($missing)VmmanagerPowerPolicy::deny('action_task_not_visible');
+        if($failed)return 'failed';
+        [$guest]=$this->liveGuest($context,$receipt['host'],$token,$deadline);
+        if((string)$guest['node_id']!==$node||VmmanagerPowerPolicy::fingerprint($guest)!==$receipt['fingerprint'])VmmanagerPowerPolicy::deny('guest_identity_conflict');
+        if($guest['state']!==($receipt['op']==='stop'?'stopped':'running'))VmmanagerPowerPolicy::deny('action_state_unconfirmed');
+        return 'succeeded';
+    }
+    public function actionStatus(ConnectorContext $context,string $node,string $task,#[\SensitiveParameter] string $secret):string
+    {
+        return $this->withActionToken($context,$secret,function($token,$deadline,$identity)use($context,$node,$task):string{
+            $status=$this->checkAction($context,$node,$task,$token,$deadline,$identity);$this->anchor($context,$token,$deadline);
+            if($this->api->identity($context,$token,$deadline)!==$identity)throw new ConnectorTransportException('connector_auth_failed');
+            return $status;
+        });
     }
 
     public function execute(ConnectorContext $context, string $operation, #[\SensitiveParameter] string $secret): ConnectorResult
@@ -105,6 +189,14 @@ final class VmmanagerConnector implements ConnectorInterface, \Cajeer\Servers\Me
             }
             if($scope==='tasks'){
                 $batch=VmmanagerTaskDiscovery::collect(fn(int $after,int $limit)=>$this->api->page($context,'tasks',$after,$limit,$token,$deadline),$previous,$identity);
+                $batch['action_checks']=[];
+                if($identity['administrator']&&$identity['owner_id']===$identity['trustee_id'])foreach(array_slice($previous['actions']??[],0,4) as $action){
+                    if(microtime(true)>$deadline-10)break;
+                    try{$status=$this->checkAction($context,$action['node'],$action['remote_task'],$token,$deadline,$identity);}
+                    catch(ConnectorTransportException $e){if(!in_array($e->httpStatus,[403,404],true))throw $e;$status='submitted';}
+                    catch(\Cajeer\Servers\Http\Exception\HttpException $e){if(!in_array($e->errorCode,['guest_identity_conflict','action_task_not_visible','action_state_unconfirmed'],true))throw $e;$status='submitted';}
+                    $batch['action_checks'][]=['id'=>$action['id'],'remote_task'=>$action['remote_task'],'status'=>$status];
+                }
                 $this->anchor($context,$token,$deadline);
                 if($this->api->identity($context,$token,$deadline)!==$identity)throw new ConnectorTransportException('connector_auth_failed');
                 return new ConnectorResult([],false,connection:$connection+['vmmanager_task_discovery'=>$batch]);

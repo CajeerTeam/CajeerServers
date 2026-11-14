@@ -1,3 +1,8 @@
+## [0.7.8] — 2026-11-14 — Safe Action Dispatcher
+
+- Реальные start/stop/restart VMmanager KVM/LXD через pinned HTTPS, повторный preflight, отдельное RBAC-разрешение, MFA, durable intent и запрет повтора POST.
+- Consul ID корреляция, проверка обеих задач restart и конечного состояния гостя, reconciliation в vmmanager.tasks, Admin UI, SDK и миграция 0052.
+
 ## [0.7.7] — 2026-11-14 — Task History & Events
 
 - Рабочий `vmmanager.tasks`: pinned HTTPS, keyset high-water cursor, bounded replay, polling nonterminal tasks, state transitions and deduplication.

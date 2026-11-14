@@ -21,6 +21,13 @@ final class HttpsTransport
         if (!preg_match('~^/api2/json/nodes/[A-Za-z0-9][A-Za-z0-9._-]{0,119}/(?:qemu|lxc)/[1-9][0-9]{0,8}/status/(start|shutdown|stop|reboot)$~D',$path)) throw new RuntimeException('Unsupported power request.');
         return $this->request('POST',$host,$port,$path,$authorization,$caFile,'Authorization',pin:$pin);
     }
+    /** VMmanager's documented power endpoints accept an empty JSON object. */
+    public function vmmanagerPowerPost(string $host,int $port,int $id,string $op,#[\SensitiveParameter] string $token,?string $caFile,string $pin):string
+    {
+        VmmanagerApiClient::id($id);
+        if(!in_array($op,['start','stop','restart'],true))throw new RuntimeException('Unsupported VMmanager power request.');
+        return $this->request('POST',$host,$port,'/vm/v3/host/'.$id.'/'.$op,$token,$caFile,'x-xsrf-token',payload:'{}',extraHeaders:"Content-Type: application/json\r\n",pin:$pin);
+    }
     /** Only explicit snapshot operations; no arbitrary body or force flags. */
     public function snapshotWrite(string $host,int $port,string $base,string $op,string $name,#[\SensitiveParameter] string $authorization,?string $caFile=null,?string $pin=null):string
     {

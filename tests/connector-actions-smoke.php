@@ -10,6 +10,8 @@ $valid=['action'=>'vm.start','external_id'=>'qemu:101','confirm'=>'vm.start qemu
 ConnectorActionService::validate($valid,'1234567890123456');$ok(true,'valid intent');
 foreach ([['action'=>'vm.reset'],['external_id'=>'lxc:101'],['confirm'=>'yes'],['external_id'=>'qemu:101/../../'],['node'=>'pve'],['command'=>'shell']] as $patch) $reject(fn()=>ConnectorActionService::validate(array_replace($valid,$patch),'1234567890123456'));
 $reject(fn()=>ConnectorActionService::validate($valid,'short'));
+foreach(\Cajeer\Servers\Connector\VmmanagerPowerPolicy::ACTIONS as $action){ConnectorActionService::validate(['action'=>$action,'external_id'=>'host:21','confirm'=>$action.' host:21'],'1234567890123456');$ok(true,'VMmanager action '.$action);}
+foreach([['action'=>'vmmanager.host.force'],['external_id'=>'qemu:21'],['external_id'=>'host:2147483648'],['force'=>true],['confirm'=>'yes']] as $patch){$intent=array_replace(['action'=>'vmmanager.host.start','external_id'=>'host:21','confirm'=>'vmmanager.host.start host:21'],$patch);$reject(fn()=>ConnectorActionService::validate($intent,'1234567890123456'));}
 $profile=['cluster'=>null,'anchor_node'=>'pve','anchor_id'=>null,'primary_pin'=>str_repeat('a',64),'fallbacks'=>[]];
 $ctx=new ConnectorContext('proxmox','pve.test',8006,'proxmox_api',$profile);
 $secret='{"token_id":"svc@pve!test","token_secret":"fixture-secret"}';

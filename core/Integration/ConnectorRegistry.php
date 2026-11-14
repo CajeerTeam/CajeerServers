@@ -21,7 +21,7 @@ final class ConnectorRegistry
         $manifest=$driver->manifest();
         $provider=$manifest->provider;
         if (isset($this->drivers[$provider])) throw new LogicException('Duplicate connector provider.');
-        if ($provider!=='proxmox' && $driver instanceof \Cajeer\Servers\Connector\ConnectorActionDriver) throw new LogicException('Only the built-in Proxmox driver can register write actions.');
+        if ($provider!=='proxmox' && !($provider==='vmmanager' && $driver instanceof \Cajeer\Servers\Connector\VmmanagerConnector) && $driver instanceof \Cajeer\Servers\Connector\ConnectorActionDriver) throw new LogicException('Only built-in virtualization drivers can register write actions.');
         $this->drivers[$provider]=$driver;
         $this->metadata[$provider]=$manifest;
     }
@@ -153,7 +153,7 @@ final class ConnectorRegistry
     public function actions(string $provider):array
     {
         $driver=$this->drivers[$provider]??null;
-        return $provider==='proxmox' && $driver instanceof \Cajeer\Servers\Connector\ConnectorActionDriver?$driver->actions():[];
+        return in_array($provider,['proxmox','vmmanager'],true) && $driver instanceof \Cajeer\Servers\Connector\ConnectorActionDriver?$driver->actions():[];
     }
     /** @return array<string,ConnectorManifest> */
     public function manifests(): array { return $this->metadata; }

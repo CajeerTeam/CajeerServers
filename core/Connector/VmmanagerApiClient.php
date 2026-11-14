@@ -69,6 +69,56 @@ final class VmmanagerApiClient
         return $decoded->list;
     }
 
+    /** Exact numeric resource lookup via the documented list API. */
+    public function exact(ConnectorContext $context,string $resource,int $id,#[\SensitiveParameter] string $token,float $deadline): \stdClass
+    {
+        self::id($id);$rows=$this->page($context,$resource,$id-1,1,$token,$deadline);
+        if($rows===[]||self::id($rows[0]->id??null)!==$id)throw new ConnectorTransportException('connector_protocol_error');
+        return $rows[0];
+    }
+    /** All filters are generated from bounded integers and a closed task-name vocabulary. */
+    private function taskQuery(ConnectorContext $context,string $where,#[\SensitiveParameter] string $token,float $deadline):array
+    {
+        $data=$this->get($context,'/vm/v3/task?where='.rawurlencode($where).'&orderby=id%20asc&limit=0%2C100',$token,$deadline);
+        if(!isset($data->list)||!is_array($data->list)||count($data->list)>100)throw new ConnectorTransportException('connector_protocol_error');
+        $rows=[];$last=0;
+        foreach($data->list as $row){if(!$row instanceof \stdClass)throw new ConnectorTransportException('connector_protocol_error');$task=VmmanagerTaskDiscovery::normalize($row);if($task['remote_id']<=$last)throw new ConnectorTransportException('connector_protocol_error');$last=$task['remote_id'];$rows[]=$task;}
+        return $rows;
+    }
+    public function activeTasks(ConnectorContext $context,int $host,#[\SensitiveParameter] string $token,float $deadline):array
+    {
+        self::id($host);
+        $filter="((status EQ 'created') OR (status EQ 'running') OR (status EQ 'deferred'))";
+        $last=0;
+        // Short pages do not prove exhaustion; require an empty page, with a bounded budget.
+        for($page=0;$page<8;$page++){
+            $where=$last===0?$filter:"(".$filter." AND (id GT '".$last."'))";
+            $rows=$this->taskQuery($context,$where,$token,$deadline);
+            if($rows===[])return [];
+            $blocking=[];foreach($rows as $task){
+                if($task['remote_id']<=$last||!in_array($task['state'],['queued','running','deferred'],true))throw new ConnectorTransportException('connector_protocol_error');
+                $last=$task['remote_id'];
+                if($task['resource_id']===null||$task['resource_id']==='host:'.$host)$blocking[]=$task;
+            }
+            if($blocking!==[])return $blocking;
+        }
+        VmmanagerPowerPolicy::deny('guest_task_visibility_incomplete');
+    }
+    public function actionTask(ConnectorContext $context,int $consul,string $name,int $host,#[\SensitiveParameter] string $token,float $deadline):?array
+    {
+        self::id($consul);self::id($host);
+        if(!in_array($name,['host_start','host_stop','host_restart'],true))throw new \InvalidArgumentException('Unsupported VMmanager task type.');
+        $rows=$this->taskQuery($context,"((consul_id EQ '".$consul."') AND (name EQ '".$name."'))",$token,$deadline);
+        if($rows===[])return null;
+        if(count($rows)!==1||$rows[0]['consul_id']!==(string)$consul||$rows[0]['type']!==$name||($rows[0]['resource_id']!==null&&$rows[0]['resource_id']!=='host:'.$host))throw new ConnectorTransportException('connector_protocol_error');
+        return $rows[0];
+    }
+    public function power(ConnectorContext $context,int $host,string $op,#[\SensitiveParameter] string $token,float $deadline):\stdClass
+    {
+        if($context->provider!=='vmmanager'||$context->vmmanagerProfile===null||microtime(true)>=$deadline)throw new ConnectorTransportException('connector_trust_failed');
+        return self::decode($this->https->vmmanagerPowerPost($context->host,$context->port,$host,$op,$token,$this->caFile,$context->vmmanagerProfile['primary_pin']));
+    }
+
     /** Advertised handler permissions are not resource-level authorization or a successful mutation. */
     public function actionCapabilities(ConnectorContext $context,#[\SensitiveParameter] string $token,float $deadline,array $identity): array
     {

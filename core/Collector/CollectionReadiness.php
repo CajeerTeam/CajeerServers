@@ -38,8 +38,8 @@ final class CollectionReadiness
             return true;
         },'Required collectors and exporters must be registered.');
         $probe('collection_migrations',function()use($c):bool{
-            $v=$c->get(MigrationRunner::class)->validate();return $v['valid']&&count($v['rows'])>=51&&array_column($v['rows'],'status')!==[]&&!array_diff(array_column($v['rows'],'status'),['applied']);
-        },'All PostgreSQL migrations, including 0051, must be applied and checksum-valid.');
+            $v=$c->get(MigrationRunner::class)->validate();return $v['valid']&&count($v['rows'])>=52&&array_column($v['rows'],'status')!==[]&&!array_diff(array_column($v['rows'],'status'),['applied']);
+        },'All PostgreSQL migrations, including 0052, must be applied and checksum-valid.');
         $queries=[
             'vmmanager_task_scope'=>"SELECT 1 FROM vmmanager_task_cursor s JOIN connector_targets t ON t.id=s.target_id WHERE t.provider<>'vmmanager' OR s.workspace_id<>t.workspace_id LIMIT 1",
             'vmmanager_catalog_scope'=>"SELECT 1 FROM vmmanager_catalog_state s JOIN connector_targets t ON t.id=s.target_id WHERE t.provider<>'vmmanager' OR s.workspace_id<>t.workspace_id OR s.target_version>t.version LIMIT 1",

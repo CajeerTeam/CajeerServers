@@ -37,7 +37,7 @@ final class ConnectorActionService
         $name=$body['snapshot']??null;$revision=$body['snapshot_revision']??null;
         $confirm=is_string($action)&&is_string($external)?$action.' '.$external:'';
         if($snap&&is_string($name))$confirm.=' '.$name;
-        if(array_diff(array_keys($body),$snap?['action','external_id','confirm','snapshot','snapshot_revision']:['action','external_id','confirm'])||!is_string($action)||!is_string($external)||(!$snap&&!ProxmoxPowerPolicy::matches($action,$external))
+        if(array_diff(array_keys($body),$snap?['action','external_id','confirm','snapshot','snapshot_revision']:['action','external_id','confirm'])||!is_string($action)||!is_string($external)||(!$snap&&!ProxmoxPowerPolicy::matches($action,$external)&&!VmmanagerPowerPolicy::matches($action,$external))
             ||($snap&&(!ProxmoxSnapshotPolicy::name($name)||(ProxmoxSnapshotPolicy::op($action)==='create'?$revision!==null:(!is_string($revision)||!preg_match('/^[a-f0-9]{64}$/D',$revision)))))
             ||($body['confirm']??null)!==$confirm||!preg_match('/^[A-Za-z0-9._:-]{16,128}$/D',$key))
             throw new HttpException(422,'Action, exact resource confirmation, snapshot revision and idempotency key are required.','validation_failed');
@@ -74,18 +74,31 @@ final class ConnectorActionService
     private function current(array $p,array $t):void
     {
         $actor=$this->actor($p,true);
+        if($t['provider']==='vmmanager')$this->rbac->requirePermission($p,'connectors.vmmanager.actions.execute');
         if (!$this->query($this->db->connection(),"SELECT 1 FROM auth_sessions s JOIN users u ON u.id=s.user_id WHERE s.id=:session AND s.user_id=:actor AND s.revoked_at IS NULL AND s.expires_at>clock_timestamp() AND s.mfa_verified=true AND u.two_factor_enabled=true AND u.is_active=true FOR SHARE OF s,u",['session'=>$p['id'],'actor'=>$actor])->fetchColumn()) throw new HttpException(403,'Active MFA session required.','mfa_required');
         $now=$this->bindings->runtimeContext($actor,$t['id'],$t['version'],'inspect');
         foreach (['credential_id','credential_version','asset_id'] as $key) if ($now[$key]!==$t[$key]) throw new HttpException(409,'Connector binding changed.','conflict');
     }
     private function resource(PDO $pdo,array $t,string $external):string
     {
-        $asset=$this->query($pdo,"SELECT r.asset_id::text FROM connector_discovered_resources r JOIN inventory_assets a ON a.id=r.asset_id AND a.workspace_id=r.workspace_id AND a.deleted_at IS NULL WHERE r.target_id=:t AND r.workspace_id=:ws AND r.external_id=:e AND r.presence='seen' AND r.resource_type=:type AND a.type=r.resource_type AND r.conflict_code IS NULL",['t'=>$t['id'],'ws'=>$t['workspace_id'],'e'=>$external,'type'=>str_starts_with($external,'qemu:')?'virtual_machine':'container'])->fetchColumn();
+        $asset=$this->query($pdo,"SELECT r.asset_id::text FROM connector_discovered_resources r JOIN inventory_assets a ON a.id=r.asset_id AND a.workspace_id=r.workspace_id AND a.deleted_at IS NULL WHERE r.target_id=:t AND r.workspace_id=:ws AND r.external_id=:e AND r.presence='seen' AND (r.resource_type=:type OR (:vmm='yes' AND r.resource_type IN ('virtual_machine','container'))) AND a.type=r.resource_type AND r.conflict_code IS NULL",['t'=>$t['id'],'ws'=>$t['workspace_id'],'e'=>$external,'type'=>str_starts_with($external,'qemu:')?'virtual_machine':'container','vmm'=>$t['provider']==='vmmanager'?'yes':'no'])->fetchColumn();
         if (!is_string($asset)) throw new HttpException(409,'Synchronize and resolve the guest before executing an action.','resource_unavailable');
         return $asset;
     }
     private function identity(PDO $pdo,array $t,array $remote):void
     {
+        if($t['provider']==='vmmanager'){
+            $guest=$remote['guest']??null;
+            if(!is_array($guest))throw new HttpException(409,'VMmanager guest identity unavailable.','guest_identity_conflict');
+            // Require a current, recently observed detailed guest snapshot and the same CMDB type.
+            $state=VmmanagerGuestStore::read($pdo,$t);
+            if($state['state']!=='available'||new \DateTimeImmutable($state['observed_at'])<new \DateTimeImmutable('-15 minutes'))throw new HttpException(409,'Collect vmmanager.guests before executing an action.','guest_identity_conflict');
+            $known=null;foreach($state['snapshot']['guests']??[] as $g)if($g['external_id']===$guest['external_id']){$known=$g;break;}
+            if($known===null||VmmanagerPowerPolicy::fingerprint($known)!==$remote['fingerprint'])throw new HttpException(409,'VMmanager guest identity changed. Collect guest inventory again.','guest_identity_conflict');
+            $type=$guest['virtualization_type']==='kvm'?'virtual_machine':'container';
+            if(!$this->query($pdo,'SELECT 1 FROM connector_discovered_resources WHERE target_id=:t AND workspace_id=:w AND external_id=:e AND resource_type=:type',['t'=>$t['id'],'w'=>$t['workspace_id'],'e'=>$guest['external_id'],'type'=>$type])->fetchColumn())throw new HttpException(409,'Guest mapping type changed.','guest_identity_conflict');
+            return;
+        }
         if(!isset($remote['type']))return; // trusted extension drivers retain their own identity policy
         $known=$this->query($pdo,'SELECT guest_type,fingerprint FROM proxmox_guest_identity WHERE target_id=:t AND workspace_id=:w AND vmid=:v',['t'=>$t['id'],'w'=>$t['workspace_id'],'v'=>$remote['vmid']])->fetch(PDO::FETCH_ASSOC);
         if($known&&($known['guest_type']!==$remote['type']||($known['fingerprint']!==null&&$known['fingerprint']!==($remote['fingerprint']??null))))throw new HttpException(409,'Guest identity changed or cannot be verified.','guest_identity_conflict');
@@ -111,7 +124,7 @@ final class ConnectorActionService
             try{$this->access->consumeForAsset($p,$t['asset_id'],$t['credential_id'],$t['purpose'],function(#[\SensitiveParameter] string $secret,string $type)use($p,$t,$driver,$external,$purpose,$asset,&$result):void {
                 $this->current($p,$t);
                 if($purpose==='console')$this->rbac->requirePermission($p,'connectors.console.open');
-                $remote=$driver->guestAccess(new ConnectorContext($t['provider'],$t['endpoint_host'],$t['endpoint_port'],$type,$t['proxmox_profile']??null),$external,$purpose,$secret);
+                $remote=$driver->guestAccess(new ConnectorContext($t['provider'],$t['endpoint_host'],$t['endpoint_port'],$type,$t['proxmox_profile']??null,$t['vmmanager_profile']??null),$external,$purpose,$secret);
                 $result=$this->db->transaction(function(PDO $pdo)use($p,$t,$external,$purpose,$asset,$remote):array {
                     $this->inventory->lockWorkspace($pdo,$t['workspace_id']);$this->current($p,$t);
                     if($purpose==='console')$this->rbac->requirePermission($p,'connectors.console.open',$pdo);
@@ -127,12 +140,12 @@ final class ConnectorActionService
     public function submit(array $p,string $target,int $version,array $body,string $key):array
     {
         self::validate($body,$key);$actor=$this->actor($p,true,true);
-        if(isset($body['snapshot']))$this->rbac->requirePermission($p,'connectors.snapshots.execute');$t=$this->bindings->runtimeContext($actor,$target,$version,'inspect');$driver=$this->driver($t,$body['action']);
+        if(isset($body['snapshot']))$this->rbac->requirePermission($p,'connectors.snapshots.execute');$t=$this->bindings->runtimeContext($actor,$target,$version,'inspect');$driver=$this->driver($t,$body['action']);if($t['provider']==='vmmanager')$this->rbac->requirePermission($p,'connectors.vmmanager.actions.execute');
         return $this->lock($t,function()use($p,$t,$driver,$body,$key,$actor):array {
             $pdo=$this->db->connection();$existing=$this->query($pdo,'SELECT id::text FROM connector_actions WHERE target_id=:t AND idempotency_key=:k',['t'=>$t['id'],'k'=>$key])->fetchColumn();
             if ($existing) {
                 $r=$this->row($pdo,$t['id'],$existing);
-                if ($r['actor_id']!==$actor||$r['action']!==$body['action']||$r['external_id']!==$body['external_id']||$r['snapshot_name']!==($body['snapshot']??null)||$r['snapshot_revision']!==($body['snapshot_revision']??null)||(int)$r['target_version']!==$t['version']) throw new HttpException(409,'Idempotency key already used.','conflict');
+                if ($r['actor_id']!==$actor||$r['action']!==$body['action']||$r['external_id']!==$body['external_id']||$r['snapshot_name']!==($body['snapshot']??null)||$r['snapshot_revision']!==($body['snapshot_revision']??null)||(int)$r['target_version']!==$t['version']||$r['credential_id']!==$t['credential_id']||(int)$r['credential_version']!==$t['credential_version']) throw new HttpException(409,'Idempotency key already used.','conflict');
                 return $r;
             }
             if (ConnectorHealthMonitor::isOpen($pdo,$t['id'])) throw new HttpException(423,'Connector circuit is open.','connector_circuit_open');
@@ -144,7 +157,7 @@ final class ConnectorActionService
                     try {
                         $this->current($p,$t);
                         if(isset($body['snapshot']))$this->rbac->requirePermission($p,'connectors.snapshots.execute');
-                        $ctx=new ConnectorContext($t['provider'],$t['endpoint_host'],$t['endpoint_port'],$type,$t['proxmox_profile']??null);
+                        $ctx=new ConnectorContext($t['provider'],$t['endpoint_host'],$t['endpoint_port'],$type,$t['proxmox_profile']??null,$t['vmmanager_profile']??null);
                         $remote=isset($body['snapshot'])&&$driver instanceof ProxmoxConnector?$driver->prepareSnapshot($ctx,$body['action'],$body['external_id'],$body['snapshot'],$body['snapshot_revision']??null,$secret):$driver->prepareAction($ctx,$body['action'],$body['external_id'],$secret);
                         $node=$remote['node'];
                         // Commit durable intent before the only POST. Crash after this point is ambiguous, never retried.
@@ -166,7 +179,7 @@ final class ConnectorActionService
                             return $driver->dispatchAction($ctx,$body['action'],$remote,$secret);
                         });
                         $result=$this->finish($p,$t,$id,'submitted',$node,$task,null);
-                    }catch(\Throwable $e){$failure=$e instanceof HttpException?$e:new HttpException(502,'Remote action could not be confirmed.','action_unknown');throw $e;}
+                    }catch(\Throwable $e){$failure=$e instanceof HttpException?$e:($id===null?new HttpException(502,'Action preparation failed.','connector_failed'):new HttpException(502,'Remote action could not be confirmed.','action_unknown'));throw $e;}
                 },expectedVersion:$t['credential_version']);
             }catch(\Throwable $e){
                 if ($id!==null) {
@@ -203,9 +216,28 @@ SQL);
         foreach($rows as $r)$audit->record($pdo,$collectorActor,'connector.action.'.$r['status'],$r['status']==='succeeded'?'success':'failure','connector_action',$r['id'],['source'=>'proxmox.tasks','reason'=>$r['error_code']??'succeeded']);
         return count($rows);
     }
+    /** Called in the same transaction as VMmanager task history, after remote task/state checks. */
+    public static function reconcileVmmanager(PDO $pdo,array $t,array $checks,AuditLogger $audit,string $actor):int
+    {
+        $count=0;
+        foreach($checks as $check){
+            if(!in_array($check['status'],['submitted','succeeded','failed'],true))throw new \RuntimeException('Invalid VMmanager action status.');
+            $q=$pdo->prepare(<<<'SQL'
+UPDATE connector_actions SET status=:status,error_code=:error,task_checked_at=clock_timestamp(),updated_at=clock_timestamp()
+WHERE id=:id AND target_id=:target AND workspace_id=:workspace AND target_version=:tv AND credential_id=:credential AND credential_version=:cv
+ AND status='submitted' AND remote_task=:task AND action IN ('vmmanager.host.start','vmmanager.host.stop','vmmanager.host.reboot')
+RETURNING id::text
+SQL);
+            $q->execute(['status'=>$check['status'],'error'=>$check['status']==='failed'?'remote_task_failed':null,'id'=>$check['id'],'target'=>$t['id'],'workspace'=>$t['workspace_id'],'tv'=>$t['version'],'credential'=>$t['credential_id'],'cv'=>$t['credential_version'],'task'=>$check['remote_task']]);
+            $id=$q->fetchColumn();
+            if($id!==false&&$check['status']!=='submitted'){$count++;$audit->record($pdo,$actor,'connector.action.'.$check['status'],$check['status']==='succeeded'?'success':'failure','connector_action',$id,['source'=>'vmmanager.tasks','reason'=>$check['status']]);}
+        }
+        return $count;
+    }
     public function refresh(array $p,string $target,string $id,int $version,bool $ack=false):array
     {
         $actor=$this->actor($p,true);$t=$this->bindings->runtimeContext($actor,$target,$version,'inspect');
+        if($t['provider']==='vmmanager')$this->rbac->requirePermission($p,'connectors.vmmanager.actions.execute');
         return $this->lock($t,function()use($p,$t,$id,$ack):array {
             $r=$this->row($this->db->connection(),$t['id'],$id);
             if ($ack) {
@@ -218,7 +250,7 @@ SQL);
                     $remoteStatus=null;$d=$this->driver($t,$r['action']);
                     $this->access->consumeForAsset($p,$t['asset_id'],$t['credential_id'],$t['purpose'],function(#[\SensitiveParameter] string $secret,string $type)use($p,$t,$r,$d,&$remoteStatus):void {
                         $this->current($p,$t);
-                        try{$remoteStatus=$d->actionStatus(new ConnectorContext($t['provider'],$t['endpoint_host'],$t['endpoint_port'],$type,$t['proxmox_profile']??null),$r['node'],$r['remote_task'],$secret);}catch(\Throwable){/* operator verified externally; task may have expired */}
+                        try{$remoteStatus=$d->actionStatus(new ConnectorContext($t['provider'],$t['endpoint_host'],$t['endpoint_port'],$type,$t['proxmox_profile']??null,$t['vmmanager_profile']??null),$r['node'],$r['remote_task'],$secret);}catch(\Throwable $e){if($t['provider']==='vmmanager'&&(!($e instanceof HttpException)||!in_array($e->errorCode,['action_task_not_visible','action_state_unconfirmed','guest_identity_conflict'],true)))throw new HttpException(502,'Remote task verification unavailable. Action remains locked.','connector_failed');/* operator verified externally; task may have expired */}
                     },expectedVersion:$t['credential_version']);
                     if($remoteStatus==='submitted')throw new HttpException(409,'Remote task is still running.','action_unresolved');
                     if(in_array($remoteStatus,['succeeded','failed'],true))return $this->db->transaction(function(PDO $pdo)use($p,$t,$id,$r,$remoteStatus):array{
@@ -241,7 +273,7 @@ SQL);
             if ($r['credential_id']!==$t['credential_id']||(int)$r['credential_version']!==$t['credential_version']||(int)$r['target_version']!==$t['version']) throw new HttpException(409,'Original action binding changed. Verify the task externally.','conflict');
             $d=$this->driver($t,$r['action']);$status=null;
             try {$this->access->consumeForAsset($p,$t['asset_id'],$t['credential_id'],$t['purpose'],function(#[\SensitiveParameter] string $secret,string $type)use($p,$t,$r,$d,&$status):void {
-                $this->current($p,$t);$status=$d->actionStatus(new ConnectorContext($t['provider'],$t['endpoint_host'],$t['endpoint_port'],$type,$t['proxmox_profile']??null),$r['node'],$r['remote_task'],$secret);
+                $this->current($p,$t);$status=$d->actionStatus(new ConnectorContext($t['provider'],$t['endpoint_host'],$t['endpoint_port'],$type,$t['proxmox_profile']??null,$t['vmmanager_profile']??null),$r['node'],$r['remote_task'],$secret);
             },expectedVersion:$t['credential_version']);}catch(\Throwable $e){throw $e instanceof HttpException?$e:new HttpException(502,'Task status unavailable; action was not repeated.','connector_failed');}
             if (!in_array($status,['submitted','succeeded','failed'],true)) throw new HttpException(502,'Invalid task result.','connector_failed');
             return $this->db->transaction(function(PDO $pdo)use($p,$t,$id,$status,$r):array {

@@ -64,6 +64,7 @@ $run('Data collection navigation and UI policy', ['node','--experimental-strip-t
 $run('Proxmox Admin navigation policy', ['node','--experimental-strip-types','tests/proxmox-navigation-contract.mjs'], $root . '/admin');
 
 $run('VMmanager HTTPS integration', ['python3','tests/vmmanager-https-integration.py'], $root);
+$run('VMmanager power HTTPS integration', ['python3','tests/vmmanager-power-https-integration.py'], $root);
 
 if ($strict) {
     $run('Script sandbox integration', [PHP_BINARY,'tests/script-sandbox-integration.php'], $root);
@@ -84,6 +85,7 @@ if ($strict) {
     $run('SNMP protocol integration', ['bash','tests/snmp-protocol-integration.sh'], $root);
     $run('SSH and WinRM protocol integration', ['python3','tests/host-transport-integration.py','--ssh'], $root);
     $run('VMmanager HTTPS + PostgreSQL integration', ['python3','tests/vmmanager-https-integration.py','--postgres'], $root);
+    $run('VMmanager power PostgreSQL integration', ['python3','tests/vmmanager-power-https-integration.py','--postgres'], $root);
     if (getenv('CAJEER_PG_TEST') !== '1' || !preg_match('/^cajeer_test_[a-z0-9_]+$/D', getenv('CAJEER_PG_TEST_DATABASE') ?: '')) {
         fwrite(STDERR, "FAIL: strict verification requires CAJEER_PG_TEST=1 and an isolated cajeer_test_* database.\n"); $failures++;
     } else {

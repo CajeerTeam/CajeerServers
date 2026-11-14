@@ -1,7 +1,7 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.7.7
+  version: 0.7.8
   description: 'CajeerServers 0.7.1: VMmanager connection profiles, PVE/PBS integration and infrastructure collection.'
 servers:
 - url: /api/v1
@@ -7677,7 +7677,7 @@ paths:
       - name: external_id
         in: query
         description: Exact QEMU/LXC guest identity within the target
-        schema: {type: string, pattern: '^(qemu|lxc):[1-9][0-9]{0,8}$'}
+        schema: {type: string, pattern: '^((qemu|lxc):[1-9][0-9]{0,8}|host:[1-9][0-9]{0,9})$'}
       responses:
         '200':
           description: Action metadata; submitted does not mean completed
@@ -7724,6 +7724,9 @@ paths:
                           - lxc.snapshot.create
                           - lxc.snapshot.delete
                           - lxc.snapshot.rollback
+                          - vmmanager.host.start
+                          - vmmanager.host.stop
+                          - vmmanager.host.reboot
                         snapshot_name:
                           type: [string, 'null']
                         snapshot_revision:
@@ -7835,6 +7838,9 @@ paths:
                         - lxc.snapshot.create
                         - lxc.snapshot.delete
                         - lxc.snapshot.rollback
+                        - vmmanager.host.start
+                        - vmmanager.host.stop
+                        - vmmanager.host.reboot
                       snapshot_name:
                         type: [string, 'null']
                       snapshot_revision:
@@ -7901,9 +7907,12 @@ paths:
                   - lxc.snapshot.create
                   - lxc.snapshot.delete
                   - lxc.snapshot.rollback
+                  - vmmanager.host.start
+                  - vmmanager.host.stop
+                  - vmmanager.host.reboot
                 external_id:
                   type: string
-                  pattern: ^(qemu|lxc):[1-9][0-9]{0,8}$
+                  pattern: ^((qemu|lxc):[1-9][0-9]{0,8}|host:[1-9][0-9]{0,9})$
                 confirm:
                   type: string
                   description: Exact action + space + external_id; snapshot actions append space + snapshot name
@@ -8049,6 +8058,9 @@ paths:
                         - lxc.snapshot.create
                         - lxc.snapshot.delete
                         - lxc.snapshot.rollback
+                        - vmmanager.host.start
+                        - vmmanager.host.stop
+                        - vmmanager.host.reboot
                       snapshot_name:
                         type: [string, 'null']
                       snapshot_revision:
@@ -8161,6 +8173,9 @@ paths:
                         - lxc.snapshot.create
                         - lxc.snapshot.delete
                         - lxc.snapshot.rollback
+                        - vmmanager.host.start
+                        - vmmanager.host.stop
+                        - vmmanager.host.reboot
                       snapshot_name:
                         type: [string, 'null']
                       snapshot_revision:
@@ -8273,6 +8288,9 @@ paths:
                         - lxc.snapshot.create
                         - lxc.snapshot.delete
                         - lxc.snapshot.rollback
+                        - vmmanager.host.start
+                        - vmmanager.host.stop
+                        - vmmanager.host.reboot
                       snapshot_name:
                         type: [string, 'null']
                       snapshot_revision:

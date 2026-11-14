@@ -15,9 +15,10 @@ final class VmmanagerTaskStore
     public static function previous(PDO $p,array $t):array
     {
         $a=self::args($t);$r=self::q($p,'SELECT revision,cursor FROM vmmanager_task_cursor WHERE target_id=:id AND scope_hash=:scope',$a)->fetch(PDO::FETCH_ASSOC);
-        if(!$r)return ['revision'=>0];
+        $actions=self::q($p,"SELECT id::text,node,remote_task FROM connector_actions WHERE target_id=:target AND workspace_id=:workspace AND target_version=:tv AND credential_id=:credential AND credential_version=:cv AND status='submitted' AND action IN ('vmmanager.host.start','vmmanager.host.stop','vmmanager.host.reboot') AND remote_task IS NOT NULL AND node IS NOT NULL ORDER BY task_checked_at ASC NULLS FIRST,created_at,id LIMIT 4",['target'=>$t['id'],'workspace'=>$t['workspace_id'],'tv'=>$t['version'],'credential'=>$t['credential_id'],'cv'=>$t['credential_version']])->fetchAll(PDO::FETCH_ASSOC);
+        if(!$r)return ['revision'=>0,'actions'=>$actions];
         $pending=self::q($p,"SELECT remote_id FROM vmmanager_tasks WHERE target_id=:id AND scope_hash=:scope AND state IN ('queued','deferred','running','unknown') ORDER BY checked_at ASC NULLS FIRST,id LIMIT 20",$a)->fetchAll(PDO::FETCH_COLUMN);
-        return ['revision'=>(int)$r['revision'],'cursor'=>json_decode($r['cursor'],true,32,JSON_THROW_ON_ERROR),'pending'=>array_map('intval',$pending)];
+        return ['revision'=>(int)$r['revision'],'cursor'=>json_decode($r['cursor'],true,32,JSON_THROW_ON_ERROR),'pending'=>array_map('intval',$pending),'actions'=>$actions];
     }
     private static function event(PDO $p,array $a,string $id,string $kind,string $state,string $at,int $seq=0):void
     {self::q($p,'INSERT INTO vmmanager_task_events(task_id,target_id,scope_hash,kind,state,observed_at,transition_seq) VALUES(:task,:id,:scope,:kind,:state,:at,:seq) ON CONFLICT(task_id,transition_seq,kind) DO NOTHING',$a+['task'=>$id,'kind'=>$kind,'state'=>$state,'at'=>$at,'seq'=>$seq]);}
@@ -25,7 +26,7 @@ final class VmmanagerTaskStore
     {
         $a=self::args($t);$old=self::q($p,'SELECT revision FROM vmmanager_task_cursor WHERE target_id=:id AND scope_hash=:scope FOR UPDATE',$a)->fetchColumn();
         if((int)$old!==$batch['expected_revision'])throw new HttpException(409,'VMmanager task cursor superseded.','snapshot_stale');
-        $summary=array_diff_key($batch,array_flip(['tasks','checked','cursor','expected_revision']));$summary['new_tasks']=0;$summary['completed_tasks']=0;
+        $summary=array_diff_key($batch,array_flip(['tasks','checked','cursor','expected_revision','action_checks']));$summary['new_tasks']=0;$summary['completed_tasks']=0;
         self::q($p,<<<'SQL'
 INSERT INTO vmmanager_task_cursor(target_id,workspace_id,scope_hash,revision,observed_at,cursor,summary)
 VALUES(:id,:ws,:scope,:revision,:at,CAST(:cursor AS jsonb),CAST(:summary AS jsonb))

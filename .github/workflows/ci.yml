@@ -48,6 +48,7 @@ jobs:
           python3 tests/pbs-backup-https-integration.py
           python3 tests/connector-actions-https-integration.py
           python3 tests/vmmanager-https-integration.py
+          python3 tests/vmmanager-power-https-integration.py
           python3 tests/host-transport-integration.py --ssh
           bash tests/snmp-protocol-integration.sh
       - name: Build and test TypeScript connector SDK
@@ -136,6 +137,7 @@ jobs:
           php tests/script-execution-postgres-integration.php
           python3 tests/connector-actions-https-integration.py
           python3 tests/vmmanager-https-integration.py --postgres
+          python3 tests/vmmanager-power-https-integration.py --postgres
           python3 tests/pbs-backup-https-integration.py --postgres
       - name: Redis integration
         env:
