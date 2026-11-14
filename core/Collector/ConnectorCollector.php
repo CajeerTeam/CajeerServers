@@ -14,6 +14,7 @@ final readonly class ConnectorCollector implements CollectorInterface
     public function collect(CollectionContext $context, #[\SensitiveParameter] string $secret): ConnectorResult
     {
         if($this->id==='vmmanager.storage')return $this->connectors->vmmanagerStorage($context->connector,$context->plan->operation,$context->purpose,$secret);
+        if($this->id==='vmmanager.tasks')return $this->connectors->vmmanagerTasks($context->connector,$context->plan->operation,$context->purpose,$secret,$context->previous);
         if($this->id==='vmmanager.templates')return $this->connectors->vmmanagerTemplates($context->connector,$context->plan->operation,$context->purpose,$secret);
         if($this->id==='vmmanager.network')return $this->connectors->vmmanagerNetwork($context->connector,$context->plan->operation,$context->purpose,$secret);
         if($this->id==='vmmanager.guests')return $this->connectors->vmmanagerGuests($context->connector,$context->plan->operation,$context->purpose,$secret);

@@ -38,4 +38,11 @@ $transport=new HttpsTransport(new EndpointPolicy([],null,true));
 $reject(fn()=>$transport->get('vm.internal',443,'/vm/v3/node',"test\r\nX-Evil: value",null,'x-xsrf-token'));
 $reject(fn()=>$transport->get('vm.internal',443,'/vm/v3/node','test-token',null,'Cookie'));
 $ok(ConnectorTransportException::forStatus(401)->category==='connector_auth_failed'&&ConnectorTransportException::forStatus(429)->category==='connector_rate_limited'&&ConnectorTransportException::forStatus(503)->category==='connector_unavailable','safe remote error classification');
+putenv('APP_ENV=local');$app=(new \Cajeer\Servers\Kernel\Application(dirname(__DIR__)))->boot();
+try{
+    $path='/api/v1/connectors/targets/11111111-1111-4111-8111-111111111111/vmmanager-tasks';
+    $routes=$app->container()->get(\Cajeer\Servers\Http\Router::class)->routes();
+    $ok(count(array_filter($routes,fn($r)=>$r['path']==='/api/v1/connectors/targets/{id}/vmmanager-tasks'&&in_array('GET',$r['methods'],true)))===1,'VMmanager task endpoint registered');
+    $ok(in_array($app->handle(new \Cajeer\Servers\Runtime\HttpRequest('GET',$path))->status,[401,503],true),'VMmanager history requires authentication');
+}finally{$app->terminate();}
 echo "VMmanager runtime smoke: $n PASS\n";

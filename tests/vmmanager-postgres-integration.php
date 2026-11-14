@@ -30,7 +30,7 @@ try {
     $pdo=$db->connection();$ok((int)$pdo->query("SELECT current_setting('server_version_num')")->fetchColumn()>=170000,'PostgreSQL 17+');
     $pdo->exec('CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public');
     $pdo->exec('CREATE SCHEMA "'.$schema.'"');$created=true;$pdo->exec('SET search_path TO "'.$schema.'", public');
-    foreach(glob($root.'/migrations/pgsql/*.sql')?:[] as $file)if(!str_starts_with(basename($file),'0047_')&&!str_starts_with(basename($file),'0048_')&&!str_starts_with(basename($file),'0049_')&&!str_starts_with(basename($file),'0050_'))copy($file,$dir.'/migrations/'.basename($file));
+    foreach(glob($root.'/migrations/pgsql/*.sql')?:[] as $file)if(!str_starts_with(basename($file),'0047_')&&!str_starts_with(basename($file),'0048_')&&!str_starts_with(basename($file),'0049_')&&!str_starts_with(basename($file),'0050_')&&!str_starts_with(basename($file),'0051_'))copy($file,$dir.'/migrations/'.basename($file));
     (new MigrationRunner($db,$dir.'/migrations'))->run();
     $password='fixture-only-password-123!';$q=$pdo->prepare('INSERT INTO users(email,name,password_hash,two_factor_enabled) VALUES(:email,:name,:hash,true) RETURNING id::text');
     $q->execute(['email'=>'vmm-test@example.invalid','name'=>'VMM integration','hash'=>password_hash($password,PASSWORD_ARGON2ID)]);$actor=(string)$q->fetchColumn();
@@ -190,10 +190,41 @@ try {
     $ok($count()===$beforeCatalog&&(int)$pdo->query('SELECT count(*) FROM vmmanager_catalog_state')->fetchColumn()===2,'two independent states without CMDB mutations');
     $ok($runtime->vmmanagerStorage($actor,$id)['snapshot']['volumes'][0]['size_mib']==='9007199254740993','precise storage volume in PostgreSQL');
     $ok($runtime->vmmanagerTemplates($actor,$id)['snapshot']['os'][0]['id']===12,'OS catalog in PostgreSQL');
+    copy($root.'/migrations/pgsql/0051_vmmanager_task_history.sql',$dir.'/migrations/0051_vmmanager_task_history.sql');
+    $ok(count($runner->run()['applied'])===1&&$runner->run()['applied']===[],'upgrade from 0.7.6 and migration idempotency');
+    $ok($runtime->vmmanagerTasks($actor,$id,'tasks',50,null,null)['state']==='not_collected','task state initially absent');
+    $authorize();$taskPlan=$execution->createPlan($principal,$id,3,['name'=>'Task history','collector'=>'vmmanager.tasks','operation'=>'inspect','ttl_seconds'=>3600,'interval_seconds'=>60]);
+    $taskRun=$execution->runPlan($actor,$id,$taskPlan['id'],'tasks-first');$ok($execution->once()['status']==='succeeded','task history worker');
+    $tasks=$runtime->vmmanagerTasks($actor,$id,'tasks',50,null,null);
+    $first=array_column($tasks['items'],null,'remote_id');
+    $ok($tasks['state']==='available'&&count($first)===6&&$first[10]['state']==='running'&&$tasks['summary']['high_water_id']===15,'first task history and cursor committed');
+    $ok($runtime->vmmanagerTasks($actor,$id,'events',50,null,null)['summary']['new_tasks']===6,'task discovery events committed');
+    $execution->runPlan($actor,$id,$taskPlan['id'],'tasks-completion');$ok($execution->once()['status']==='succeeded','pending task polling worker');
+    $tasks=$runtime->vmmanagerTasks($actor,$id,'tasks',50,null,null);$by=array_column($tasks['items'],null,'remote_id');
+    $ok($by[10]['state']==='succeeded'&&$by[10]['checked_at']!==null&&$tasks['summary']['new_tasks']===0&&$tasks['summary']['completed_tasks']===1,'pending task completes without duplicate');
+    $events=$runtime->vmmanagerTasks($actor,$id,'events',50,null,null);$eventCount=count($events['items']);
+    $ok($eventCount===9&&count(array_filter($events['items'],fn($e)=>$e['remote_id']==='10'&&$e['kind']==='task_completed'))===1,'one completion event');
+    $execution->runPlan($actor,$id,$taskPlan['id'],'tasks-repeat');$ok($execution->once()['status']==='succeeded','task repeat worker');
+    $ok(count($runtime->vmmanagerTasks($actor,$id,'events',50,null,null)['items'])===$eventCount&&$count()===$beforeCatalog,'event deduplication and no CMDB changes');
+    $page=$runtime->vmmanagerTasks($actor,$id,'tasks',2,null,null);$page2=$runtime->vmmanagerTasks($actor,$id,'tasks',2,$page['next_before'],null);
+    $ok(count($page['items'])===2&&count($page2['items'])===2&&array_intersect(array_column($page['items'],'id'),array_column($page2['items'],'id'))===[],'keyset task pages');
+    $ok(count($runtime->vmmanagerTasks($actor,$id,'tasks',50,null,'succeeded')['items'])===2,'task status filter');
+    $ok($execution->status($actor,$id,$taskRun['id'])['result']['connection']['vmmanager_task_discovery']['new_tasks']===6,'first run summary immutable');
+    // Store fencing and rollback are tested with an existing scope (not a separate mock store).
+    $qv=$pdo->prepare('SELECT version FROM credentials WHERE id=:id');$qv->execute(['id'=>$cid]);
+    $scope=['id'=>$id,'workspace_id'=>$ws,'version'=>3,'credential_id'=>$cid,'credential_version'=>(int)$qv->fetchColumn()];
+    $prior=\Cajeer\Servers\Connector\VmmanagerTaskStore::previous($pdo,$scope);
+    $batch=['expected_revision'=>$prior['revision'],'cursor'=>$prior['cursor'],'tasks'=>[['remote_id'=>10,'consul_id'=>'1341774670','type'=>'host_start','resource_id'=>'host:21','state'=>'running']],'checked'=>[],'observed_count'=>1,'high_water_id'=>15,'sweep_after'=>0,'caught_up'=>true,'visibility'=>'administrative'];
+    $db->transaction(fn($p)=>\Cajeer\Servers\Connector\VmmanagerTaskStore::save($p,$scope,$batch,gmdate('c')));
+    $ok($runtime->vmmanagerTasks($actor,$id,'tasks',50,null,'succeeded')['summary']['completed_tasks']===0,'terminal state does not regress');
+    $reject(409,fn()=>$db->transaction(fn($p)=>\Cajeer\Servers\Connector\VmmanagerTaskStore::save($p,$scope,$batch,gmdate('c'))),'stale cursor cannot commit');
+    $next=\Cajeer\Servers\Connector\VmmanagerTaskStore::previous($pdo,$scope);$bad=$batch;$bad['expected_revision']=$next['revision'];$bad['tasks'][0]['type']='other_task';
+    try{$db->transaction(fn($p)=>\Cajeer\Servers\Connector\VmmanagerTaskStore::save($p,$scope,$bad,gmdate('c')));throw new LogicException('task identity conflict accepted');}catch(\Cajeer\Servers\Connector\ConnectorTransportException $e){$ok(\Cajeer\Servers\Connector\VmmanagerTaskStore::previous($pdo,$scope)['revision']===$next['revision'],'identity conflict rolls back cursor');}
     $bindings->update($actor,$id,3,['vmmanager_profile'=>$profile]);$ok($runtime->vmmanagerCluster($actor,$id)['state']==='stale','profile revision invalidates current cluster snapshot');
     $ok($runtime->vmmanagerGuests($actor,$id)['state']==='stale','profile revision invalidates guest snapshot');
     $ok($runtime->vmmanagerNetwork($actor,$id)['state']==='stale','profile revision invalidates network snapshot');
     $ok($runtime->vmmanagerStorage($actor,$id)['state']==='stale'&&$runtime->vmmanagerTemplates($actor,$id)['state']==='stale','profile revision invalidates both catalog states');
+    $ok($runtime->vmmanagerTasks($actor,$id,'tasks',50,null,null)['state']==='stale','profile revision invalidates task history scope');
     echo "VMmanager PostgreSQL/Vault/Queue/HTTPS integration: $n PASS\n";
 } catch(Throwable $e){$failed=true;fwrite(STDERR,'FAIL VMmanager PostgreSQL: '.$e::class.': '.$e->getMessage()."\n");}
 finally {

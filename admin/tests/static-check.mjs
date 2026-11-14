@@ -76,4 +76,7 @@ ok(read('pages/collections.vue').includes('VmmanagerGuestDiscovery')&&read('page
 ok(read('components/VmmanagerGuestDiscovery.vue').includes("'/vmmanager-guests'")&&read('components/VmmanagerGuestDiscovery.vue').includes('collector=vmmanager.guests'), 'VMmanager guest current and history real API')
 ok(read('pages/collections.vue').includes('VmmanagerNetworkDiscovery')&&read('pages/collections.vue').includes("'inventory.network.read'"), 'VMmanager network panel protected by IPAM read permission')
 ok(read('components/VmmanagerNetworkDiscovery.vue').includes("'/vmmanager-network'")&&read('components/VmmanagerNetworkDiscovery.vue').includes('collector=vmmanager.network'), 'VMmanager network current and history real API')
+ok(read('pages/collections.vue').includes('<VmmanagerTaskHistory') && read('components/VmmanagerTaskHistory.vue').includes('/vmmanager-tasks?'), 'VMmanager task history uses scoped REST endpoint')
+ok(read('components/VmmanagerTaskHistory.vue').includes('next_before') && read('components/VmmanagerTaskHistory.vue').includes('onBeforeUnmount'), 'task history pagination and request lifecycle')
 console.log(`Admin static checks: ${passed} PASS`)
+

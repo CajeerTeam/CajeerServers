@@ -111,6 +111,32 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.reply({'error': {'code': 400}}, 400)
             return
         after, limit = int(match[1]), int(limit_match[1])
+        if path.path == '/vm/v3/task' and token not in ('fixture-vmm-capabilities', 'fixture-vmm-cap-revoked'):
+            if token == 'fixture-vmm-task-denied':
+                self.reply({'error': {'code': 42}}, 403); return
+            if token == 'fixture-vmm-task-midfail' and after > 0:
+                self.reply({'error': {'code': 503}}, 503); return
+            rows = [dict(id=10, name='host_start', consul_id=1341774670, status='running', host={'id':21}, params={'password':'remote-secret-marker'}),
+                    dict(id=11, name='host_stop', consul_id='1341774671', status='deferred'),
+                    dict(id=12, name='host_restart', status='complete'),
+                    dict(id=13, name='host_create', status='fail'),
+                    dict(id=14, name='host_backup', status='created'),
+                    dict(id=15, name='host_other', status='unrecognized')]
+            if token == 'fixture-vmm-task-done':
+                rows[0]['status']='complete'; rows[1]['status']='running'; rows[5]['status']='fail'
+                rows.append(dict(id=16,name='host_start',status='created'))
+            if token == 'fixture-vmm-task-missing': rows=rows[1:]
+            if token == 'fixture-vmm-task-late': rows.insert(0,dict(id=9,name='host_start',status='complete'))
+            if token == 'fixture-vmm-task-stale' and after==9 and limit==1: rows[0]['status']='complete'
+            if token == 'fixture-vmm-scoped': rows=rows[:1]
+            if token == 'fixture-vmm-task-many': rows=[dict(id=i,name='host_start',status='complete') for i in range(1, 704)]
+            if token == 'fixture-vmm-task-duplicate' and after > 0:
+                self.reply({'list':rows[:limit]});return
+            # For the real worker test, a second run sees completion on the same credentials.
+            if token == 'fixture-vmm-rotated':
+                if getattr(Handler,'task_history_finished',False): rows[0]['status']='complete'
+                if limit==100 and after>=15: Handler.task_history_finished=True
+            self.reply({'list':[row for row in rows if row['id']>after][:limit]}); return
         if path.path in CATALOGS:
             rows = [dict(r) for r in CATALOGS[path.path]]
             if token == 'fixture-vmm-catalog-denied' and path.path == '/vm/v3/os':
@@ -384,6 +410,30 @@ foreach(['catalog-midfail'=>'connector_unavailable','catalog-duplicate'=>'connec
 try{$templates('fixture-vmm-catalog-revoked');throw new LogicException('accepted revoked');}catch(HttpException $e){$ok($e->errorCode==='connector_auth_failed','revoked token is not partial ACL');}
 try{$collector->collect($storagePlan,array_diff_key($target,['vmmanager_profile'=>true]),'api_token','fixture-vmm-active');throw new LogicException('missing storage profile');}catch(HttpException $e){$ok($e->errorCode==='collection_invalid','catalog profile required');}
 try{$collector->collect(new \Cajeer\Servers\Collector\CollectionPlan('vmmanager.templates','sync'),$target,'api_token','fixture-vmm-active');throw new LogicException('accepted sync');}catch(HttpException $e){$ok($e->errorCode==='collection_invalid','catalog sync prohibited');}
+
+$taskPlan=new \Cajeer\Servers\Collector\CollectionPlan('vmmanager.tasks','inspect');
+$ok($catalog['vmmanager.tasks']['operations']===['inspect'],'task collector inspect only');
+$taskRun=static fn(string $token,array $previous=[])=>$collector->collect($taskPlan,$target,'api_token',$token,$previous)->connection['vmmanager_task_discovery'];
+$d=$taskRun('fixture-vmm-active');
+$ok($d['high_water_id']===15&&$d['caught_up']&&$d['observed_count']===6,'task keyset history');
+$by=array_column($d['tasks'],null,'remote_id');
+$ok($by[10]['consul_id']==='1341774670'&&$by[10]['resource_id']==='host:21'&&$by[10]['state']==='running'&&!str_contains(json_encode($d),'remote-secret-marker'),'allowlisted task metadata');
+$ok(array_column($d['tasks'],'state')===['running','deferred','succeeded','failed','queued','unknown'],'documented status mapping');
+$prior=['revision'=>1,'cursor'=>$d['cursor'],'pending'=>[10,11,14,15]];
+$next=$taskRun('fixture-vmm-task-done',$prior);$by=array_column($next['tasks'],null,'remote_id');
+$ok($next['expected_revision']===1&&$next['high_water_id']===16&&$by[10]['state']==='succeeded'&&$by[15]['state']==='failed','pending completion and new ID');
+$late=$taskRun('fixture-vmm-task-late',$prior);$ok($late['high_water_id']===15&&isset(array_column($late['tasks'],null,'remote_id')[9]),'late-visible ID below committed cursor');
+$stale=$taskRun('fixture-vmm-task-stale',$prior);$ok(array_column($stale['tasks'],null,'remote_id')[10]['state']==='succeeded','stale list cannot override terminal status read');
+$missing=$taskRun('fixture-vmm-task-missing',$prior);$ok($missing['checked'][10]==='not_visible'&&!isset(array_column($missing['tasks'],null,'remote_id')[10]),'missing pending remains unconfirmed');
+$many=$taskRun('fixture-vmm-task-many');$ok($many['observed_count']===500&&!$many['caught_up']&&$many['high_water_id']===500,'bounded first history window');
+$many2=$taskRun('fixture-vmm-task-many',['revision'=>1,'cursor'=>$many['cursor']]);$ok($many2['high_water_id']===703&&$many2['caught_up']&&$many2['observed_count']===303,'history resumes and bounded sweep');
+$ok($taskRun('fixture-vmm-scoped')['visibility']==='restricted','scope restriction explicit');
+foreach(['task-denied'=>'connector_auth_failed','task-midfail'=>'connector_unavailable','task-duplicate'=>'connector_protocol_error'] as $case=>$category){try{$taskRun('fixture-vmm-'.$case);throw new LogicException('accepted '.$case);}catch(HttpException $e){$ok($e->errorCode===$category,'tasks reject '.$case.': '.$e->errorCode);}}
+try{$taskRun('fixture-vmm-scoped',$prior);throw new LogicException('accepted identity drift');}catch(HttpException $e){$ok($e->errorCode==='connector_auth_failed','cursor identity fenced');}
+try{$collector->collect(new \Cajeer\Servers\Collector\CollectionPlan('vmmanager.tasks','sync'),$target,'api_token','fixture-vmm-active');throw new LogicException('accepted sync');}catch(HttpException $e){$ok($e->errorCode==='collection_invalid','task sync prohibited');}
+try{$collector->collect($taskPlan,array_diff_key($target,['vmmanager_profile'=>true]),'api_token','fixture-vmm-active');throw new LogicException('missing task profile');}catch(HttpException $e){$ok($e->errorCode==='collection_invalid','task profile required');}
+$ok(\Cajeer\Servers\Connector\VmmanagerTaskDiscovery::merge('succeeded','running')==='succeeded','confirmed terminal outcome preserved');
+
 echo "VMmanager HTTPS integration: $n PASS\n";
 '''
             subprocess.run(['php','-r',code,str(ROOT),str(server.server_port),str(cert)],check=True,timeout=60)

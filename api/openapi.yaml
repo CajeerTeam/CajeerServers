@@ -1,7 +1,7 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.7.6
+  version: 0.7.7
   description: 'CajeerServers 0.7.1: VMmanager connection profiles, PVE/PBS integration and infrastructure collection.'
 servers:
 - url: /api/v1
@@ -5470,6 +5470,32 @@ paths:
                 required: [data]
                 properties:
                   data: {$ref: '#/components/schemas/ProxmoxTaskPage'}
+        '401': {description: Authentication required}
+        '403': {description: Permission denied}
+        '404': {description: Target not found in Workspace}
+        '422': {description: Invalid filter or pagination}
+  /connectors/targets/{id}/vmmanager-tasks:
+    get:
+      operationId: listVmmanagerTasks
+      summary: Read scoped incremental VMmanager task history or events
+      description: Requires session, connectors.targets.read, inventory.assets.read and Workspace membership. Keyset ordering by local insertion ID descending; only current credential/profile scope is visible.
+      security: [{sessionAuth: []}]
+      parameters:
+      - {name: id, in: path, required: true, schema: {type: string, format: uuid}}
+      - {name: view, in: query, schema: {type: string, enum: [tasks, events], default: tasks}}
+      - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 50}}
+      - {name: before, in: query, schema: {type: string, pattern: '^[1-9][0-9]{0,17}$'}}
+      - {name: state, in: query, schema: {type: string, enum: [queued, deferred, running, succeeded, failed, unknown]}}
+      responses:
+        '200':
+          description: Saved scoped task history or events
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: {$ref: '#/components/schemas/VmmanagerTaskPage'}
         '401': {description: Authentication required}
         '403': {description: Permission denied}
         '404': {description: Target not found in Workspace}
@@ -11451,6 +11477,62 @@ components:
             - $ref: '#/components/schemas/ProxmoxTask'
             - $ref: '#/components/schemas/ProxmoxTaskEvent'
         next_before: {type: [string, 'null']}
+    VmmanagerTaskSummary:
+      type: object
+      required: [observed_count, new_tasks, completed_tasks, high_water_id, sweep_after, caught_up, visibility]
+      properties:
+        observed_count: {type: integer, minimum: 0}
+        new_tasks: {type: integer, minimum: 0}
+        completed_tasks: {type: integer, minimum: 0}
+        high_water_id: {type: integer, minimum: 0}
+        sweep_after: {type: integer, minimum: 0}
+        caught_up: {type: boolean}
+        visibility: {type: string, enum: [administrative, restricted]}
+    VmmanagerTaskRow:
+      type: object
+      required: [id, remote_id, consul_id, type, resource_id, state]
+      properties:
+        id: {type: string}
+        remote_id: {type: string}
+        consul_id: {type: [string, 'null']}
+        type: {type: string}
+        resource_id: {type: [string, 'null']}
+        state: {type: string, enum: [queued, deferred, running, succeeded, failed, unknown]}
+    VmmanagerTask:
+      allOf:
+      - $ref: '#/components/schemas/VmmanagerTaskRow'
+      - type: object
+        required: [first_seen_at, last_seen_at, checked_at, check_state]
+        properties:
+          first_seen_at: {type: string, format: date-time}
+          last_seen_at: {type: string, format: date-time}
+          checked_at: {type: [string, 'null'], format: date-time}
+          check_state: {type: [string, 'null']}
+    VmmanagerTaskEvent:
+      allOf:
+      - $ref: '#/components/schemas/VmmanagerTaskRow'
+      - type: object
+        required: [kind, observed_at]
+        properties:
+          kind: {type: string, enum: [task_discovered, task_started, task_deferred, task_queued, task_completed, task_outcome_resolved]}
+          observed_at: {type: string, format: date-time}
+    VmmanagerTaskPage:
+      type: object
+      required: [state, observed_at, summary, items, next_before]
+      properties:
+        state: {type: string, enum: [available, stale, not_collected]}
+        observed_at: {type: [string, 'null'], format: date-time}
+        summary:
+          oneOf:
+          - $ref: '#/components/schemas/VmmanagerTaskSummary'
+          - {type: 'null'}
+        items:
+          type: array
+          items:
+            oneOf:
+            - $ref: '#/components/schemas/VmmanagerTask'
+            - $ref: '#/components/schemas/VmmanagerTaskEvent'
+        next_before: {type: [string, 'null']}
     PbsBackupState:
       type: object
       required: [state, observed_at, snapshot]
@@ -12273,6 +12355,7 @@ components:
       type: object
       required: [provider, api_version, endpoint_host, endpoint_port, tls_pinned, identity_verified]
       properties:
+        vmmanager_task_discovery: {$ref: '#/components/schemas/VmmanagerTaskSummary'}
         vmmanager_network_discovery: {$ref: '#/components/schemas/VmmanagerNetworkSnapshot'}
         vmmanager_storage_discovery: {$ref: '#/components/schemas/VmmanagerStorageSnapshot'}
         vmmanager_templates_discovery: {$ref: '#/components/schemas/VmmanagerTemplatesSnapshot'}

@@ -57,7 +57,13 @@ final class VmmanagerConnector implements ConnectorInterface, \Cajeer\Servers\Me
         return $this->discover($context,'inspect',$secret,'templates');
     }
 
-    private function discover(ConnectorContext $context,string $operation,#[\SensitiveParameter] string $secret,string $scope):ConnectorResult
+    public function tasks(ConnectorContext $context,#[\SensitiveParameter] string $secret,array $previous):ConnectorResult
+    {
+        if($context->vmmanagerProfile===null)throw new ConnectorTransportException('connector_trust_failed');
+        return $this->discover($context,'inspect',$secret,'tasks',$previous);
+    }
+
+    private function discover(ConnectorContext $context,string $operation,#[\SensitiveParameter] string $secret,string $scope,array $previous=[]):ConnectorResult
     {
         $manifest = $this->manifest();
         if ($context->provider !== $manifest->provider || !$manifest->supports($operation) || !$manifest->accepts($context->credentialType,'api')) {
@@ -96,6 +102,12 @@ final class VmmanagerConnector implements ConnectorInterface, \Cajeer\Servers\Me
                 if($profile!==null) $this->anchor($context,$token,$deadline);
                 if($this->api->identity($context,$token,$deadline)!==$identity) throw new ConnectorTransportException('connector_auth_failed');
                 return new ConnectorResult(self::observations($page,[]),false,connection:$connection);
+            }
+            if($scope==='tasks'){
+                $batch=VmmanagerTaskDiscovery::collect(fn(int $after,int $limit)=>$this->api->page($context,'tasks',$after,$limit,$token,$deadline),$previous,$identity);
+                $this->anchor($context,$token,$deadline);
+                if($this->api->identity($context,$token,$deadline)!==$identity)throw new ConnectorTransportException('connector_auth_failed');
+                return new ConnectorResult([],false,connection:$connection+['vmmanager_task_discovery'=>$batch]);
             }
             if($scope==='cluster'){
                 $clusters=$this->clusterPages($context,'clusters',$token,$deadline,self::LIMIT);

@@ -1,3 +1,8 @@
+## [0.7.7] — 2026-11-14 — Task History & Events
+
+- Рабочий `vmmanager.tasks`: pinned HTTPS, keyset high-water cursor, bounded replay, polling nonterminal tasks, state transitions and deduplication.
+- Атомарное хранение PostgreSQL, история событий, пагинация, Admin UI, SDK, миграция 0051 и регрессионные тесты.
+
 ## [0.7.6] — 2026-11-14 — Storage & Templates Discovery
 
 - Рабочие Inspect-сборщики `vmmanager.storage` и `vmmanager.templates`: storage, capacity, guest disks, OS, presets, images и ISO.

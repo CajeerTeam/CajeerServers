@@ -32,6 +32,7 @@ final class CollectorRegistry
                 $registry->register(new ConnectorCollector('vmmanager.network','vmmanager',$connectors));
                 $registry->register(new ConnectorCollector('vmmanager.storage','vmmanager',$connectors));
                 $registry->register(new ConnectorCollector('vmmanager.templates','vmmanager',$connectors));
+                $registry->register(new ConnectorCollector('vmmanager.tasks','vmmanager',$connectors));
             }
             if($connectors->supportsMetrics($provider))$registry->register(new MetricsCollector($provider,$connectors));
         }
@@ -52,7 +53,7 @@ final class CollectorRegistry
             foreach(['inspect','sync'] as $op) {
                 try {$this->require($name,$provider,$op);$operations[]=$op;}catch(HttpException){}
             }
-            if($operations!==[]) $rows[]=['name'=>$name,'provider'=>$provider,'operations'=>$operations,'resource_types'=>match($name){'vmmanager.network','vmmanager.storage','vmmanager.templates'=>[],'vmmanager.cluster'=>['cluster','hypervisor_node'],'vmmanager.inventory','vmmanager.guests'=>['hypervisor_node','virtual_machine','container'],default=>$this->connectors->manifests()[$provider]->resourceTypes}];
+            if($operations!==[]) $rows[]=['name'=>$name,'provider'=>$provider,'operations'=>$operations,'resource_types'=>match($name){'vmmanager.network','vmmanager.storage','vmmanager.templates','vmmanager.tasks'=>[],'vmmanager.cluster'=>['cluster','hypervisor_node'],'vmmanager.inventory','vmmanager.guests'=>['hypervisor_node','virtual_machine','container'],default=>$this->connectors->manifests()[$provider]->resourceTypes}];
         }
         return $rows;
     }
@@ -62,7 +63,7 @@ final class CollectorRegistry
         $collector=$this->collectors[$plan->collector]??null;
         if($collector===null || $this->providers[$name]!==$provider || $collector->name()!==$name || $collector->provider()!==$provider)
             throw new HttpException(422,'Collector is unavailable for this target.','collection_invalid');
-        if(($collector instanceof MetricsCollector||in_array($name,['proxmox.tasks','vmmanager.storage','vmmanager.templates'],true))&&$operation!=='inspect')throw new HttpException(422,'Metrics require inspect.','collection_invalid');
+        if(($collector instanceof MetricsCollector||in_array($name,['proxmox.tasks','vmmanager.storage','vmmanager.templates','vmmanager.tasks'],true))&&$operation!=='inspect')throw new HttpException(422,'This collector requires inspect.','collection_invalid');
         $this->connectors->manifest($provider,$operation);
         return $collector;
     }
