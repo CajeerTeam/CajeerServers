@@ -95,7 +95,14 @@ def ssh_collect(req):
         try:
             channel.settimeout(8)
             # No user-controlled command or interpolated credentials.
-            command = 'python3 -c ' + shlex.quote((ROOT / ('linux_metrics.py' if req.get('metrics') is True else 'linux_collect.py')).read_text())
+            scope = req.get('scope')
+            if scope is not None and scope not in ('system','software','services','storage','network'):
+                fail()
+            script = 'linux_discovery.py' if scope else ('linux_metrics.py' if req.get('metrics') is True else 'linux_collect.py')
+            command = 'python3 -c ' + shlex.quote((ROOT / script).read_text())
+            if scope:
+                command += ' ' + shlex.quote(scope)
+            limit = 800000 if scope else MAX
             channel.exec_command(command)
             output = bytearray()
             stderr = 0
@@ -107,7 +114,7 @@ def ssh_collect(req):
                     output.extend(channel.recv(16384))
                 if channel.recv_stderr_ready():
                     stderr += len(channel.recv_stderr(16384))
-                if len(output) + stderr > MAX:
+                if len(output) + stderr > limit:
                     fail()
                 if channel.exit_status_ready() and not channel.recv_ready() and not channel.recv_stderr_ready():
                     if channel.recv_exit_status() != 0:
@@ -307,7 +314,7 @@ def main():
         else:
             fail()
         output = json.dumps({'data': data}, ensure_ascii=True, separators=(',', ':'))
-        if len(output) > MAX:
+        if len(output) > (800000 if req.get('provider') == 'ssh' and req.get('scope') else MAX):
             fail()
         print(output)
     except Failure as e:

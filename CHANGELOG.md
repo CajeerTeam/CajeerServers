@@ -1,3 +1,10 @@
+## [0.8.2] — 2026-11-14 — Debian / Ubuntu Discovery
+
+- Реальные фиксированные SSH-пробы system/software/services/storage/network, проверка identity и ограничений вывода.
+- Независимые PostgreSQL-снимки с контролем ревизий, история collection runs, API, SDK и Admin UI.
+- Проверки фактических локальных проб, нормализации и политики исполнения; расширение SSH integration fixture.
+- Канал development до строгой приёмки.
+
 ## [0.8.1] — 2026-11-14 — OS / Network Connection Profiles
 
 - Рабочие профили SSH/WinRM/SNMP: per-target SHA-256 pin, привязка к machine-id/MachineGuid или engineID/sysObjectID.

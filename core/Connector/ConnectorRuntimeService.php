@@ -164,7 +164,7 @@ final class ConnectorRuntimeService
                 $latest=$this->bindings->runtimeContext($actor,$targetId,$target['version'],$operation);
                 if ($latest['credential_id']!==$target['credential_id'] || $latest['credential_version']!==$target['credential_version']) throw new HttpException(409,'Connector binding changed.','conflict');
                 ConnectorHealthMonitor::record($pdo,$target,$elapsed,null);
-                if ($operation==='inspect' && $snapshot->metricSamples===[] && !in_array($collection['collector']??null,['proxmox.tasks','vmmanager.tasks','vmmanager.network','vmmanager.storage','vmmanager.templates'],true) && $target['provider']!=='pbs') $result['preview']=$reconciliation->preview($pdo,$actor,$target,$snapshot);
+                if ($operation==='inspect' && $snapshot->metricSamples===[] && !in_array($collection['collector']??null,['ssh.system','ssh.software','ssh.services','ssh.storage','ssh.network','proxmox.tasks','vmmanager.tasks','vmmanager.network','vmmanager.storage','vmmanager.templates'],true) && $target['provider']!=='pbs') $result['preview']=$reconciliation->preview($pdo,$actor,$target,$snapshot);
                 if ($collection!==null && $snapshot->metricSamples!==[]) {
                     $result['metrics']=\Cajeer\Servers\Metrics\MetricStore::ingest($pdo,$target,$collection['metric_samples'],$collection['observed_at']);
                     $this->audit->record($pdo,$actor,'collection.metrics.saved','success','connector_target',$targetId,$result['metrics'],$requestId);
@@ -174,6 +174,12 @@ final class ConnectorRuntimeService
                     PbsStore::save($pdo,$target,$snapshot->connection['pbs_discovery'],$observedAt);
                     $result['discovered']=array_sum($snapshot->connection['pbs_discovery']['counts']);
                     if($collection!==null){$result['collection']['count']=array_sum($snapshot->connection['pbs_discovery']['counts']);$result['collection']['complete']=$snapshot->connection['pbs_discovery']['complete'];}
+                }
+                if(isset($snapshot->connection['linux_discovery'])&&$collection!==null){
+                    $details=$snapshot->connection['linux_discovery'];
+                    LinuxDiscoveryStore::save($pdo,$target,$details,$observedAt,$details['scope']);
+                    $result['discovered']=$result['collection']['count']=array_sum($details['counts']);
+                    $result['collection']['complete']=$details['complete'];
                 }
                 if(($collection['collector']??null)==='vmmanager.tasks'){
                     $result['connection']['vmmanager_task_discovery']=VmmanagerTaskStore::save($pdo,$target,$snapshot->connection['vmmanager_task_discovery'],$collection['observed_at']);
@@ -265,6 +271,14 @@ final class ConnectorRuntimeService
         $target=$this->bindings->show($actor,$targetId);
         if($target['provider']!=='vmmanager')throw new HttpException(404,'VMmanager target not found.','not_found');
         return VmmanagerGuestStore::read($this->db->connection(),$target);
+    }
+    public function linuxDiscovery(string $actor,string $targetId,string $scope):array
+    {
+        (new Rbac($this->db,$this->audit))->requireUserPermission($actor,'inventory.assets.read');
+        if(!in_array($scope,LinuxDiscovery::SCOPES,true))throw new HttpException(422,'Invalid Linux discovery scope.','validation_failed');
+        $target=$this->bindings->show($actor,$targetId);
+        if($target['provider']!=='ssh')throw new HttpException(404,'Linux target not found.','not_found');
+        return LinuxDiscoveryStore::read($this->db->connection(),$target,$scope);
     }
     public function vmmanagerStorage(string $actor,string $targetId):array
     {

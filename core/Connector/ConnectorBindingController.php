@@ -111,6 +111,12 @@ final class ConnectorBindingController
     {
         return HttpResponse::json(['data'=>$this->runtime->vmmanagerGuests($this->actor($r,'connectors.targets.read'),self::id($r))],200,['Cache-Control'=>'private, no-store']);
     }
+    public function linuxDiscovery(HttpRequest $r):HttpResponse
+    {
+        $scope=$r->query['scope']??'system';
+        if(!is_string($scope))throw new HttpException(422,'Invalid Linux discovery scope.','validation_failed');
+        return HttpResponse::json(['data'=>$this->runtime->linuxDiscovery($this->actor($r,'connectors.targets.read'),self::id($r),$scope)],200,['Cache-Control'=>'private, no-store']);
+    }
     public function vmmanagerStorage(HttpRequest $r):HttpResponse
     {
         return HttpResponse::json(['data'=>$this->runtime->vmmanagerStorage($this->actor($r,'connectors.targets.read'),self::id($r))],200,['Cache-Control'=>'private, no-store']);

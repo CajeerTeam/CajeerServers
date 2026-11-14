@@ -145,9 +145,12 @@ def ssh_test(tmp):
             def run():
                 # Execute the exact fixed collector received over a real SSH session, locally on the test host.
                 import shlex
-                args=shlex.split(command.decode());assert args[:2]==['python3','-c'] and len(args)==3
+                args=shlex.split(command.decode());assert args[:2]==['python3','-c'] and len(args) in (3,4)
+                if len(args)==4:
+                    assert args[3] in ('system','software','services','storage','network')
+                    assert args[2]==(ROOT/'core/Connector/agents/linux_discovery.py').read_text()
                 assert 'fixture-secret' not in args[2]
-                proc=subprocess.run([sys.executable,'-c',args[2]],capture_output=True,timeout=20)
+                proc=subprocess.run([sys.executable,'-c',*args[2:]],capture_output=True,timeout=35)
                 channel.sendall(proc.stdout);channel.sendall_stderr(proc.stderr);channel.send_exit_status(proc.returncode);channel.shutdown_write()
             threading.Thread(target=run,daemon=True).start();return True
     listener=socket.socket();listener.bind(('127.0.0.1',0));listener.listen(8);listener.settimeout(.2);port=listener.getsockname()[1]
@@ -189,11 +192,36 @@ def ssh_test(tmp):
         assert execute('ssh',port,cred,profile={**profile,'identity_hash':'0'*64},collector='ssh.metrics',operation='inspect')['error']=='connector_trust_failed'
         out=execute('ssh',port,{'username':'test','private_key':pem},type='ssh_private_key',profile=profile,operation='validate_rotation');assert out['connection']['identity_verified'],out
         print('SSH profile: 8 scenarios PASS')
+        for scope in ('system','software','storage','network'):
+            out=execute('ssh',port,cred,profile=profile,collector='ssh.'+scope,operation='inspect',require_profile=True)
+            assert out['connection']['linux_discovery']['scope']==scope and out['connection']['linux_discovery']['complete'],out
+            assert out['items']==[] and 'identity' not in out['connection']['linux_discovery'],out
+        n=len(auth_attempts)
+        assert execute('ssh',port,cred,known_hosts=str(known),collector='ssh.system',operation='inspect')['error']=='collection_invalid'
+        assert execute('ssh',port,cred,profile=profile,collector='ssh.software',operation='sync')['error']=='collection_invalid'
+        assert execute('ssh',port,cred,profile={**profile,'primary_pin':'0'*64},collector='ssh.system',operation='inspect')['error']=='connector_trust_failed'
+        assert len(auth_attempts)==n
+        assert execute('ssh',port,cred,profile={**profile,'identity_hash':'0'*64},collector='ssh.software',operation='inspect')['error']=='connector_trust_failed'
+        # The integration host may be a container without a systemd manager.
+        # Verify the success path on real systemd hosts and fail closed otherwise.
+        has_systemd=subprocess.run(['systemctl','list-units','--type=service','--no-pager'],capture_output=True,timeout=10).returncode==0
+        out=execute('ssh',port,cred,profile=profile,collector='ssh.services',operation='inspect')
+        if has_systemd:
+            assert out['connection']['linux_discovery']['scope']=='services',out
+        else:
+            assert out['error']=='connector_protocol_error',out
+        print('Linux discovery SSH: 9 scenarios PASS')
+        if '--postgres' in sys.argv:
+            profile_path=tmp/'linux-profile.json'
+            profile_path.write_text(json.dumps(profile))
+            subprocess.run(['php',str(ROOT/'tests/linux-discovery-postgres-integration.php'),str(port),str(profile_path),sys.executable],check=True,timeout=300)
     finally:stop.set();listener.close();thread.join(timeout=6)
     print('SSH protocol fixture: 7 scenarios PASS')
 
 
 if __name__=='__main__':
+    if '--postgres' in sys.argv and '--ssh' not in sys.argv:
+        sys.exit('--postgres requires --ssh')
     if '--ssh' in sys.argv:
         try:
             import paramiko

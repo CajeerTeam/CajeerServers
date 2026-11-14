@@ -104,6 +104,11 @@ jobs:
           php-version: '8.4'
           extensions: pdo_pgsql, sodium, mbstring, intl, openssl, pcntl, posix
           coverage: none
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: SSH transport dependencies
+        run: python3 -m pip install -r core/Connector/agents/requirements.txt
       - name: PostgreSQL workspace, Inventory CRUD, IPAM and Topology integration
         run: |
           php tests/database-postgres-integration.php
@@ -128,6 +133,7 @@ jobs:
           php tests/proxmox-profile-postgres-integration.php
           php tests/connector-reconciliation-postgres-integration.php
           php tests/host-hardware-postgres-integration.php
+          python3 tests/host-transport-integration.py --ssh --postgres
           php tests/connector-health-postgres-integration.php
           php tests/collection-plans-postgres-integration.php
           php tests/metrics-postgres-integration.php

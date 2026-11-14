@@ -56,6 +56,16 @@ final class ConnectorRegistry
         }
         catch (\Throwable) { throw new HttpException(502,'Remote connector returned an invalid or unsupported response.','connector_protocol_error'); }
     }
+    public function supportsLinuxDiscovery():bool
+    {return ($this->drivers['ssh']??null) instanceof \Cajeer\Servers\Connector\LinuxConnector;}
+    public function linuxDiscovery(ConnectorContext $context,string $operation,string $purpose,string $scope,#[\SensitiveParameter] string $secret):ConnectorResult
+    {
+        $driver=$this->require($context->provider,$operation);
+        if(!$driver instanceof \Cajeer\Servers\Connector\LinuxConnector||$operation!=='inspect'||!$this->metadata['ssh']->accepts($context->credentialType,$purpose))throw new HttpException(403,'Linux discovery not permitted.','permission_denied');
+        try{return $driver->discovery($context,$scope,$secret)->validated($this->metadata['ssh']);}
+        catch(ConnectorTransportException $e){throw new HttpException(502,$e->getMessage(),$e->category);}
+        catch(\Throwable){throw new HttpException(502,'Linux discovery failed.','connector_failed');}
+    }
     public function supportsVmmanagerCluster():bool
     {return ($this->drivers['vmmanager']??null) instanceof \Cajeer\Servers\Connector\VmmanagerConnector;}
     public function vmmanagerCluster(ConnectorContext $context,string $operation,string $purpose,#[\SensitiveParameter] string $secret):ConnectorResult
