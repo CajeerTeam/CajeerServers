@@ -70,6 +70,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
             code=base64.b64decode(args.split()[-1]).decode('utf-16-le')
             assert 'fixture-secret' not in code and 'EncodedCommand' in args
             server.scope=next((scope for scope in WINDOWS_SECTIONS if code==(ROOT/'core/Connector/agents'/f'windows_{scope}.ps1').read_text()),None)
+            if 'Get-WinEvent' in code:
+                import re
+                cursor=re.search(r"FromBase64String\('([A-Za-z0-9+/=]+)'\)",code).group(1)
+                server.event_previous=json.loads(base64.b64decode(cursor))
+                assert code==(ROOT/'core/Connector/agents/windows_events.ps1').read_text().replace('__CURSOR_BASE64__',cursor)
+                server.scope='events'
             if server.scope is None: assert 'Get-CimInstance' in code
             else: assert 'MachineGuid' in code and 'Win32_Product' not in code
             server.chunk_offset=0
@@ -82,7 +88,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
             elif server.mode=='oversize': payload=b'x'*270000
             else:
                 value=METRICS if server.metrics else DATA
-                if server.scope:
+                if server.scope=='events':
+                    previous=server.event_previous
+                    events=[];cursor=dict(previous)
+                    for channel in ['System','Application']:
+                        if channel in previous:continue
+                        at='2026-11-14T12:00:00.000000Z'
+                        events.append({'key':channel+':7:'+at,'channel':channel,'event_at':at,'severity':4,'facility':None,'hostname':'win-test','application':'Fixture','message':'fixture event'})
+                        cursor[channel]={'id':'7','at':at}
+                    value={'identity':DATA['identity'],'events':events,'cursor':cursor,'more':False}
+                    if server.mode=='identity':value['identity']='12345678-1234-1234-1234-123456789abc'
+                    if server.mode=='extra':value['cursor']['System']['id']='999'
+                elif server.scope:
                     import copy
                     value={'scope':server.scope,'identity':DATA['identity'],'sections':copy.deepcopy(WINDOWS_SECTIONS[server.scope])}
                     if server.mode=='identity': value['identity']='12345678-1234-1234-1234-123456789abc'
@@ -151,6 +168,15 @@ def https_test(tmp):
         assert out['connection']['windows_discovery']['counts']['applications']==850 and server.receives>2,out
         server.mode='ok'
         print('Windows Discovery HTTPS: 13 scenarios PASS')
+        out=execute('winrm',port,cred,ca=str(cert),profile=profile,collector='winrm.events',operation='inspect');batch=out['connection']['system_events'];assert len(batch['events'])==2 and batch['cursor']['System']['id']=='7',out
+        out=execute('winrm',port,cred,ca=str(cert),profile=profile,collector='winrm.events',operation='inspect',previous=batch['cursor']);assert out['connection']['system_events']['events']==[],out
+        for mode,code in [('identity','connector_trust_failed'),('extra','connector_protocol_error'),('nonzero','connector_protocol_error')]:
+            server.mode=mode
+            out=execute('winrm',port,cred,ca=str(cert),profile=profile,collector='winrm.events',operation='inspect');assert out['error']==code,out
+        server.mode='ok'
+        assert execute('winrm',port,cred,ca=str(cert),profile=profile,collector='winrm.events',operation='sync')['error']=='collection_invalid'
+        assert execute('winrm',port,cred,ca=str(cert),collector='winrm.events',operation='inspect')['error']=='collection_invalid'
+        print('Windows system events HTTPS: 7 scenarios PASS')
         if '--postgres' in sys.argv:
             profile_path=tmp/'windows-profile.json';profile_path.write_text(json.dumps(profile))
             subprocess.run(['php',str(ROOT/'tests/windows-discovery-postgres-integration.php'),str(port),str(profile_path),sys.executable,str(cert)],check=True,timeout=300)
@@ -199,8 +225,11 @@ def ssh_test(tmp):
                 import shlex
                 args=shlex.split(command.decode());assert args[:2]==['python3','-c'] and len(args) in (3,4)
                 if len(args)==4:
-                    assert args[3] in ('system','software','services','storage','network')
-                    assert args[2]==(ROOT/'core/Connector/agents/linux_discovery.py').read_text()
+                    if args[2]==(ROOT/'core/Connector/agents/linux_events.py').read_text():
+                        assert isinstance(json.loads(args[3]),dict)
+                    else:
+                        assert args[3] in ('system','software','services','storage','network')
+                        assert args[2]==(ROOT/'core/Connector/agents/linux_discovery.py').read_text()
                 assert 'fixture-secret' not in args[2]
                 proc=subprocess.run([sys.executable,'-c',*args[2:]],capture_output=True,timeout=35)
                 channel.sendall(proc.stdout);channel.sendall_stderr(proc.stderr);channel.send_exit_status(proc.returncode);channel.shutdown_write()
@@ -263,6 +292,15 @@ def ssh_test(tmp):
         else:
             assert out['error']=='connector_protocol_error',out
         print('Linux discovery SSH: 9 scenarios PASS')
+        # The production probe runs on the SSH fixture host; a container may have no visible journal.
+        local=subprocess.run([sys.executable,str(ROOT/'core/Connector/agents/linux_events.py'),'{}'],capture_output=True,timeout=35)
+        out=execute('ssh',port,cred,profile=profile,collector='ssh.events',operation='inspect')
+        if local.returncode==0:
+            assert 'system_events' in out['connection'],out
+        else:
+            assert out['error']=='connector_protocol_error',out
+        assert execute('ssh',port,cred,profile=profile,collector='ssh.events',operation='sync')['error']=='collection_invalid'
+        print('Linux events SSH: 2 scenarios PASS')
         if '--postgres' in sys.argv:
             profile_path=tmp/'linux-profile.json'
             profile_path.write_text(json.dumps(profile))

@@ -24,6 +24,16 @@ final class LinuxConnector implements ConnectorInterface, \Cajeer\Servers\Metric
             return new ConnectorResult([],false,[],OsNetworkProfile::diagnostics($context)+['linux_discovery'=>$snapshot]);
         } finally {foreach($credential as &$value)if(is_string($value))sodium_memzero($value);unset($value);}
     }
+    public function events(ConnectorContext $context,#[\SensitiveParameter] string $secret,array $previous):ConnectorResult
+    {
+        if($context->provider!=='ssh'||$context->osNetworkProfile===null||!$this->manifest()->accepts($context->credentialType,'ssh'))OsNetworkProfile::mismatch();
+        $previous=\Cajeer\Servers\Events\EventDiscovery::cursor('ssh',$previous);
+        $credential=CredentialProfile::decodeForInternalUse($context->credentialType,$secret);
+        try {
+            $batch=\Cajeer\Servers\Events\EventDiscovery::normalize('ssh',$this->transport->collect($context,$credential,false,'events',$previous),$previous);
+            return new ConnectorResult([],false,[],['system_events'=>$batch]);
+        } finally {foreach($credential as &$value)if(is_string($value))sodium_memzero($value);unset($value);}
+    }
     public function execute(ConnectorContext $context,string $operation,#[\SensitiveParameter] string $secret):ConnectorResult
     {
         if ($context->provider!=='ssh'||!$this->manifest()->supports($operation)||!$this->manifest()->accepts($context->credentialType,'ssh')) throw new \RuntimeException('Unsupported SSH operation.');

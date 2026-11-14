@@ -1,3 +1,9 @@
+## [0.8.7] — 2026-11-14 — Syslog & System Events
+
+- Syslog receiver: TLS с клиентским сертификатом, TCP/UDP с явным opt-in, RFC3164/5424, bounded framing.
+- `ssh.events`, `winrm.events`: сохраняемые курсоры, дедупликация, атомарное сохранение и retention.
+- Отдельное право `system.events.read`, поиск и пагинация в Admin UI.
+
 ## [0.8.6] — 2026-11-14 — Network Topology & IPAM
 
 - Проекция текущих сетевых снимков шести провайдеров, связи интерфейсов и двусторонние LLDP-наблюдения, диагностика повторяющихся IP/MAC/CIDR.

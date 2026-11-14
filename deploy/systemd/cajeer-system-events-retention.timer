@@ -1,0 +1,10 @@
+[Unit]
+Description=Prune expired system events
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=5min
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

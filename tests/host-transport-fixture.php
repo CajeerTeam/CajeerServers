@@ -14,7 +14,7 @@ try {
     if (isset($input['collector'])) {
         $runtime=new \Cajeer\Servers\Collector\CollectionRuntimeService(\Cajeer\Servers\Collector\CollectorRegistry::forConnectors($registry));
         $result=$runtime->collect(new \Cajeer\Servers\Collector\CollectionPlan($input['collector'],$input['operation']??'sync'),
-            ['provider'=>$input['provider'],'endpoint_host'=>$input['host'],'endpoint_port'=>$input['port'],'credential_type'=>$input['type'],'purpose'=>$input['provider'],'os_network_profile'=>$input['profile']??null],$input['type'],$secret);
+            ['provider'=>$input['provider'],'endpoint_host'=>$input['host'],'endpoint_port'=>$input['port'],'credential_type'=>$input['type'],'purpose'=>$input['provider'],'os_network_profile'=>$input['profile']??null],$input['type'],$secret,$input['previous']??[]);
     } else $result=$registry->execute($context,$input['operation']??'sync',$input['provider'],$secret);
     echo json_encode(['items'=>$result->items,'complete'=>$result->complete,'metric_samples'=>$result->metricSamples,'connection'=>$result->connection],JSON_THROW_ON_ERROR);
 } catch (HttpException $e) { echo json_encode(['error'=>$e->errorCode,'message'=>$e->getMessage()],JSON_THROW_ON_ERROR); }

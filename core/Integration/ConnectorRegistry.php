@@ -66,6 +66,14 @@ final class ConnectorRegistry
         catch(ConnectorTransportException $e){throw new HttpException(502,$e->getMessage(),$e->category);}
         catch(\Throwable){throw new HttpException(502,'RouterOS discovery failed.','connector_failed');}
     }
+    public function systemEvents(ConnectorContext $context,string $operation,string $purpose,#[\SensitiveParameter] string $secret,array $previous):ConnectorResult
+    {
+        $driver=$this->require($context->provider,$operation);
+        if(!($driver instanceof \Cajeer\Servers\Connector\LinuxConnector||$driver instanceof \Cajeer\Servers\Connector\WindowsConnector)||$operation!=='inspect'||!$this->metadata[$context->provider]->accepts($context->credentialType,$purpose))throw new HttpException(403,'System events not permitted.','permission_denied');
+        try{return $driver->events($context,$secret,$previous)->validated($this->metadata[$context->provider]);}
+        catch(ConnectorTransportException $e){throw new HttpException(502,$e->getMessage(),$e->category);}
+        catch(\Throwable){throw new HttpException(502,'System event collection failed.','connector_failed');}
+    }
     public function supportsLinuxDiscovery():bool
     {return ($this->drivers['ssh']??null) instanceof \Cajeer\Servers\Connector\LinuxConnector;}
     public function linuxDiscovery(ConnectorContext $context,string $operation,string $purpose,string $scope,#[\SensitiveParameter] string $secret):ConnectorResult

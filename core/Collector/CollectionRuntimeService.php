@@ -12,6 +12,7 @@ final readonly class CollectionRuntimeService
     public function catalog():array {return $this->registry->catalog();}
     public function validate(CollectionPlan $plan,array $target):void
     { $this->registry->require($plan->collector,$target['provider'],$plan->operation);
+      if(in_array($plan->collector,['ssh.events','winrm.events'],true)&&empty($target['os_network_profile']))throw new \Cajeer\Servers\Http\Exception\HttpException(422,'System events require a trust profile.','collection_invalid');
       if($target['provider']==='routeros'&&empty($target['os_network_profile']))throw new \Cajeer\Servers\Http\Exception\HttpException(422,'RouterOS requires a verified profile.','collection_invalid');
       if($target['provider']==='ssh'&&in_array(substr($plan->collector,4),\Cajeer\Servers\Connector\LinuxDiscovery::SCOPES,true)&&empty($target['os_network_profile']))throw new \Cajeer\Servers\Http\Exception\HttpException(422,'Linux detailed discovery requires a verified profile.','collection_invalid');
       if($target['provider']==='winrm'&&in_array(substr($plan->collector,6),\Cajeer\Servers\Connector\WindowsDiscovery::SCOPES,true)&&empty($target['os_network_profile']))throw new \Cajeer\Servers\Http\Exception\HttpException(422,'Windows detailed discovery requires a verified profile.','collection_invalid');

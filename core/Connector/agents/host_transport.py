@@ -96,12 +96,12 @@ def ssh_collect(req):
             channel.settimeout(8)
             # No user-controlled command or interpolated credentials.
             scope = req.get('scope')
-            if scope is not None and scope not in ('system','software','services','storage','network'):
+            if scope is not None and scope not in ('system','software','services','storage','network','events'):
                 fail()
-            script = 'linux_discovery.py' if scope else ('linux_metrics.py' if req.get('metrics') is True else 'linux_collect.py')
+            script = 'linux_events.py' if scope == 'events' else 'linux_discovery.py' if scope else ('linux_metrics.py' if req.get('metrics') is True else 'linux_collect.py')
             command = 'python3 -c ' + shlex.quote((ROOT / script).read_text())
             if scope:
-                command += ' ' + shlex.quote(scope)
+                command += ' ' + shlex.quote(json.dumps(req.get('previous') or {}) if scope == 'events' else scope)
             limit = 800000 if scope else MAX
             channel.exec_command(command)
             output = bytearray()
@@ -260,10 +260,14 @@ class WinRM:
             body = ET.Element(tag(SHELL, 'CommandLine'))
             add(body, SHELL, 'Command', 'powershell.exe')
             scope = self.req.get('scope')
-            if scope is not None and (scope not in ('system','software','services','storage','network','updates') or self.req.get('metrics')):
+            if scope is not None and (scope not in ('system','software','services','storage','network','updates','events') or self.req.get('metrics')):
                 fail()
             script = 'windows_' + scope + '.ps1' if scope else ('windows_metrics.ps1' if self.req.get('metrics') is True else 'windows_collect.ps1')
-            encoded = base64.b64encode((ROOT / script).read_text().encode('utf-16-le')).decode('ascii')
+            source = (ROOT / script).read_text()
+            if scope == 'events':
+                cursor = base64.b64encode(json.dumps(self.req.get('previous') or {}).encode()).decode('ascii')
+                source = source.replace('__CURSOR_BASE64__', cursor)
+            encoded = base64.b64encode(source.encode('utf-16-le')).decode('ascii')
             add(body, SHELL, 'Arguments', '-NoLogo -NoProfile -NonInteractive -EncodedCommand ' + encoded)
             result = self.call(SHELL + '/Command', body, shell)
             cmd = result.findtext('.//' + tag(SHELL, 'CommandId'))
@@ -317,7 +321,7 @@ def main():
             data = WinRM(req).collect()
         else:
             fail()
-        output = json.dumps({'data': data}, ensure_ascii=True, separators=(',', ':'))
+        output = json.dumps({'data': data}, ensure_ascii=req.get('scope')!='events', separators=(',', ':'))
         if len(output) > (800000 if req.get('scope') else MAX):
             fail()
         print(output)

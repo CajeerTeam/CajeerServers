@@ -57,6 +57,8 @@ final class CommandRunner
                 'vault:key:generate', 'vault:key:status', 'vault:key:rotate', 'vault:init', 'vault:check', 'vault:probe' => (new VaultCommands($this->app))->run($command, $argv),
                 'backup:key:generate', 'backup:create', 'backup:verify', 'backup:restore' => (new BackupCommands($this->app))->run($command, $argv),
                 'collection:doctor', 'scripts:retain', 'data-export:deliver', 'data-export:work', 'data-export:retain', 'ingestion:work', 'ingestion:retain', 'metrics:retain', 'collection:plans', 'collection:plan-run', 'collection:plan-redrive', 'collection:plan-pause', 'collection:plan-resume', 'collection:list', 'collection:run', 'collection:status', 'connector:doctor', 'connector:sync', 'connector:tick', 'connector:run', 'connector:status', 'connector:cancel', 'connector:work' => (new ConnectorCommands($this->app))->run($command,$argv),
+                'syslog:listen' => $this->syslog($argv[2]??''),
+                'system-events:retain' => $this->eventRetention($argv[2]??'30'),
                 'scripts:run', 'scripts:work' => $this->scriptWork($argv[2]??'20'),
                 'update:check' => $this->unavailable($command),
                 default => $this->unknown($command),
@@ -67,6 +69,19 @@ final class CommandRunner
         }
     }
 
+    private function syslog(string $path):int
+    {
+        $config=\Cajeer\Servers\Events\SyslogReceiver::config($path);
+        \Cajeer\Servers\Events\SyslogReceiver::forDatabase($this->app->container()->get(DatabaseManager::class))->run($config);
+        return 0;
+    }
+    private function eventRetention(string $days):int
+    {
+        if(!preg_match('/^[1-9][0-9]{0,2}$/D',$days)||(int)$days>365)throw new \InvalidArgumentException('Invalid retention days.');
+        $db=$this->app->container()->get(DatabaseManager::class);
+        $count=\Cajeer\Servers\Events\EventStore::retain($db->connection(),(int)$days);
+        echo json_encode(['deleted'=>$count],JSON_THROW_ON_ERROR)."\n";return 0;
+    }
     private function scriptWork(string $limit):int
     {
         if(!preg_match('/^(?:[1-9]|[1-9][0-9]|100)$/D',$limit))throw new \InvalidArgumentException('Invalid script worker limit.');
@@ -91,6 +106,8 @@ CajeerServers CLI 0.5.6
   data-export:retain [limit]                 Очистить выгрузки
   ingestion:work [limit]                      Обработать входящие batches
   ingestion:retain [limit]                    Очистить историю ingestion
+  syslog:listen <private-config>              Принимать Syslog (TLS / TCP / UDP)
+  system-events:retain [days]                  Удалить просроченные события
   metrics:retain [limit]                       Удалить просроченные samples
   collection:plans <actor> <target>              Планы сбора
   collection:plan-run <actor> <target> <plan> <key>  Запустить план

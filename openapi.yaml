@@ -1,7 +1,7 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.8.6
+  version: 0.8.7
   description: 'CajeerServers 0.7.1: VMmanager connection profiles, PVE/PBS integration and infrastructure collection.'
 servers:
 - url: /api/v1
@@ -5445,6 +5445,56 @@ paths:
         '401': {description: Authentication required}
         '403': {description: Permission denied}
         '404': {description: Target not found in Workspace}
+  /connectors/targets/{id}/system-events:
+    get:
+      operationId: listSystemEvents
+      summary: Read retained system and network events
+      description: Requires system.events.read, connectors.targets.read and Workspace membership. Time filters refer to reception time, not untrusted sender timestamps.
+      security:
+      - sessionAuth: []
+      parameters:
+      - {name: id, in: path, required: true, schema: {type: string, format: uuid}}
+      - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 50}}
+      - {name: before, in: query, schema: {type: string, pattern: '^[1-9][0-9]{0,17}$'}}
+      - {name: severity, in: query, schema: {type: integer, minimum: 0, maximum: 7}}
+      - {name: source, in: query, schema: {type: string, enum: [syslog, ssh, winrm]}}
+      - {name: search, in: query, schema: {type: string, maxLength: 200}}
+      - {name: from, in: query, schema: {type: string, format: date-time}}
+      - {name: to, in: query, schema: {type: string, format: date-time}}
+      responses:
+        '200':
+          description: Retained events and continuation cursor
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [events, next_before]
+                    properties:
+                      next_before: {type: [string, 'null']}
+                      events:
+                        type: array
+                        items:
+                          type: object
+                          required: [id, source, channel, event_at, received_at, severity, facility, hostname, application, message]
+                          properties:
+                            id: {type: string}
+                            source: {type: string, enum: [syslog, ssh, winrm]}
+                            channel: {type: string}
+                            event_at: {type: [string, 'null'], format: date-time}
+                            received_at: {type: string, format: date-time}
+                            severity: {type: integer, minimum: 0, maximum: 7}
+                            facility: {type: [integer, 'null'], minimum: 0, maximum: 23}
+                            hostname: {type: string}
+                            application: {type: string}
+                            message: {type: string}
+        '401': {description: Authentication required}
+        '403': {description: Permission denied}
+        '404': {description: Target not found in Workspace}
+        '422': {description: Invalid filters}
   /connectors/targets/{id}/linux-discovery:
     get:
       operationId: getLinuxDiscoveryState

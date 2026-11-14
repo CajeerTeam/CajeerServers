@@ -24,6 +24,16 @@ final class WindowsConnector implements ConnectorInterface, \Cajeer\Servers\Metr
             return new ConnectorResult([],false,[],OsNetworkProfile::diagnostics($context)+['windows_discovery'=>$snapshot]);
         } finally {foreach($credential as &$value)if(is_string($value))sodium_memzero($value);unset($value);}
     }
+    public function events(ConnectorContext $context,#[\SensitiveParameter] string $secret,array $previous):ConnectorResult
+    {
+        if($context->provider!=='winrm'||$context->osNetworkProfile===null||!$this->manifest()->accepts($context->credentialType,'winrm'))OsNetworkProfile::mismatch();
+        $previous=\Cajeer\Servers\Events\EventDiscovery::cursor('winrm',$previous);
+        $credential=CredentialProfile::decodeForInternalUse($context->credentialType,$secret);
+        try {
+            $batch=\Cajeer\Servers\Events\EventDiscovery::normalize('winrm',$this->transport->collect($context,$credential,false,'events',$previous),$previous);
+            return new ConnectorResult([],false,[],['system_events'=>$batch]);
+        } finally {foreach($credential as &$value)if(is_string($value))sodium_memzero($value);unset($value);}
+    }
     public function execute(ConnectorContext $context,string $operation,#[\SensitiveParameter] string $secret):ConnectorResult
     {
         if ($context->provider!=='winrm'||!$this->manifest()->supports($operation)||!$this->manifest()->accepts($context->credentialType,'winrm')) throw new \RuntimeException('Unsupported WinRM operation.');

@@ -50,7 +50,7 @@ $steps++;
 fwrite(STDOUT, sprintf("PHP lint: %d files, %d failures\n", count($phpFiles), $lintErrors));
 if ($lintErrors > 0 || $phpFiles === []) $failures++;
 
-foreach (['runtime', 'http', 'database', 'installer', 'auth', 'security', 'infrastructure', 'observability', 'admin', 'release', 'inventory-readiness', 'workspaces', 'inventory', 'ipam', 'topology', 'network-discovery', 'catalog', 'history', 'transfer', 'cmdb-integrity', 'import-dispatch', 'vault-crypto', 'vault-crud', 'vault-profiles', 'vault-access', 'vault-rotation', 'vault-bindings', 'vault-stable', 'proxmox-runtime', 'proxmox-profile', 'proxmox-cluster', 'proxmox-guests', 'proxmox-storage-network', 'proxmox-tasks', 'connector-runtime', 'connector-execution', 'connector-reconciliation', 'vmmanager-runtime', 'host-runtime', 'os-network-profile', 'linux-discovery', 'windows-discovery', 'snmp-health', 'snmp-discovery', 'connector-events', 'connector-actions', 'proxmox-snapshots', 'pbs-backup', 'connector-stability', 'collector-runtime', 'script-registry', 'script-execution', 'script-output', 'collection-plans', 'metrics', 'ingestion', 'data-exchange', 'collection-stability', 'backup'] as $suite) {
+foreach (['runtime', 'http', 'database', 'installer', 'auth', 'security', 'infrastructure', 'observability', 'admin', 'release', 'inventory-readiness', 'workspaces', 'inventory', 'ipam', 'topology', 'network-discovery', 'system-events', 'catalog', 'history', 'transfer', 'cmdb-integrity', 'import-dispatch', 'vault-crypto', 'vault-crud', 'vault-profiles', 'vault-access', 'vault-rotation', 'vault-bindings', 'vault-stable', 'proxmox-runtime', 'proxmox-profile', 'proxmox-cluster', 'proxmox-guests', 'proxmox-storage-network', 'proxmox-tasks', 'connector-runtime', 'connector-execution', 'connector-reconciliation', 'vmmanager-runtime', 'host-runtime', 'os-network-profile', 'linux-discovery', 'windows-discovery', 'snmp-health', 'snmp-discovery', 'connector-events', 'connector-actions', 'proxmox-snapshots', 'pbs-backup', 'connector-stability', 'collector-runtime', 'script-registry', 'script-execution', 'script-output', 'collection-plans', 'metrics', 'ingestion', 'data-exchange', 'collection-stability', 'backup'] as $suite) {
     $run($suite . ' smoke', [PHP_BINARY, 'tests/' . $suite . '-smoke.php'], $root);
 }
 $run('Admin frontend static', ['node', 'tests/static-check.mjs'], $root . '/admin');
@@ -69,6 +69,8 @@ $run('VMmanager HTTPS integration', ['python3','tests/vmmanager-https-integratio
 $run('VMmanager power HTTPS integration', ['python3','tests/vmmanager-power-https-integration.py'], $root);
 
 $run('RouterOS REST HTTPS integration', ['python3','tests/routeros-https-integration.py'], $root);
+$run('Syslog socket integration', ['python3','tests/syslog-receiver-integration.py'], $root);
+$run('Linux event probe integration', ['python3','tests/linux-events-integration.py'], $root);
 $run('Linux discovery probe integration', ['python3','tests/linux-discovery-integration.py'], $root);
 $run('WinRM HTTPS protocol and trust integration', ['python3','tests/host-transport-integration.py'], $root);
 $run('VMmanager live acceptance fixture', ['python3','tests/vmmanager-live-acceptance-integration.py'], $root);

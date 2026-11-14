@@ -1,0 +1,20 @@
+[Unit]
+Description=CajeerServers authenticated Syslog receiver
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=cajeer
+Group=cajeer
+WorkingDirectory=/opt/cajeer
+ExecStart=/usr/bin/php /opt/cajeer/bin/cajeer syslog:listen /etc/cajeer/syslog.json
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+LimitNOFILE=256
+
+[Install]
+WantedBy=multi-user.target

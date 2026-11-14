@@ -401,6 +401,7 @@ return static function (Router $router, ServiceContainer $container): void {
             $connectors->delete('/targets/{id}/service-grants/{grantId}',static fn(HttpRequest $r):HttpResponse=>$handler()->revokeGrant($r));
             $connectors->get('/targets/{id}/vmmanager-cluster',static fn(HttpRequest $r):HttpResponse=>$handler()->vmmanagerCluster($r));
             $connectors->get('/targets/{id}/vmmanager-guests',static fn(HttpRequest $r):HttpResponse=>$handler()->vmmanagerGuests($r));
+            $connectors->get('/targets/{id}/system-events',static fn(HttpRequest $r):HttpResponse=>$handler()->systemEvents($r));
             $connectors->get('/targets/{id}/linux-discovery',static fn(HttpRequest $r):HttpResponse=>$handler()->linuxDiscovery($r));
             $connectors->get('/targets/{id}/windows-discovery',static fn(HttpRequest $r):HttpResponse=>$handler()->windowsDiscovery($r));
             $connectors->get('/targets/{id}/routeros-discovery',static fn(HttpRequest $r):HttpResponse=>$handler()->routerosDiscovery($r));

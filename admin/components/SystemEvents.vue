@@ -1,0 +1,15 @@
+<script setup lang="ts">
+import {apiError} from '~/composables/useApi'
+type EventRow={id:string;source:string;channel:string;event_at:string|null;received_at:string;severity:number;facility:number|null;hostname:string;application:string;message:string}
+const props=defineProps<{targetId:string}>(),api=useApi()
+const rows=ref<EventRow[]>([]),next=ref<string|null>(null),search=ref(''),severity=ref(''),source=ref(''),from=ref(''),to=ref(''),loading=ref(false),error=ref('')
+let seq=0,disposed=false
+async function load(before:string|null=null){
+ const n=++seq;loading.value=true;error.value='';const q=new URLSearchParams({limit:'50',search:search.value});if(before)q.set('before',before);if(severity.value!=='')q.set('severity',severity.value);if(source.value)q.set('source',source.value);if(from.value)q.set('from',from.value+'T00:00:00Z');if(to.value)q.set('to',to.value+'T00:00:00Z')
+ try{const r=await api.get<{data:{events:EventRow[];next_before:string|null}}>(`/connectors/targets/${props.targetId}/system-events?${q}`);if(!disposed&&n===seq){rows.value=r.data.events;next.value=r.data.next_before}}catch(e){if(!disposed&&n===seq){rows.value=[];next.value=null;error.value=apiError(e).message}}finally{if(!disposed&&n===seq)loading.value=false}
+}
+onMounted(()=>void load());onBeforeUnmount(()=>{disposed=true;seq++})
+</script>
+<template><section class="panel" data-testid="system-events"><h2>Системные события</h2><p class="muted">Syslog, Linux journal, Windows System/Application. Время приёма хранится независимо от времени события. Сообщения могут содержать чувствительные данные.</p>
+<form class="form-row" @submit.prevent="load()"><label>Поиск сообщения<input v-model="search" maxlength="200" /></label><label>Severity<select v-model="severity"><option value="">Все</option><option v-for="i in 8" :key="i" :value="String(i-1)">{{i-1}}</option></select></label><label>Источник<select v-model="source"><option value="">Все</option><option value="syslog">Syslog</option><option value="ssh">Linux</option><option value="winrm">Windows</option></select></label><label>С даты UTC<input v-model="from" type="date" /></label><label>До даты UTC (не включая)<input v-model="to" type="date" /></label><button class="btn" :disabled="loading">Поиск / обновить</button></form>
+<p v-if="error" role="alert">{{error}}</p><p v-if="loading" role="status">Загрузка…</p><div class="table-wrap"><table class="table"><thead><tr><th>Время</th><th>Источник / уровень</th><th>Хост / приложение</th><th>Сообщение</th></tr></thead><tbody><tr v-for="r in rows" :key="r.id"><td>{{r.event_at||r.received_at}}<small v-if="!r.event_at"> (приём)</small></td><td>{{r.source}} / {{r.channel}} / {{r.severity}}</td><td>{{r.hostname}} / {{r.application}}</td><td style="white-space:pre-wrap;overflow-wrap:anywhere">{{r.message}}</td></tr></tbody></table></div><p v-if="!rows.length&&!loading">Нет событий.</p><button class="btn" :disabled="loading" @click="load()">Последние</button> <button class="btn" :disabled="loading||!next" @click="load(next)">Ранее</button></section></template>

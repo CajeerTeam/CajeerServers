@@ -48,6 +48,9 @@ jobs:
           python3 tests/proxmox-snapshots-https-integration.py
           python3 tests/pbs-backup-https-integration.py
           python3 tests/routeros-https-integration.py
+          php tests/system-events-smoke.php
+          python3 tests/syslog-receiver-integration.py
+          python3 tests/linux-events-integration.py
           python3 tests/connector-actions-https-integration.py
           python3 tests/vmmanager-https-integration.py
           python3 tests/vmmanager-power-https-integration.py

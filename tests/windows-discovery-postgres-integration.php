@@ -34,6 +34,10 @@ try {
     $runner=new MigrationRunner($db,$dir.'/migrations');$runner->run();
     copy($root.'/migrations/pgsql/0055_windows_discovery.sql',$dir.'/migrations/0055_windows_discovery.sql');
     $ok(count($runner->run()['applied'])===1&&$runner->run()['applied']===[],'0.8.2 upgrade and replay');
+    foreach(glob($root.'/migrations/pgsql/005[6-8]_*.sql')?:[] as $file)copy($file,$dir.'/migrations/'.basename($file));
+    $runner->run();
+    copy($root.'/migrations/pgsql/0059_system_events.sql',$dir.'/migrations/0059_system_events.sql');
+    $ok(count($runner->run()['applied'])===1&&$runner->run()['applied']===[],'0.8.6 upgrade and replay');
     $password='fixture-only-password-123!';$q=$pdo->prepare('INSERT INTO users(email,name,password_hash,two_factor_enabled) VALUES(:email,:name,:hash,true) RETURNING id::text');
     $q->execute(['email'=>'windows-test@example.invalid','name'=>'Windows integration','hash'=>password_hash($password,PASSWORD_ARGON2ID)]);$actor=(string)$q->fetchColumn();
     $pdo->prepare("INSERT INTO user_roles(user_id,role_id) SELECT :id,id FROM roles WHERE slug='administrator'")->execute(['id'=>$actor]);
@@ -84,6 +88,24 @@ try {
     $current=$runtime->windowsDiscovery($actor,$id,'system');
     $context=$bindings->runtimeContext($actor,$id,2,'inspect');
     $reject(409,fn()=>$db->transaction(fn($p)=>WindowsDiscoveryStore::save($p,$context,$current['snapshot'],'2000-01-01T00:00:00Z','system')),'late snapshot fenced');
+    $authorize();$eventPlan=$execution->createPlan($principal,$id,2,['name'=>'Windows events','collector'=>'winrm.events','operation'=>'inspect','ttl_seconds'=>3600,'interval_seconds'=>60]);
+    $eventRun=$execution->runPlan($actor,$id,$eventPlan['id'],'windows-events');$ok($execution->once()['status']==='succeeded','event worker');
+    $eventHistory=$execution->status($actor,$id,$eventRun['id'])['result']['connection']['system_events'];$ok($eventHistory['inserted_count']===2&&!isset($eventHistory['events']),'counts only in run history');
+    $page=$runtime->systemEvents($actor,$id,1,null,null,'fixture');$ok(count($page['events'])===1&&$page['next_before']!==null,'event search and pagination');
+    $ok(count($runtime->systemEvents($actor,$id,10,$page['next_before'],4,'fixture')['events'])===1,'second page');
+    $eventRun2=$execution->runPlan($actor,$id,$eventPlan['id'],'windows-events-repeat');$ok($execution->once()['status']==='succeeded','event cursor continuation');
+    $ok($execution->status($actor,$id,$eventRun2['id'])['result']['connection']['system_events']['inserted_count']===0,'no duplicate events');
+    $sink=\Cajeer\Servers\Events\SystemEvent::syslog('<13>Nov  7 08:00:00 host app: syslog fixture');
+    $db->transaction(fn($p)=>\Cajeer\Servers\Events\EventStore::receive($p,['target_id'=>$id,'target_version'=>2],[$sink]));
+    try{$db->transaction(fn($p)=>\Cajeer\Servers\Events\EventStore::receive($p,['target_id'=>$id,'target_version'=>1],[$sink]));throw new RuntimeException('Stale syslog source accepted');}catch(\Cajeer\Servers\Events\EventRejected){$ok(true,'stale source version rejected');}
+    $ok(count($runtime->systemEvents($actor,$id,50,null,null,'','syslog')['events'])===1,'syslog persisted');
+    $pdo->exec("UPDATE system_events SET received_at=now()-interval '31 days' WHERE source='syslog'");
+    $ok(\Cajeer\Servers\Events\EventStore::retain($pdo,30)===1,'retention');
+    $ok(count($runtime->systemEvents($actor,$id,50,null,null,'')['events'])===2,'retention preserves recent');
+    $q=$pdo->prepare('INSERT INTO users(email,name,password_hash) VALUES(:email,:name,:hash) RETURNING id::text');
+    $q->execute(['email'=>'events-other@example.invalid','name'=>'Other workspace user','hash'=>password_hash($password,PASSWORD_ARGON2ID)]);$other=(string)$q->fetchColumn();
+    $pdo->prepare("INSERT INTO user_roles(user_id,role_id) SELECT :id,id FROM roles WHERE slug='administrator'")->execute(['id'=>$other]);
+    $reject(404,fn()=>$runtime->systemEvents($other,$id,50,null,null,''),'cross-workspace event read denied');
     $bindings->update($actor,$id,2,['os_network_profile'=>array_replace($profile,['primary_pin'=>str_repeat('a',64)])]);
     $ok($runtime->windowsDiscovery($actor,$id,'system')['state']==='stale','profile revision invalidates state');
     $ok($execution->status($actor,$id,$run['id'])['result']['connection']['windows_discovery']['scope']==='updates','historical state survives');

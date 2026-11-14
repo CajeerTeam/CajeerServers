@@ -1,0 +1,13 @@
+[Unit]
+Description=CajeerServers system event retention
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=cajeer
+Group=cajeer
+WorkingDirectory=/opt/cajeer
+ExecStart=/usr/bin/php /opt/cajeer/bin/cajeer system-events:retain 30
+NoNewPrivileges=true
+PrivateTmp=true
+TimeoutStartSec=120

@@ -111,6 +111,13 @@ final class ConnectorBindingController
     {
         return HttpResponse::json(['data'=>$this->runtime->vmmanagerGuests($this->actor($r,'connectors.targets.read'),self::id($r))],200,['Cache-Control'=>'private, no-store']);
     }
+    public function systemEvents(HttpRequest $r):HttpResponse
+    {
+        $before=$r->query['before']??null;$severity=$r->query['severity']??null;$search=$r->query['search']??'';$source=$r->query['source']??null;$from=$r->query['from']??null;$to=$r->query['to']??null;
+        try{if(($from!==null&&!is_string($from))||($to!==null&&!is_string($to))||($source!==null&&!in_array($source,['syslog','ssh','winrm'],true)))throw new \InvalidArgumentException();$from=\Cajeer\Servers\Events\SystemEvent::timestamp($from);$to=\Cajeer\Servers\Events\SystemEvent::timestamp($to);if($from!==null&&$to!==null&&$from>=$to)throw new \InvalidArgumentException();}catch(\Throwable){throw new HttpException(422,'Invalid event time or source filter.','validation_failed');}
+        if(($before!==null&&(!is_string($before)||!preg_match('/^[1-9][0-9]{0,17}$/D',$before)))||($severity!==null&&(!is_string($severity)||!preg_match('/^[0-7]$/D',$severity)))||!is_string($search)||strlen($search)>200||!preg_match('//u',$search)||preg_match('/[\x00-\x1f]/',$search))throw new HttpException(422,'Invalid event filter.','validation_failed');
+        return HttpResponse::json(['data'=>$this->runtime->systemEvents($this->actor($r,'system.events.read'),self::id($r),self::integer($r,'limit',50,100),$before,$severity===null?null:(int)$severity,$search,$source,$from,$to)],200,['Cache-Control'=>'private, no-store']);
+    }
     public function linuxDiscovery(HttpRequest $r):HttpResponse
     {
         $scope=$r->query['scope']??'system';

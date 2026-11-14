@@ -164,7 +164,7 @@ final class ConnectorRuntimeService
                 $latest=$this->bindings->runtimeContext($actor,$targetId,$target['version'],$operation);
                 if ($latest['credential_id']!==$target['credential_id'] || $latest['credential_version']!==$target['credential_version']) throw new HttpException(409,'Connector binding changed.','conflict');
                 ConnectorHealthMonitor::record($pdo,$target,$elapsed,null);
-                if ($operation==='inspect' && $snapshot->metricSamples===[] && !in_array($collection['collector']??null,['routeros.network','routeros.routing','snmp.device','snmp.interfaces','snmp.topology','winrm.system','winrm.software','winrm.services','winrm.storage','winrm.network','winrm.updates','ssh.system','ssh.software','ssh.services','ssh.storage','ssh.network','proxmox.tasks','vmmanager.tasks','vmmanager.network','vmmanager.storage','vmmanager.templates'],true) && $target['provider']!=='pbs') $result['preview']=$reconciliation->preview($pdo,$actor,$target,$snapshot);
+                if ($operation==='inspect' && $snapshot->metricSamples===[] && !in_array($collection['collector']??null,['ssh.events','winrm.events','routeros.network','routeros.routing','snmp.device','snmp.interfaces','snmp.topology','winrm.system','winrm.software','winrm.services','winrm.storage','winrm.network','winrm.updates','ssh.system','ssh.software','ssh.services','ssh.storage','ssh.network','proxmox.tasks','vmmanager.tasks','vmmanager.network','vmmanager.storage','vmmanager.templates'],true) && $target['provider']!=='pbs') $result['preview']=$reconciliation->preview($pdo,$actor,$target,$snapshot);
                 if ($collection!==null && $snapshot->metricSamples!==[]) {
                     $result['metrics']=\Cajeer\Servers\Metrics\MetricStore::ingest($pdo,$target,$collection['metric_samples'],$collection['observed_at']);
                     $this->audit->record($pdo,$actor,'collection.metrics.saved','success','connector_target',$targetId,$result['metrics'],$requestId);
@@ -174,6 +174,11 @@ final class ConnectorRuntimeService
                     PbsStore::save($pdo,$target,$snapshot->connection['pbs_discovery'],$observedAt);
                     $result['discovered']=array_sum($snapshot->connection['pbs_discovery']['counts']);
                     if($collection!==null){$result['collection']['count']=array_sum($snapshot->connection['pbs_discovery']['counts']);$result['collection']['complete']=$snapshot->connection['pbs_discovery']['complete'];}
+                }
+                if(in_array($collection['collector']??null,['ssh.events','winrm.events'],true)){
+                    $stats=\Cajeer\Servers\Events\EventStore::save($pdo,$target,$snapshot->connection['system_events']);
+                    $result['connection']=['system_events'=>$stats];
+                    $result['discovered']=$result['collection']['count']=$stats['observed_count'];
                 }
                 if(isset($snapshot->connection['linux_discovery'])&&$collection!==null){
                     $details=$snapshot->connection['linux_discovery'];
@@ -290,6 +295,13 @@ final class ConnectorRuntimeService
         $target=$this->bindings->show($actor,$targetId);
         if($target['provider']!=='vmmanager')throw new HttpException(404,'VMmanager target not found.','not_found');
         return VmmanagerGuestStore::read($this->db->connection(),$target);
+    }
+    public function systemEvents(string $actor,string $targetId,int $limit,?string $before,?int $severity,string $search,?string $source=null,?string $from=null,?string $to=null):array
+    {
+        (new Rbac($this->db,$this->audit))->requireUserPermission($actor,'system.events.read');
+        (new Rbac($this->db,$this->audit))->requireUserPermission($actor,'connectors.targets.read');
+        $target=$this->bindings->show($actor,$targetId);
+        return \Cajeer\Servers\Events\EventStore::read($this->db->connection(),$target,$limit,$before,$severity,$search,$source,$from,$to);
     }
     public function linuxDiscovery(string $actor,string $targetId,string $scope):array
     {
@@ -421,7 +433,7 @@ final class ConnectorRuntimeService
         $result=null; $failure=null;
         try {
             $consume(function(#[\SensitiveParameter] string $secret,string $type)use($target,$operation,$plan,&$result,&$failure):void {
-                try { $result=$plan===null?$this->execute($target,$operation,$type,$secret):$this->collectionRuntime()->collect($plan,$target,$type,$secret,match($plan->collector){'proxmox.tasks'=>ProxmoxTaskStore::previous($this->db->connection(),$target),'vmmanager.tasks'=>VmmanagerTaskStore::previous($this->db->connection(),$target),default=>[]}); }
+                try { $result=$plan===null?$this->execute($target,$operation,$type,$secret):$this->collectionRuntime()->collect($plan,$target,$type,$secret,match($plan->collector){'proxmox.tasks'=>ProxmoxTaskStore::previous($this->db->connection(),$target),'vmmanager.tasks'=>VmmanagerTaskStore::previous($this->db->connection(),$target),'ssh.events','winrm.events'=>\Cajeer\Servers\Events\EventStore::previous($this->db->connection(),$target),default=>[]}); }
                 catch (HttpException $e) {
                     $failure=[$e->status,$e->getMessage(),$e->errorCode];
                     throw $e; // Vault still audits the failed trusted consumer.
