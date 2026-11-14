@@ -20,6 +20,7 @@ final class CollectorRegistry
             if (!$manifest->supports('inspect') && !$manifest->supports('sync')) continue;
             if($provider==='pbs') $registry->register(new ConnectorCollector('pbs.backups','pbs',$connectors));
             elseif($provider!=='prometheus') $registry->register($provider==='snmp'?new SnmpCollector($connectors):new ConnectorCollector($provider.'.inventory',$provider,$connectors));
+            if($provider==='routeros'&&$connectors->supportsRouterOsDiscovery())foreach(['network','routing'] as $scope)$registry->register(new ConnectorCollector('routeros.'.$scope,'routeros',$connectors));
             if($provider==='ssh'&&$connectors->supportsLinuxDiscovery())foreach(\Cajeer\Servers\Connector\LinuxDiscovery::SCOPES as $scope)$registry->register(new ConnectorCollector('ssh.'.$scope,'ssh',$connectors));
             if($provider==='winrm'&&$connectors->supportsWindowsDiscovery())foreach(\Cajeer\Servers\Connector\WindowsDiscovery::SCOPES as $scope)$registry->register(new ConnectorCollector('winrm.'.$scope,'winrm',$connectors));
             if($provider==='snmp'&&$connectors->supportsSnmpDiscovery())foreach(\Cajeer\Servers\Connector\SnmpDiscovery::SCOPES as $scope)$registry->register(new ConnectorCollector('snmp.'.$scope,'snmp',$connectors));
@@ -56,7 +57,7 @@ final class CollectorRegistry
             foreach(['inspect','sync'] as $op) {
                 try {$this->require($name,$provider,$op);$operations[]=$op;}catch(HttpException){}
             }
-            if($operations!==[]) $rows[]=['name'=>$name,'provider'=>$provider,'operations'=>$operations,'resource_types'=>match($name){'snmp.device','snmp.interfaces','snmp.topology','ssh.system','ssh.software','ssh.services','ssh.storage','ssh.network','winrm.system','winrm.software','winrm.services','winrm.storage','winrm.network','winrm.updates'=>[],'vmmanager.network','vmmanager.storage','vmmanager.templates','vmmanager.tasks'=>[],'vmmanager.cluster'=>['cluster','hypervisor_node'],'vmmanager.inventory','vmmanager.guests'=>['hypervisor_node','virtual_machine','container'],default=>$this->connectors->manifests()[$provider]->resourceTypes}];
+            if($operations!==[]) $rows[]=['name'=>$name,'provider'=>$provider,'operations'=>$operations,'resource_types'=>match($name){'routeros.network','routeros.routing','snmp.device','snmp.interfaces','snmp.topology','ssh.system','ssh.software','ssh.services','ssh.storage','ssh.network','winrm.system','winrm.software','winrm.services','winrm.storage','winrm.network','winrm.updates'=>[],'vmmanager.network','vmmanager.storage','vmmanager.templates','vmmanager.tasks'=>[],'vmmanager.cluster'=>['cluster','hypervisor_node'],'vmmanager.inventory','vmmanager.guests'=>['hypervisor_node','virtual_machine','container'],default=>$this->connectors->manifests()[$provider]->resourceTypes}];
         }
         return $rows;
     }
@@ -66,7 +67,7 @@ final class CollectorRegistry
         $collector=$this->collectors[$plan->collector]??null;
         if($collector===null || $this->providers[$name]!==$provider || $collector->name()!==$name || $collector->provider()!==$provider)
             throw new HttpException(422,'Collector is unavailable for this target.','collection_invalid');
-        if(($collector instanceof MetricsCollector||in_array($name,['snmp.device','snmp.interfaces','snmp.topology','winrm.system','winrm.software','winrm.services','winrm.storage','winrm.network','winrm.updates','ssh.system','ssh.software','ssh.services','ssh.storage','ssh.network','proxmox.tasks','vmmanager.storage','vmmanager.templates','vmmanager.tasks'],true))&&$operation!=='inspect')throw new HttpException(422,'This collector requires inspect.','collection_invalid');
+        if(($collector instanceof MetricsCollector||in_array($name,['routeros.network','routeros.routing','snmp.device','snmp.interfaces','snmp.topology','winrm.system','winrm.software','winrm.services','winrm.storage','winrm.network','winrm.updates','ssh.system','ssh.software','ssh.services','ssh.storage','ssh.network','proxmox.tasks','vmmanager.storage','vmmanager.templates','vmmanager.tasks'],true))&&$operation!=='inspect')throw new HttpException(422,'This collector requires inspect.','collection_invalid');
         $this->connectors->manifest($provider,$operation);
         return $collector;
     }

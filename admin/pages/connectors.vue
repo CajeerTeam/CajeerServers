@@ -19,7 +19,7 @@ type PveConnection={version:string;cluster:string|null;anchor_node:string;anchor
 const profileText=ref(''),pveConnection=ref<PveConnection|null>(null)
 const canProfile=computed(()=>canManage.value&&workspaces.value.find(w=>w.id===workspace.value)?.role==='owner')
 type OsProfile={primary_pin:string;identity_hash:string;key_type?:string}|{engine_id:string;object_id:string}
-type OsConnection={provider:'ssh'|'winrm'|'snmp';profile_verified:boolean;identity_verified:boolean;trust_mode:string}
+type OsConnection={provider:'ssh'|'winrm'|'snmp'|'routeros';profile_verified:boolean;identity_verified:boolean;trust_mode:string}
 const osProfileText=ref(''),osConnection=ref<OsConnection|null>(null)
 type Target={os_network_profile?:OsProfile|null;vmmanager_profile?:VmmProfile|null;proxmox_profile?:PveProfile|null;id:string;workspace_id:string;provider:string;name:string;endpoint_host:string;endpoint_port:number;state:string;asset_id:string|null;version:number;etag:string;health_status:string;health_checked_at:string|null;health_success_at:string|null;health_duration_ms:number|null;health_error_code:string|null;circuit_open_until:string|null;consecutive_failures:number}
 type Binding={id:string;connector_id:string;credential_id:string;purpose:string;type:string;state:string;credential_version:number|string}
@@ -40,7 +40,7 @@ const lastRun=ref<DiscoveryRun|null>(null)
 const resources=ref<DiscoveryResource[]>([]),resourceOffset=ref(0),resourceHasMore=ref(false),resolutionAssets=ref<Record<string,string>>({})
 const form=reactive({name:'',provider:'proxmox',endpoint_host:'',endpoint_port:8006,asset_id:''})
 const binding=reactive({credential_id:'',purpose:'api'}), manualCredential=ref(false)
-const providers=[{id:'pbs',port:8007,purpose:'api'},{id:'proxmox',port:8006,purpose:'api'},{id:'vmmanager',port:443,purpose:'api'},
+const providers=[{id:'routeros',port:443,purpose:'api'},{id:'pbs',port:8007,purpose:'api'},{id:'proxmox',port:8006,purpose:'api'},{id:'vmmanager',port:443,purpose:'api'},
   {id:'ssh',port:22,purpose:'ssh'},{id:'winrm',port:5986,purpose:'winrm'},
   {id:'snmp',port:161,purpose:'snmp'},{id:'prometheus',port:443,purpose:'api'},{id:'custom',port:443,purpose:'custom'}]
 const canRead=computed(()=>auth.can('connectors.targets.read'))
@@ -116,7 +116,7 @@ async function savePveProfile(){
   busy.value=true;reset();try{const updated=(await api.write<{data:Target}>('PATCH',`/connectors/targets/${item.id}`,{proxmox_profile:profile},true,{'If-Match':item.etag})).data;await open(updated);message.value='Профиль сохранён. Выполните MFA health check.'}catch(e){fail(e)}finally{busy.value=false}
 }
 async function saveOsProfile(){
-  const item=active.value;if(!item||!['ssh','winrm','snmp'].includes(item.provider)||!canProfile.value||busy.value)return
+  const item=active.value;if(!item||!['ssh','winrm','snmp','routeros'].includes(item.provider)||!canProfile.value||busy.value)return
   let profile:OsProfile;try{profile=JSON.parse(osProfileText.value)}catch{error.value='Некорректный JSON профиля.';return}
   if(!confirm('Сохранить доверие, проверенное по независимому каналу? Старые grants станут недействительны.'))return
   busy.value=true;reset();try{const updated=(await api.write<{data:Target}>('PATCH',`/connectors/targets/${item.id}`,{os_network_profile:profile},true,versionHeaders(item))).data;await open(updated);message.value='Профиль сохранён. Выполните MFA health check.'}catch(e){fail(e)}finally{busy.value=false}
@@ -341,13 +341,15 @@ onMounted(init)
           <div><dt>Circuit breaker</dt><dd>{{active.circuit_open_until?'Пауза до '+active.circuit_open_until:'Закрыт'}}</dd></div>
         </dl>
         <p v-if="circuitOpen" class="muted">Фоновые и обычные операции приостановлены. После исправления причины выполните ручную проверку доступности с MFA.</p>
+        <p v-if="active.provider==='routeros'">RouterOS 7: HTTPS www-ssl, Vault routeros_api (username/password). Обязательны TLS pin и SHA-256 от routeros:имя устройства. Планы routeros.inventory, routeros.network, routeros.routing, routeros.metrics.</p>
         <p v-if="active.provider==='pbs'">PBS: HTTPS 8007, API token Vault типа api_token (user@realm!token:secret). Создайте план pbs.backups с операцией inspect.</p>
         <p v-if="active.provider==='prometheus'">Prometheus: HTTPS /metrics, Bearer API token. Создайте план prometheus.metrics с операцией inspect.</p>
-        <section v-if="['ssh','winrm','snmp'].includes(active.provider)" class="panel" data-testid="os-network-profile">
+        <section v-if="['ssh','winrm','snmp','routeros'].includes(active.provider)" class="panel" data-testid="os-network-profile">
           <h3>Профиль доверия OS / Network</h3>
-          <p>{{active.os_network_profile?'Идентичность закреплена. После ротации выполните health check.':'Совместимый режим без индивидуального профиля. Настройте доверие перед включением обязательного режима.'}}</p>
+          <p>{{active.os_network_profile?'Идентичность закреплена. После ротации выполните health check.':active.provider==='routeros'?'Для RouterOS профиль обязателен.':'Совместимый режим без индивидуального профиля. Настройте доверие перед включением обязательного режима.'}}</p>
           <p v-if="active.provider==='ssh'">SSH: primary_pin — SHA-256 (hex) бинарного публичного ключа; key_type — ssh-ed25519, ssh-rsa (только RSA-SHA2), либо ECDSA. identity_hash — SHA-256 строки ssh:machine-id.</p>
           <p v-else-if="active.provider==='winrm'">WinRM: primary_pin — SHA-256 DER-сертификата (hex); identity_hash — SHA-256 строки winrm:machineguid без дефисов, в нижнем регистре.</p>
+          <p v-else-if="active.provider==='routeros'">RouterOS: primary_pin — SHA-256 DER-сертификата; identity_hash — SHA-256 строки routeros:имя устройства. Профиль обязателен.</p>
           <p v-else>SNMPv3 authPriv: engine_id — hex без разделителей, object_id — числовой sysObjectID с начальной точкой.</p>
           <form v-if="canProfile" @submit.prevent="saveOsProfile"><label>Профиль JSON<textarea v-model="osProfileText" rows="6" required autocomplete="off" /></label><button class="btn" :disabled="busy">Сохранить профиль OS / Network</button></form>
           <pre v-else-if="active.os_network_profile">{{JSON.stringify(active.os_network_profile,null,2)}}</pre>

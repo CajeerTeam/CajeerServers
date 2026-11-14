@@ -22,8 +22,8 @@ final class ConnectorReadiness
             $r=$this->app->container()->get(ConnectorRegistry::class);
             foreach(['proxmox','vmmanager','ssh','winrm','snmp'] as $provider)
                 foreach(ConnectorManifest::OPERATIONS as $operation) $r->require($provider,$operation);
-            foreach(['inspect','health','validate_rotation'] as $operation){$r->require('prometheus',$operation);$r->require('pbs',$operation);}
-            foreach(['proxmox','vmmanager','ssh','winrm','snmp','prometheus'] as $provider)if(!$r->supportsMetrics($provider))return false;
+            foreach(['inspect','health','validate_rotation'] as $operation){$r->require('prometheus',$operation);$r->require('pbs',$operation);$r->require('routeros',$operation);}
+            foreach(['proxmox','vmmanager','ssh','winrm','snmp','prometheus','routeros'] as $provider)if(!$r->supportsMetrics($provider))return false;
             return true;
         },'Inventory drivers and Prometheus metrics must be registered.');
         $probe('connector_networks',function()use($cfg):bool {
@@ -34,7 +34,7 @@ final class ConnectorReadiness
         $probe('connector_php',static fn():bool=>extension_loaded('openssl')&&extension_loaded('sodium')&&extension_loaded('pdo_pgsql')&&function_exists('pcntl_alarm'), 'CLI requires openssl, sodium, pdo_pgsql and pcntl.');
         $probe('connector_snmp',static fn():bool=>extension_loaded('snmp')&&class_exists(\SNMP::class), 'SNMP driver requires ext-snmp with Net-SNMP.');
         $probe('connector_ssh',fn():bool=>self::python((string)$cfg->get('connectors.python','/usr/bin/python3')), 'Configured Python must import Paramiko.');
-        foreach(['pbs_ca_file','prometheus_ca_file','proxmox_ca_file','vmmanager_ca_file','winrm_ca_file','ssh_known_hosts'] as $key) {
+        foreach(['routeros_ca_file','pbs_ca_file','prometheus_ca_file','proxmox_ca_file','vmmanager_ca_file','winrm_ca_file','ssh_known_hosts'] as $key) {
             $probe('connector_'.$key,static function()use($cfg,$key):bool {$p=$cfg->get('connectors.'.$key,'');return $p===''||(is_string($p)&&is_file($p)&&is_readable($p));},'Configured trust file must be readable.');
         }
         $probe('connector_db_integrity',function():bool {
@@ -72,9 +72,9 @@ final class ConnectorReadiness
         },'Stored VMmanager profiles must be valid; mandatory profile mode requires trust for every active VMmanager target.');
         $probe('connector_os_network_profiles',function()use($cfg):bool {
             $pdo=$this->app->container()->get(DatabaseManager::class)->connection();
-            $q=$pdo->query("SELECT provider,os_network_profile,state FROM connector_targets WHERE provider IN ('ssh','winrm','snmp')");
+            $q=$pdo->query("SELECT provider,os_network_profile,state FROM connector_targets WHERE provider IN ('ssh','winrm','snmp','routeros')");
             while($row=$q->fetch(\PDO::FETCH_ASSOC)){
-                if($row['os_network_profile']===null){if($row['state']==='active'&&$cfg->get('connectors.os_network_require_profile',false)===true)return false;continue;}
+                if($row['os_network_profile']===null){if($row['state']==='active'&&($row['provider']==='routeros'||$cfg->get('connectors.os_network_require_profile',false)===true))return false;continue;}
                 OsNetworkProfile::normalize($row['provider'],json_decode($row['os_network_profile'],true,16,JSON_THROW_ON_ERROR));
             }
             return true;

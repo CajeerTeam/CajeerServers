@@ -56,6 +56,16 @@ final class ConnectorRegistry
         }
         catch (\Throwable) { throw new HttpException(502,'Remote connector returned an invalid or unsupported response.','connector_protocol_error'); }
     }
+    public function supportsRouterOsDiscovery():bool
+    {return ($this->drivers['routeros']??null) instanceof \Cajeer\Servers\Connector\RouterOsConnector;}
+    public function routerosDiscovery(ConnectorContext $context,string $operation,string $purpose,string $scope,#[\SensitiveParameter] string $secret):ConnectorResult
+    {
+        $driver=$this->require($context->provider,$operation);
+        if(!$driver instanceof \Cajeer\Servers\Connector\RouterOsConnector||!$this->metadata['routeros']->accepts($context->credentialType,$purpose))throw new HttpException(403,'RouterOS discovery not permitted.','permission_denied');
+        try{return $driver->discovery($context,$scope,$operation,$secret)->validated($this->metadata['routeros']);}
+        catch(ConnectorTransportException $e){throw new HttpException(502,$e->getMessage(),$e->category);}
+        catch(\Throwable){throw new HttpException(502,'RouterOS discovery failed.','connector_failed');}
+    }
     public function supportsLinuxDiscovery():bool
     {return ($this->drivers['ssh']??null) instanceof \Cajeer\Servers\Connector\LinuxConnector;}
     public function linuxDiscovery(ConnectorContext $context,string $operation,string $purpose,string $scope,#[\SensitiveParameter] string $secret):ConnectorResult

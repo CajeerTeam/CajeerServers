@@ -68,6 +68,7 @@ $run('VMmanager admin fixture HTTPS integration', ['python3','tests/vmmanager-ad
 $run('VMmanager HTTPS integration', ['python3','tests/vmmanager-https-integration.py'], $root);
 $run('VMmanager power HTTPS integration', ['python3','tests/vmmanager-power-https-integration.py'], $root);
 
+$run('RouterOS REST HTTPS integration', ['python3','tests/routeros-https-integration.py'], $root);
 $run('Linux discovery probe integration', ['python3','tests/linux-discovery-integration.py'], $root);
 $run('WinRM HTTPS protocol and trust integration', ['python3','tests/host-transport-integration.py'], $root);
 $run('VMmanager live acceptance fixture', ['python3','tests/vmmanager-live-acceptance-integration.py'], $root);
@@ -87,6 +88,7 @@ if ($strict) {
     $vmmanagerAcceptance=getenv('CAJEER_VMMANAGER_ACCEPTANCE_CONFIG');
     if (!$vmmanagerAcceptance) { fwrite(STDERR, "FAIL: strict verification requires CAJEER_VMMANAGER_ACCEPTANCE_CONFIG for operator-owned VMmanager acceptance.\n"); $failures++; }
     else { $run('VMmanager live acceptance', [PHP_BINARY,'scripts/verify-vmmanager-live.php',$vmmanagerAcceptance], $root, null, 900); }
+    $run('RouterOS PostgreSQL integration', ['python3','tests/routeros-https-integration.py','--postgres'], $root);
     $run('PBS HTTPS integration', ['python3','tests/pbs-backup-https-integration.py'], $root);
     $run('Proxmox snapshot HTTPS integration', ['python3','tests/proxmox-snapshots-https-integration.py'], $root);
     $run('Connector actions HTTPS integration', ['python3','tests/connector-actions-https-integration.py'], $root);

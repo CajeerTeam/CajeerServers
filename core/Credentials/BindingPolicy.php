@@ -7,14 +7,14 @@ use Cajeer\Servers\Http\Exception\HttpException;
 /** Only allow a credential to be used for an operation supported by its actual type. */
 final class BindingPolicy
 {
-    public const PROVIDERS = ['proxmox','vmmanager','ssh','winrm','snmp','custom','prometheus','pbs'];
+    public const PROVIDERS = ['proxmox','vmmanager','ssh','winrm','snmp','custom','prometheus','pbs','routeros'];
     private const TYPE_PURPOSES = [
-        'api_token'=>['api'], 'proxmox_api'=>['api'], 'vmmanager_api'=>['api'],
+        'routeros_api'=>['api'], 'api_token'=>['api'], 'proxmox_api'=>['api'], 'vmmanager_api'=>['api'],
         'ssh_password'=>['ssh'], 'ssh_private_key'=>['ssh'], 'winrm'=>['winrm'],
         'snmp_v2c'=>['snmp'], 'snmp_v3'=>['snmp'], 'generic_secret'=>['custom'],
     ];
     private const PROVIDER_TYPES = [
-        'prometheus'=>['api_token'], 'pbs'=>['api_token'], 'proxmox'=>['proxmox_api','api_token'], 'vmmanager'=>['vmmanager_api','api_token'],
+        'routeros'=>['routeros_api'], 'prometheus'=>['api_token'], 'pbs'=>['api_token'], 'proxmox'=>['proxmox_api','api_token'], 'vmmanager'=>['vmmanager_api','api_token'],
         'ssh'=>['ssh_password','ssh_private_key'], 'winrm'=>['winrm'],
         'snmp'=>['snmp_v2c','snmp_v3'], 'custom'=>['generic_secret','api_token'],
     ];

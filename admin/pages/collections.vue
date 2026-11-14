@@ -78,6 +78,7 @@ onMounted(()=>{void init();timer=setInterval(()=>{if(!busy.value&&!loading.value
       <template v-if="active&&!loading">
         <LinuxDiscovery v-if="view==='collectors'&&active.provider==='ssh'&&auth.can('inventory.assets.read')" :key="active.id+'-linux'" :target-id="active.id" :profile-configured="!!active.os_network_profile" />
         <WindowsDiscovery v-if="view==='collectors'&&active.provider==='winrm'&&auth.can('inventory.assets.read')" :key="active.id+'-windows'" :target-id="active.id" :profile-configured="!!active.os_network_profile" />
+        <RouterOsDiscovery v-if="view==='collectors'&&active.provider==='routeros'&&auth.can('inventory.assets.read')" :key="active.id+'-routeros'" :target-id="active.id" :profile-configured="!!active.os_network_profile" />
         <SnmpDiscovery v-if="view==='collectors'&&active.provider==='snmp'&&auth.can('inventory.assets.read')" :key="active.id+'-snmp'" :target-id="active.id" :profile-configured="!!active.os_network_profile" />
         <VmmanagerClusterDiscovery v-if="view==='collectors'&&active.provider==='vmmanager'&&auth.can('inventory.assets.read')" :key="active.id+'-vmmanager-cluster'" :target-id="active.id" :profile-configured="!!active.vmmanager_profile" />
         <VmmanagerGuestDiscovery v-if="view==='collectors'&&active.provider==='vmmanager'&&auth.can('inventory.assets.read')" :key="active.id+'-vmmanager-guests'" :target-id="active.id" :profile-configured="!!active.vmmanager_profile" />

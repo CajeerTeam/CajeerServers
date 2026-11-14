@@ -120,7 +120,7 @@ final class ConnectorRuntimeService
         $started=microtime(true);
         $reconciliation=$this->reconciliation();
         $generation=$sync?$reconciliation->generation($this->db->connection()):0;
-        $observedAt=($sync||$plan!==null||($target['provider']==='pbs'&&$operation==='inspect'))?(string)$this->db->connection()->query("SELECT to_char(clock_timestamp() AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"')")->fetchColumn():'';
+        $observedAt=($sync||$plan!==null||(in_array($target['provider'],['pbs','routeros'],true)&&$operation==='inspect'))?(string)$this->db->connection()->query("SELECT to_char(clock_timestamp() AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"')")->fetchColumn():'';
         try {$snapshot=$this->discoverWithGrant($target,$operation,$consume,$plan); }
         catch (HttpException $error) {
             if (in_array($error->errorCode,ConnectorHealthMonitor::ERRORS,true)) {
@@ -164,7 +164,7 @@ final class ConnectorRuntimeService
                 $latest=$this->bindings->runtimeContext($actor,$targetId,$target['version'],$operation);
                 if ($latest['credential_id']!==$target['credential_id'] || $latest['credential_version']!==$target['credential_version']) throw new HttpException(409,'Connector binding changed.','conflict');
                 ConnectorHealthMonitor::record($pdo,$target,$elapsed,null);
-                if ($operation==='inspect' && $snapshot->metricSamples===[] && !in_array($collection['collector']??null,['snmp.device','snmp.interfaces','snmp.topology','winrm.system','winrm.software','winrm.services','winrm.storage','winrm.network','winrm.updates','ssh.system','ssh.software','ssh.services','ssh.storage','ssh.network','proxmox.tasks','vmmanager.tasks','vmmanager.network','vmmanager.storage','vmmanager.templates'],true) && $target['provider']!=='pbs') $result['preview']=$reconciliation->preview($pdo,$actor,$target,$snapshot);
+                if ($operation==='inspect' && $snapshot->metricSamples===[] && !in_array($collection['collector']??null,['routeros.network','routeros.routing','snmp.device','snmp.interfaces','snmp.topology','winrm.system','winrm.software','winrm.services','winrm.storage','winrm.network','winrm.updates','ssh.system','ssh.software','ssh.services','ssh.storage','ssh.network','proxmox.tasks','vmmanager.tasks','vmmanager.network','vmmanager.storage','vmmanager.templates'],true) && $target['provider']!=='pbs') $result['preview']=$reconciliation->preview($pdo,$actor,$target,$snapshot);
                 if ($collection!==null && $snapshot->metricSamples!==[]) {
                     $result['metrics']=\Cajeer\Servers\Metrics\MetricStore::ingest($pdo,$target,$collection['metric_samples'],$collection['observed_at']);
                     $this->audit->record($pdo,$actor,'collection.metrics.saved','success','connector_target',$targetId,$result['metrics'],$requestId);
@@ -186,6 +186,12 @@ final class ConnectorRuntimeService
                     WindowsDiscoveryStore::save($pdo,$target,$details,$observedAt,$details['scope']);
                     $result['discovered']=$result['collection']['count']=array_sum($details['counts']);
                     $result['collection']['complete']=$details['complete'];
+                }
+                if(isset($snapshot->connection['routeros_discovery'])){
+                    $details=$snapshot->connection['routeros_discovery'];
+                    RouterOsDiscoveryStore::save($pdo,$target,$details,$observedAt,$details['scope']);
+                    $result['discovered']=array_sum($details['counts']);
+                    if($collection!==null){$result['collection']['count']=array_sum($details['counts']);$result['collection']['complete']=$details['complete'];}
                 }
                 if(isset($snapshot->connection['snmp_discovery'])&&$collection!==null){
                     $details=$snapshot->connection['snmp_discovery'];
@@ -254,6 +260,7 @@ final class ConnectorRuntimeService
                 if($complete!==null)$complete($pdo,$result);
                 return $result;
             }
+            if(isset($snapshot->connection['routeros_discovery']))RouterOsDiscoveryStore::save($pdo,$target,$snapshot->connection['routeros_discovery'],$observedAt,'inventory');
             $delta=$reconciliation->apply($pdo,$actor,$target,$snapshot,$generation,$observedAt,$requestId);
             $this->audit->record($pdo,$actor,'connector.inventory.synced','success','connector_target',$targetId,
                 ['count'=>count($items),'complete'=>$snapshot->complete,'blocked'=>$delta['snapshot']['blocked']],$requestId);
@@ -299,6 +306,14 @@ final class ConnectorRuntimeService
         $target=$this->bindings->show($actor,$targetId);
         if($target['provider']!=='winrm')throw new HttpException(404,'Windows target not found.','not_found');
         return WindowsDiscoveryStore::read($this->db->connection(),$target,$scope);
+    }
+    public function routerosDiscovery(string $actor,string $targetId,string $scope):array
+    {
+        (new Rbac($this->db,$this->audit))->requireUserPermission($actor,'inventory.assets.read');
+        if(!in_array($scope,RouterOsConnector::SCOPES,true))throw new HttpException(422,'Invalid RouterOS scope.','validation_failed');
+        $target=$this->bindings->show($actor,$targetId);
+        if($target['provider']!=='routeros')throw new HttpException(404,'RouterOS target not found.','not_found');
+        return RouterOsDiscoveryStore::read($this->db->connection(),$target,$scope);
     }
     public function snmpDiscovery(string $actor,string $targetId,string $scope):array
     {

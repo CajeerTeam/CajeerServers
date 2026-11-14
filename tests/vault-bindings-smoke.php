@@ -29,13 +29,13 @@ $valid=[
  ['vmmanager','vmmanager_api','api'],['vmmanager','api_token','api'],
  ['ssh','ssh_password','ssh'],['ssh','ssh_private_key','ssh'],
  ['winrm','winrm','winrm'],['snmp','snmp_v2c','snmp'],['snmp','snmp_v3','snmp'],
- ['prometheus','api_token','api'],['pbs','api_token','api'],['custom','generic_secret','custom'],['custom','api_token','api'],
+ ['routeros','routeros_api','api'],['prometheus','api_token','api'],['pbs','api_token','api'],['custom','generic_secret','custom'],['custom','api_token','api'],
 ];
 foreach($valid as [$p,$type,$purpose]){
     $ok(BindingPolicy::allowsConnector($p,$type,$purpose),'allowed '.$p.':'.$type);
     $ok(SecretAccessService::allowsPurpose($type,$purpose),'internal use shares same type rules '.$type);
 }
-foreach(BindingPolicy::PROVIDERS as $p)foreach(['api_token','proxmox_api','vmmanager_api','ssh_password','ssh_private_key','winrm','snmp_v2c','snmp_v3','generic_secret'] as $type){
+foreach(BindingPolicy::PROVIDERS as $p)foreach(['api_token','proxmox_api','vmmanager_api','ssh_password','ssh_private_key','winrm','snmp_v2c','snmp_v3','generic_secret','routeros_api'] as $type){
     $good=false;foreach($valid as $case){if($case[0]===$p && $case[1]===$type)$good=true;}
     $matched=false;foreach(BindingPolicy::purposesFor($p) as $purpose) if(BindingPolicy::allowsConnector($p,$type,$purpose))$matched=true;
     $ok($matched===$good,'type allowlist '.$p.':'.$type);
@@ -70,7 +70,7 @@ putenv('APP_ENV=local');putenv('APP_URL=http://127.0.0.1:8080');
 $app=(new Application($root))->boot();
 try {
     $router=$app->container()->get(Router::class);$routes=$router->routes();
-    $ok(count($routes)===218,'new protected routes are registered');
+    $ok(count($routes)===219,'new protected routes are registered');
     $ok($app->container()->get(ConnectorBindingService::class) instanceof ConnectorBindingService,'connector service registered');
     $ok($app->container()->get(ConnectorBindingController::class) instanceof ConnectorBindingController,'connector controller registered');
     $ok($app->container()->get(CredentialBindingService::class) instanceof CredentialBindingService,'inventory binding service registered');

@@ -1,7 +1,7 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.8.4
+  version: 0.8.5
   description: 'CajeerServers 0.7.1: VMmanager connection profiles, PVE/PBS integration and infrastructure collection.'
 servers:
 - url: /api/v1
@@ -4675,7 +4675,7 @@ paths:
                 workspace_id: {type: string, format: uuid}
                 name: {type: string, minLength: 1, maxLength: 255}
                 description: {type: string, maxLength: 1024}
-                type: {type: string, enum: [generic_secret, api_token, proxmox_api, vmmanager_api, ssh_password, ssh_private_key, winrm, snmp_v2c, snmp_v3]}
+                type: {type: string, enum: [generic_secret, api_token, proxmox_api, vmmanager_api, ssh_password, ssh_private_key, winrm, snmp_v2c, snmp_v3, routeros_api]}
                 secret: {$ref: '#/components/schemas/VaultSecretInput'}
       responses:
         '201':
@@ -5407,6 +5407,35 @@ paths:
                 required: [data]
                 properties:
                   data: {$ref: '#/components/schemas/SnmpDiscoveryState'}
+        '401': {description: Authentication required}
+        '403': {description: Permission denied}
+        '404': {description: Target not found in Workspace}
+  /connectors/targets/{id}/routeros-discovery:
+    get:
+      operationId: getRouterOsDiscoveryState
+      summary: Read the latest scoped RouterOs discovery observation
+      description: Requires connectors.targets.read, inventory.assets.read and Workspace membership. A stale scope has no current snapshot. Historical runs remain available separately.
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      - name: scope
+        in: query
+        required: false
+        schema: {type: string, enum: [inventory, network, routing], default: inventory}
+      responses:
+        '200':
+          description: Current saved observation, not live health
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: {$ref: '#/components/schemas/RouterOsDiscoveryState'}
         '401': {description: Authentication required}
         '403': {description: Permission denied}
         '404': {description: Target not found in Workspace}
@@ -6670,7 +6699,7 @@ paths:
         description: Literal case-insensitive substring of name or endpoint host
       - name: provider
         in: query
-        schema: {type: string, enum: [proxmox, vmmanager, ssh, winrm, snmp, custom, prometheus, pbs]}
+        schema: {type: string, enum: [proxmox, vmmanager, ssh, winrm, snmp, custom, prometheus, pbs, routeros]}
       - name: state
         in: query
         schema: {type: string, enum: [active, disabled]}
@@ -12088,7 +12117,7 @@ components:
           type: array
           items: {type: string}
     OsNetworkProfile:
-      description: Operator-verified trust; provider-specific. SSH/WinRM pins are hex SHA-256. Host identity is SHA-256 of provider colon normalized machine ID.
+      description: Operator-verified trust; provider-specific. SSH/WinRM/RouterOS pins are hex SHA-256. Host identity is SHA-256 of provider colon normalized machine ID; RouterOS uses the exact system identity name.
       oneOf:
         - type: object
           additionalProperties: false
@@ -12113,12 +12142,13 @@ components:
       type: object
       required: [provider, profile_verified, identity_verified, trust_mode]
       properties:
-        provider: {type: string, enum: [ssh, winrm, snmp]}
+        provider: {type: string, enum: [ssh, winrm, snmp, routeros]}
         profile_verified: {type: boolean}
         identity_verified: {type: boolean}
         trust_mode: {type: string, enum: [ssh_pin, tls_pin, snmpv3_identity, known_hosts, tls_ca, snmp_legacy]}
         linux_discovery: {$ref: '#/components/schemas/LinuxDiscoverySnapshot'}
         windows_discovery: {$ref: '#/components/schemas/WindowsDiscoverySnapshot'}
+        routeros_discovery: {$ref: '#/components/schemas/RouterOsDiscoverySnapshot'}
     VmmanagerProfile:
       type: object
       additionalProperties: false
@@ -12373,6 +12403,35 @@ components:
         counts:
           type: object
           additionalProperties: {type: integer, minimum: 0}
+        sections:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: object
+              additionalProperties: {type: [string, 'null']}
+    RouterOsDiscoveryState:
+      type: object
+      required: [state, observed_at, snapshot]
+      properties:
+        state: {type: string, enum: [available, stale, not_collected]}
+        observed_at: {type: [string, 'null'], format: date-time}
+        snapshot:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/RouterOsDiscoverySnapshot'
+    RouterOsDiscoverySnapshot:
+      type: object
+      required: [scope, complete, counts, sections, visibility]
+      properties:
+        scope: {type: string, enum: [inventory, network, routing]}
+        complete: {type: boolean}
+        counts:
+          type: object
+          additionalProperties: {type: integer, minimum: 0}
+        visibility:
+          type: object
+          additionalProperties: {type: string, enum: [available, denied, not_found]}
         sections:
           type: object
           additionalProperties:
@@ -12639,7 +12698,7 @@ components:
       properties:
         id: {type: string, format: uuid}
         workspace_id: {type: string, format: uuid}
-        provider: {type: string, enum: [proxmox, vmmanager, ssh, winrm, snmp, custom, prometheus, pbs]}
+        provider: {type: string, enum: [proxmox, vmmanager, ssh, winrm, snmp, custom, prometheus, pbs, routeros]}
         name: {type: string}
         endpoint_host: {type: string}
         endpoint_port: {type: integer, minimum: 1, maximum: 65535}
@@ -12763,7 +12822,7 @@ components:
         workspace_id: {type: string, format: uuid}
         name: {type: string}
         description: {type: string}
-        type: {type: string, enum: [generic_secret, api_token, proxmox_api, vmmanager_api, ssh_password, ssh_private_key, winrm, snmp_v2c, snmp_v3]}
+        type: {type: string, enum: [generic_secret, api_token, proxmox_api, vmmanager_api, ssh_password, ssh_private_key, winrm, snmp_v2c, snmp_v3, routeros_api]}
         state: {type: string, enum: [active, disabled, archived]}
         version: {type: integer, minimum: 1}
         etag: {type: string}

@@ -33,6 +33,8 @@ final class CollectionReadiness
             if(($rows['vmmanager.storage']['operations']??null)!==['inspect']||($rows['vmmanager.templates']['operations']??null)!==['inspect'])return false;
             if(($rows['vmmanager.network']['operations']??null)!==['inspect','sync'])return false;
             if(($rows['vmmanager.cluster']['operations']??null)!==['inspect','sync']||($rows['vmmanager.guests']['operations']??null)!==['inspect','sync'])return false;
+            foreach(['routeros.network','routeros.routing','routeros.metrics'] as $name)if(($rows[$name]['operations']??null)!==['inspect'])return false;
+            if(($rows['routeros.inventory']['operations']??null)!==['inspect','sync'])return false;
             if(($rows['pbs.backups']['operations']??null)!==['inspect'])return false;
             if(($rows['proxmox.tasks']['operations']??null)!==['inspect'])return false;
             if(($rows['proxmox.cluster']['operations']??null)!==['inspect','sync']||($rows['proxmox.guests']['operations']??null)!==['inspect','sync']||($rows['proxmox.storage-network']['operations']??null)!==['inspect','sync'])return false;
@@ -41,11 +43,12 @@ final class CollectionReadiness
             return true;
         },'Required collectors and exporters must be registered.');
         $probe('collection_migrations',function()use($c):bool{
-            $v=$c->get(MigrationRunner::class)->validate();return $v['valid']&&count($v['rows'])>=56&&array_column($v['rows'],'status')!==[]&&!array_diff(array_column($v['rows'],'status'),['applied']);
-        },'All PostgreSQL migrations, including 0056, must be applied and checksum-valid.');
+            $v=$c->get(MigrationRunner::class)->validate();return $v['valid']&&count($v['rows'])>=57&&array_column($v['rows'],'status')!==[]&&!array_diff(array_column($v['rows'],'status'),['applied']);
+        },'All PostgreSQL migrations, including 0057, must be applied and checksum-valid.');
         $queries=[
             'linux_discovery_scope'=>"SELECT 1 FROM linux_discovery_state s JOIN connector_targets t ON t.id=s.target_id WHERE t.provider<>'ssh' OR s.workspace_id<>t.workspace_id OR s.target_version>t.version LIMIT 1",
             'windows_discovery_scope'=>"SELECT 1 FROM windows_discovery_state s JOIN connector_targets t ON t.id=s.target_id WHERE t.provider<>'winrm' OR s.workspace_id<>t.workspace_id OR s.target_version>t.version LIMIT 1",
+            'routeros_discovery_scope'=>"SELECT 1 FROM routeros_discovery_state s JOIN connector_targets t ON t.id=s.target_id WHERE t.provider<>'routeros' OR s.workspace_id<>t.workspace_id OR s.target_version>t.version LIMIT 1",
             'snmp_discovery_scope'=>"SELECT 1 FROM snmp_discovery_state s JOIN connector_targets t ON t.id=s.target_id WHERE t.provider<>'snmp' OR s.workspace_id<>t.workspace_id OR s.target_version>t.version LIMIT 1",
             'vmmanager_task_scope'=>"SELECT 1 FROM vmmanager_task_cursor s JOIN connector_targets t ON t.id=s.target_id WHERE t.provider<>'vmmanager' OR s.workspace_id<>t.workspace_id LIMIT 1",
             'vmmanager_catalog_scope'=>"SELECT 1 FROM vmmanager_catalog_state s JOIN connector_targets t ON t.id=s.target_id WHERE t.provider<>'vmmanager' OR s.workspace_id<>t.workspace_id OR s.target_version>t.version LIMIT 1",

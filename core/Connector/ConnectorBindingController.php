@@ -123,6 +123,12 @@ final class ConnectorBindingController
         if(!is_string($scope))throw new HttpException(422,'Invalid Windows discovery scope.','validation_failed');
         return HttpResponse::json(['data'=>$this->runtime->windowsDiscovery($this->actor($r,'connectors.targets.read'),self::id($r),$scope)],200,['Cache-Control'=>'private, no-store']);
     }
+    public function routerosDiscovery(HttpRequest $r):HttpResponse
+    {
+        $scope=$r->query['scope']??'inventory';
+        if(!is_string($scope))throw new HttpException(422,'Invalid RouterOS scope.','validation_failed');
+        return HttpResponse::json(['data'=>$this->runtime->routerosDiscovery($this->actor($r,'connectors.targets.read'),self::id($r),$scope)],200,['Cache-Control'=>'private, no-store']);
+    }
     public function snmpDiscovery(HttpRequest $r):HttpResponse
     {
         $scope=$r->query['scope']??'device';

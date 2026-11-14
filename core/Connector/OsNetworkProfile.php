@@ -9,7 +9,7 @@ final class OsNetworkProfile
 {
     public static function normalize(string $provider,mixed $input):array
     {
-        $keys=match($provider){'ssh'=>['primary_pin','identity_hash','key_type'],'winrm'=>['primary_pin','identity_hash'],'snmp'=>['engine_id','object_id'],default=>[]};
+        $keys=match($provider){'ssh'=>['primary_pin','identity_hash','key_type'],'winrm','routeros'=>['primary_pin','identity_hash'],'snmp'=>['engine_id','object_id'],default=>[]};
         if(!$keys||!is_array($input)||count($input)!==count($keys)||array_diff($keys,array_keys($input)))self::invalid();
         if($provider==='snmp'){
             $engine=$input['engine_id'];$object=$input['object_id'];
@@ -36,7 +36,7 @@ final class OsNetworkProfile
     {
         return ['provider'=>$context->provider,'profile_verified'=>$context->osNetworkProfile!==null,
             'identity_verified'=>$context->osNetworkProfile!==null,
-            'trust_mode'=>$context->osNetworkProfile!==null?match($context->provider){'ssh'=>'ssh_pin','winrm'=>'tls_pin','snmp'=>'snmpv3_identity'}:match($context->provider){'ssh'=>'known_hosts','winrm'=>'tls_ca','snmp'=>'snmp_legacy'}];
+            'trust_mode'=>$context->osNetworkProfile!==null?match($context->provider){'ssh'=>'ssh_pin','winrm','routeros'=>'tls_pin','snmp'=>'snmpv3_identity'}:match($context->provider){'ssh'=>'known_hosts','winrm','routeros'=>'tls_ca','snmp'=>'snmp_legacy'}];
     }
     public static function mismatch():never {throw new ConnectorTransportException('connector_trust_failed');}
 }

@@ -1,5 +1,11 @@
 ## [0.8.4] — 2026-11-14 — Advanced SNMP Discovery
 
+## 0.8.5 — RouterOS API Integration
+
+- RouterOS 7 read-only HTTPS REST, pinned TLS and identity, Vault credentials, inventory, networks, routing, firewall metadata and metrics.
+- Scoped snapshots, collection history, Admin UI and SDK; isolated HTTPS regression tests.
+
+
 - SNMPv3 authPriv discovery устройства, ENTITY-MIB, IF-MIB/IF-X-MIB, IP-MIB, VLAN/Q-BRIDGE и LLDP с точным сопоставлением портов.
 - Ограниченный multi-varbind GETNEXT, fallback, проверка идентичности и uptime; независимые Inspect-снимки, история, API/SDK и Admin UI.
 - Миграция 0056, тесты MIB и native SNMP integration; канал development до строгой приёмки.

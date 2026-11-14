@@ -1,6 +1,6 @@
 export type AssetType = 'server' | 'hypervisor_node' | 'cluster' | 'virtual_machine' | 'container' | 'router' | 'workstation' | 'other'
 export interface InfrastructureAsset { id: string; type: AssetType; name: string; status: string; source: string }
-export type Provider = 'proxmox' | 'vmmanager' | 'ssh' | 'winrm' | 'snmp' | 'custom' | 'prometheus' | 'pbs'
+export type Provider = 'proxmox' | 'vmmanager' | 'ssh' | 'winrm' | 'snmp' | 'custom' | 'prometheus' | 'pbs' | 'routeros'
 export type Operation = 'health' | 'inspect' | 'sync'
 export type PowerAction = 'vm.start' | 'vm.shutdown' | 'vm.stop' | 'vm.reboot' | 'lxc.start' | 'lxc.shutdown' | 'lxc.stop' | 'lxc.reboot' | 'vmmanager.host.start' | 'vmmanager.host.stop' | 'vmmanager.host.reboot'
 export type SnapshotAction = `${'vm'|'lxc'}.snapshot.${'create'|'delete'|'rollback'}`
@@ -11,7 +11,7 @@ export interface CollectorDefinition { name:string; provider:Provider; operation
 export interface CollectionSnapshot { schema_version:1; collector:string; sink:'result'|'inventory'|'metrics'; metric_samples?:MetricSample[]; observed_at:string; complete:boolean; count:number; observations?:{type:AssetType;external_id:string;fields:Record<string,unknown>;parent_external_id?:string}[] }
 export interface Driver { collectors?:CollectorDefinition[]; provider: Provider; purpose: string; credentialTypes: string[]; operations: (Operation | 'validate_rotation')[]; resourceTypes: AssetType[]; transport: string; actions: (PowerAction | SnapshotAction)[]; write_actions_enabled: boolean }
 export type OsNetworkProfile = {primary_pin:string;identity_hash:string;key_type?:'ssh-ed25519'|'ssh-rsa'|'ecdsa-sha2-nistp256'|'ecdsa-sha2-nistp384'|'ecdsa-sha2-nistp521'} | {engine_id:string;object_id:string}
-export interface OsNetworkConnection {linux_discovery?:Partial<LinuxDiscoverySnapshot>;windows_discovery?:Partial<WindowsDiscoverySnapshot>;provider:'ssh'|'winrm'|'snmp';profile_verified:boolean;identity_verified:boolean;trust_mode:'ssh_pin'|'tls_pin'|'snmpv3_identity'|'known_hosts'|'tls_ca'|'snmp_legacy'}
+export interface OsNetworkConnection {routeros_discovery?:RouterOsDiscoverySnapshot;linux_discovery?:Partial<LinuxDiscoverySnapshot>;windows_discovery?:Partial<WindowsDiscoverySnapshot>;provider:'ssh'|'winrm'|'snmp'|'routeros';profile_verified:boolean;identity_verified:boolean;trust_mode:'ssh_pin'|'tls_pin'|'snmpv3_identity'|'known_hosts'|'tls_ca'|'snmp_legacy'}
 export interface VmmanagerProfile { primary_pin:string; anchor_id:number; anchor_node:string }
 export type VmmanagerCapability = 'available'|'denied'|'not_found'
 export type VmmanagerActionCapability = 'advertised'|'not_advertised'|'unknown'
@@ -124,3 +124,7 @@ export interface PbsBackupSnapshot extends PbsNamespace {backup_type:'vm'|'ct'|'
 export interface PbsJob extends PbsNamespace {kind:'sync'|'verify'|'prune'|'gc'; id:string; schedule:string|null; disabled:boolean|null; last_run:number|null; next_run:number|null; last_outcome:'ok'|'warning'|'running'|'unknown'|'error'|null; upid:string|null; remote:string|null; remote_store:string|null; direction:string|null; keep_hourly:string|null; keep_last:string|null; keep_daily:string|null; keep_weekly:string|null; keep_monthly:string|null; keep_yearly:string|null; gc_removed_bytes:string|null; gc_pending_bytes:string|null}
 export interface PbsBackupInventory {version:string; complete:boolean; scope:'token_visible'; counts:Record<'datastores'|'namespaces'|'groups'|'snapshots'|'jobs',number>; datastores:PbsDatastore[]; namespaces:PbsNamespace[]; groups:PbsBackupGroup[]; snapshots:PbsBackupSnapshot[]; jobs:PbsJob[]; issues:{section:string;reason:string;store:string|null;namespace:string|null}[]}
 export interface PbsBackupState {state:'not_collected'|'stale'|'available'; observed_at:string|null; snapshot:PbsBackupInventory|null}
+
+export type RouterOsDiscoveryScope = 'inventory'|'network'|'routing'
+export interface RouterOsDiscoverySnapshot {scope:RouterOsDiscoveryScope;complete:boolean;counts:Record<string,number>;sections:Record<string,Record<string,string|null>[]>;visibility:Record<string,'available'|'denied'|'not_found'>}
+export interface RouterOsDiscoveryState {state:'not_collected'|'stale'|'available';observed_at:string|null;snapshot:RouterOsDiscoverySnapshot|null}

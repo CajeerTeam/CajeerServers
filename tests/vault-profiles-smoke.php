@@ -24,6 +24,7 @@ $valid=[
     'proxmox_api'=>['token_id'=>'root@pam!monitor','token_secret'=>'test-super-secret'],
     'vmmanager_api'=>['token'=>'test-super-secret'],
     'ssh_password'=>['username'=>'deploy','password'=>'test-super-secret'],
+    'routeros_api'=>['username'=>'monitor','password'=>'test-super-secret'],
     'winrm'=>['username'=>'EXAMPLE\\service','password'=>'test-super-secret','auth'=>'negotiate'],
     'snmp_v2c'=>['community'=>'test-super-secret'],
     'snmp_v3'=>['username'=>'monitor','auth_protocol'=>'sha256','auth_passphrase'=>'test-super-secret',
@@ -50,7 +51,7 @@ $badBlob="openssh-key-v1\0".$makeSshString('none').$makeSshString('none').$makeS
 $badPem="-----BEGIN OPENSSH PRIVATE KEY-----\n".chunk_split(base64_encode($badBlob),70,"\n")."-----END OPENSSH PRIVATE KEY-----\n";
 $reject('ssh_private_key',['username'=>'deploy','private_key'=>$badPem],'corrupt native OpenSSH checkints');
 $all=CredentialProfile::types();
-$ok(count($all)===9,'nine implemented profiles');
+$ok(count($all)===10,'ten implemented profiles');
 $ok(count(CredentialProfile::descriptors())===count($valid),'profile discovery count');
 $ok(count(array_unique($all))===count($all),'no duplicate profile names');
 $id='a1211111-bbbb-4ddd-8abc-111111111111';
