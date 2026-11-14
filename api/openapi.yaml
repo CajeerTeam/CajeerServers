@@ -1,7 +1,7 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.7.3
+  version: 0.7.4
   description: 'CajeerServers 0.7.1: VMmanager connection profiles, PVE/PBS integration and infrastructure collection.'
 servers:
 - url: /api/v1
@@ -5295,6 +5295,31 @@ paths:
                 required: [data]
                 properties:
                   data: {$ref: '#/components/schemas/VmmanagerClusterState'}
+        '401': {description: Authentication required}
+        '403': {description: Permission denied}
+        '404': {description: Target not found in Workspace}
+  /connectors/targets/{id}/vmmanager-guests:
+    get:
+      operationId: getVmmanagerGuestState
+      summary: Read the latest scoped VMmanager VM and container observation
+      description: Requires connectors.targets.read, inventory.assets.read and Workspace membership. A stale scope has no current snapshot. Historical runs remain available separately.
+      security:
+      - sessionAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Current saved observation, not live health
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: {$ref: '#/components/schemas/VmmanagerGuestState'}
         '401': {description: Authentication required}
         '403': {description: Permission denied}
         '404': {description: Target not found in Workspace}
@@ -11859,10 +11884,84 @@ components:
       properties:
         total: {type: [string, 'null']}
         used: {type: [string, 'null']}
+    VmmanagerGuestState:
+      type: object
+      required: [state, observed_at, snapshot]
+      properties:
+        state: {type: string, enum: [not_collected, stale, available]}
+        observed_at: {type: [string, 'null'], format: date-time}
+        snapshot:
+          oneOf:
+            - {$ref: '#/components/schemas/VmmanagerGuestSnapshot'}
+            - {type: 'null'}
+    VmmanagerGuestSnapshot:
+      type: object
+      required: [schema_version, complete, visibility, counts]
+      properties:
+        schema_version: {const: 1}
+        complete: {type: boolean}
+        visibility: {type: string, enum: [administrator, restricted]}
+        counts:
+          type: object
+          required: [nodes, guests, unlinked_guests]
+          properties:
+            nodes: {type: integer, minimum: 0}
+            guests: {type: integer, minimum: 0}
+            unlinked_guests: {type: integer, minimum: 0}
+        guests:
+          type: array
+          items: {$ref: '#/components/schemas/VmmanagerGuest'}
+    VmmanagerGuest:
+      type: object
+      required: [id, external_id, name, virtualization_type, node_id, node_name, cluster_id, cluster_name, state, cpu_number, ram_mib, hdd_mib, os_name, os_id, account_id, ip_addresses, disks, interfaces, rescue_mode, ha_restore_on_fail]
+      properties:
+        id: {type: integer}
+        external_id: {type: string}
+        name: {type: string}
+        virtualization_type: {type: string, enum: [kvm, lxd]}
+        node_id: {type: [integer, 'null']}
+        node_name: {type: [string, 'null']}
+        cluster_id: {type: [integer, 'null']}
+        cluster_name: {type: [string, 'null']}
+        state: {type: string, enum: [running, stopped, unknown]}
+        cpu_number: {type: [string, 'null']}
+        ram_mib: {type: [string, 'null']}
+        hdd_mib: {type: [string, 'null']}
+        os_name: {type: [string, 'null']}
+        os_id: {type: [integer, 'null']}
+        account_id: {type: [integer, 'null']}
+        ip_addresses: {type: [array, 'null'], items: {type: string}}
+        disks: {type: [array, 'null'], items: {$ref: '#/components/schemas/VmmanagerGuestDisk'}}
+        interfaces: {type: [array, 'null'], items: {$ref: '#/components/schemas/VmmanagerGuestNic'}}
+        rescue_mode: {type: [boolean, 'null']}
+        ha_restore_on_fail: {type: [boolean, 'null']}
+    VmmanagerGuestDisk:
+      type: object
+      required: [id, name, size_mib, storage_id, storage_name, type, bus, device]
+      properties:
+        id: {type: integer}
+        name: {type: [string, 'null']}
+        size_mib: {type: [string, 'null']}
+        storage_id: {type: [integer, 'null']}
+        storage_name: {type: [string, 'null']}
+        type: {type: [string, 'null']}
+        bus: {type: [string, 'null']}
+        device: {type: [string, 'null']}
+    VmmanagerGuestNic:
+      type: object
+      required: [id, name, mac, model, bridge, ip_addresses]
+      properties:
+        id: {type: integer}
+        name: {type: [string, 'null']}
+        mac: {type: [string, 'null']}
+        model: {type: [string, 'null']}
+        bridge: {type: [string, 'null']}
+        ip_addresses: {type: [array, 'null'], items: {type: string}}
     VmmanagerConnection:
       type: object
       required: [provider, api_version, endpoint_host, endpoint_port, tls_pinned, identity_verified]
       properties:
+        vmmanager_guest_discovery: {$ref: '#/components/schemas/VmmanagerGuestSnapshot'}
         vmmanager_cluster_discovery: {$ref: '#/components/schemas/VmmanagerClusterSnapshot'}
         provider: {const: vmmanager}
         api_version: {const: v3}

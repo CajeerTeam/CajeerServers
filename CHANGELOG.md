@@ -1,3 +1,8 @@
+## [0.7.4] — 2026-11-14 — VM & Container Inventory
+
+- Рабочий коллектор `vmmanager.guests`: pinned HTTPS, keyset host/node discovery, нормализованная конфигурация KVM/LXD, точные MiB, диски, NIC/IP, ОС и размещение.
+- Атомарный текущий снимок/история, Sync с существующими host ID, защита ограниченной видимости и cluster scope; Admin UI, SDK, миграция 0048 и TLS regression coverage.
+
 ## [0.7.3] — 2026-11-14 — Cluster & Server Discovery
 
 - Реальный сбор VMmanager cluster/node через проверенный профиль, keyset pagination, нормализованные CPU/RAM/storage и membership.

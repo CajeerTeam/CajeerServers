@@ -101,6 +101,10 @@ final class ConnectorBindingController
     {
         return HttpResponse::json(['data'=>$this->runtime->vmmanagerCluster($this->actor($r,'connectors.targets.read'),self::id($r))],200,['Cache-Control'=>'private, no-store']);
     }
+    public function vmmanagerGuests(HttpRequest $r):HttpResponse
+    {
+        return HttpResponse::json(['data'=>$this->runtime->vmmanagerGuests($this->actor($r,'connectors.targets.read'),self::id($r))],200,['Cache-Control'=>'private, no-store']);
+    }
     public function proxmoxCluster(HttpRequest $r):HttpResponse
     {
         return HttpResponse::json(['data'=>$this->runtime->proxmoxCluster($this->actor($r,'connectors.targets.read'),self::id($r))],200,['Cache-Control'=>'private, no-store']);

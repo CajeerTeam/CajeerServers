@@ -72,4 +72,6 @@ ok(read('pages/proxmox.vue').includes('scopedProxmox')&&read('pages/proxmox.vue'
 ok(read('pages/proxmox.vue').includes('ProxmoxGuestDiscovery')&&read('pages/proxmox.vue').includes('PbsBackupDiscovery')&&read('pages/proxmox.vue').includes('ConnectorLifecycle'),'Proxmox console uses actual discovery and dispatch panels')
 ok(read('components/ConnectorLifecycle.vue').includes('external_id=')&&read('components/ConnectorLifecycle.vue').includes('initialResource'),'focused guest exact resource lookup')
 ok(existsSync(new URL('tests/e2e/proxmox-admin.spec.ts',root)),'real staging Proxmox/PBS browser scenario')
+ok(read('pages/collections.vue').includes('VmmanagerGuestDiscovery')&&read('pages/collections.vue').includes("'vmmanager.guests'"), 'VMmanager detailed guest panel and plan')
+ok(read('components/VmmanagerGuestDiscovery.vue').includes("'/vmmanager-guests'")&&read('components/VmmanagerGuestDiscovery.vue').includes('collector=vmmanager.guests'), 'VMmanager guest current and history real API')
 console.log(`Admin static checks: ${passed} PASS`)

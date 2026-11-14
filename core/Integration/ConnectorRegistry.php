@@ -66,6 +66,14 @@ final class ConnectorRegistry
         catch(ConnectorTransportException $e){throw new HttpException(502,$e->getMessage(),$e->category);}
         catch(\Throwable){throw new HttpException(502,'Invalid VMmanager cluster discovery result.','connector_protocol_error');}
     }
+    public function vmmanagerGuests(ConnectorContext $context,string $operation,string $purpose,#[\SensitiveParameter] string $secret):ConnectorResult
+    {
+        $driver=$this->require($context->provider,$operation);
+        if(!$driver instanceof \Cajeer\Servers\Connector\VmmanagerConnector||!in_array($operation,['inspect','sync'],true)||!$this->metadata['vmmanager']->accepts($context->credentialType,$purpose))throw new HttpException(403,'VMmanager guest collection not permitted.','permission_denied');
+        try{return $driver->guests($context,$secret)->validated($this->metadata['vmmanager']);}
+        catch(ConnectorTransportException $e){throw new HttpException(502,$e->getMessage(),$e->category);}
+        catch(\Throwable){throw new HttpException(502,'Invalid VMmanager guest discovery result.','connector_protocol_error');}
+    }
     public function supportsClusterDiscovery():bool
     {return ($this->drivers['proxmox']??null) instanceof \Cajeer\Servers\Connector\ProxmoxConnector;}
     public function cluster(ConnectorContext $context,string $operation,string $purpose,#[\SensitiveParameter] string $secret):ConnectorResult

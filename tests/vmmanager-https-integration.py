@@ -17,7 +17,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 CLUSTERS = [dict(id=1, name='KVM production', virtualization_type='kvm'), dict(id=2, name='LXD production', virtualization_type='lxd')]
 NODES = [dict(id=1, name='vmm-node-a', state='active', cluster={'id': 1, 'name': 'KVM production'}, ip='192.0.2.11', cpu_number=32, ram_mib={'total': 65536, 'used': 16384}, storage_mib={'total': '9007199254740993', 'used': 1024}, host_count=5, host_limit=-1, password='remote-secret-marker'),
          dict(id=2, name='vmm-node-b', state='active', maintenance_mode=True, cluster={'id': 2, 'name': 'LXD production'}, ipv6='2001:db8::2', cpu_number=16, ram_mib={'total': 32768, 'used': 4096})]
-HOSTS = [dict(id=21, name='vmm-guest-a', state=True, node={'id': 1}, cluster={'id': 1, 'virtualization_type': 'kvm'}),
+HOSTS = [dict(id=21, name='vmm-guest-a', state=True, node={'id': 1}, cluster={'id': 1, 'virtualization_type': 'kvm', 'name': 'KVM production'}, cpu_number=4, ram_mib=8192, hdd_mib='9007199254740993', os={'id': 12, 'name': 'Ubuntu 24.04'}, account={'id': 7, 'email': 'remote-secret-marker'}, disk=[{'id': 31, 'name': 'root', 'size_mib': '9007199254740993', 'storage': {'id': 6, 'name': 'local'}, 'bus': 'virtio', 'type': 'hard_drive', 'path': 'remote-secret-marker'}], iface=[{'id': 41, 'name': 'eth0', 'mac': '02:00:00:00:00:01', 'model': 'virtio', 'bridge': 'br0', 'ip': [{'name': '192.0.2.21'}, {'name': '2001:db8::21'}]}], ip=[{'name': '192.0.2.21'}], password='remote-secret-marker'),
          dict(id=22, name='vmm-container-b', state=False, node={'id': 2}, cluster={'id': 2, 'virtualization_type': 'lxd'})]
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -150,7 +150,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if token == 'fixture-vmm-scoped':
                 rows = rows[:1]
             if token == 'fixture-vmm-rotated':
-                rows[0].update(name='vmm-guest-renamed', node={'id': 2})
+                rows[0].update(name='vmm-guest-renamed', node={'id': 2}, cluster={'id': 2, 'virtualization_type': 'kvm'}, cpu_number=8)
             if token == 'fixture-vmm-missing':
                 rows[0]['node'] = {'id': 999}
             if token == 'fixture-vmm-unknown':
@@ -275,6 +275,23 @@ foreach(['cluster-denied'=>'connector_auth_failed','cluster-midfail'=>'connector
     try{$cluster('fixture-vmm-'.$case);throw new LogicException('accepted '.$case);}catch(HttpException $e){$ok($e->status===502&&$e->errorCode===$category,'cluster rejects '.$case);}
 }
 try{$collector->collect($clusterPlan,array_diff_key($target,['vmmanager_profile'=>true]),'api_token','fixture-vmm-active');throw new LogicException('missing profile');}catch(HttpException $e){$ok($e->errorCode==='collection_invalid','profile required for detailed collector');}
+$guestPlan=new \Cajeer\Servers\Collector\CollectionPlan('vmmanager.guests','sync');
+$guest=static fn(string $token)=>$collector->collect($guestPlan,$target,'api_token',$token);
+$ok($catalog['vmmanager.guests']['operations']===['inspect','sync'],'guest collector registered');
+$r=$guest('fixture-vmm-active');$d=$r->connection['vmmanager_guest_discovery'];$g=$d['guests'][0];
+$ok($r->complete&&$d['complete']&&$d['counts']===['nodes'=>2,'guests'=>2,'unlinked_guests'=>0]&&$r->items[2]['type']==='virtual_machine'&&$r->items[3]['type']==='container','KVM and LXD complete scoped discovery');
+$ok($g['cpu_number']==='4'&&$g['ram_mib']==='8192'&&$g['hdd_mib']==='9007199254740993'&&$g['os_name']==='Ubuntu 24.04'&&$g['account_id']===7,'actual host configuration exact units');
+$ok($g['disks'][0]['size_mib']==='9007199254740993'&&$g['disks'][0]['storage_id']===6&&$g['interfaces'][0]['mac']==='02:00:00:00:00:01'&&$g['ip_addresses']===['192.0.2.21','2001:db8::21']&&!str_contains(json_encode($d),'remote-secret-marker'),'disk/NIC/IP allowlist and precision');
+$ok($r->items[2]['fields']['os_family']==='ubuntu'&&$r->items[2]['fields']['ip_addresses']===$g['ip_addresses']&&$r->items[2]['parent_external_id']==='node:1','CMDB normalized observations');
+$ok($d['guests'][1]['ram_mib']===null&&$d['guests'][1]['disks']===null&&$d['guests'][1]['interfaces']===null&&$d['guests'][1]['state']==='stopped','missing fields are unknown, not zero');
+$r=$guest('fixture-vmm-rotated');$ok($r->items[2]['external_id']==='host:21'&&$r->items[2]['parent_external_id']==='node:2'&&$r->connection['vmmanager_guest_discovery']['guests'][0]['cpu_number']==='8','stable guest ID during move and resize');
+$r=$guest('fixture-vmm-scoped');$ok(!$r->complete&&!$r->connection['vmmanager_guest_discovery']['complete'],'restricted collection never marks other guests missing');
+$r=$guest('fixture-vmm-many');$ok(count($r->items)===104&&$r->connection['vmmanager_guest_discovery']['guests'][101]['id']===1101,'detailed host keyset pagination');
+$r=$guest('fixture-vmm-short');$ok(count($r->items)===4,'guest short page does not terminate pagination');
+foreach(['midfail'=>'connector_unavailable','duplicate'=>'connector_protocol_error','missing'=>'connector_protocol_error','unknown'=>'connector_protocol_error'] as $case=>$category){
+ try{$guest('fixture-vmm-'.$case);throw new LogicException('accepted '.$case);}catch(HttpException $e){$ok($e->status===502&&$e->errorCode===$category,'guest rejects '.$case);}
+}
+try{$collector->collect($guestPlan,array_diff_key($target,['vmmanager_profile'=>true]),'api_token','fixture-vmm-active');throw new LogicException('missing guest profile');}catch(HttpException $e){$ok($e->errorCode==='collection_invalid','guest profile required');}
 echo "VMmanager HTTPS integration: $n PASS\n";
 '''
             subprocess.run(['php','-r',code,str(ROOT),str(server.server_port),str(cert)],check=True,timeout=60)

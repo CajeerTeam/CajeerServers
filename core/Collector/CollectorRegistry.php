@@ -26,7 +26,10 @@ final class CollectorRegistry
                 $registry->register(new ConnectorCollector('proxmox.storage-network','proxmox',$connectors));
                 $registry->register(new ConnectorCollector('proxmox.tasks','proxmox',$connectors));
             }
-            if($provider==='vmmanager'&&$connectors->supportsVmmanagerCluster())$registry->register(new ConnectorCollector('vmmanager.cluster','vmmanager',$connectors));
+            if($provider==='vmmanager'&&$connectors->supportsVmmanagerCluster()){
+                $registry->register(new ConnectorCollector('vmmanager.cluster','vmmanager',$connectors));
+                $registry->register(new ConnectorCollector('vmmanager.guests','vmmanager',$connectors));
+            }
             if($connectors->supportsMetrics($provider))$registry->register(new MetricsCollector($provider,$connectors));
         }
         return $registry;
@@ -46,7 +49,7 @@ final class CollectorRegistry
             foreach(['inspect','sync'] as $op) {
                 try {$this->require($name,$provider,$op);$operations[]=$op;}catch(HttpException){}
             }
-            if($operations!==[]) $rows[]=['name'=>$name,'provider'=>$provider,'operations'=>$operations,'resource_types'=>match($name){'vmmanager.cluster'=>['cluster','hypervisor_node'],'vmmanager.inventory'=>['hypervisor_node','virtual_machine','container'],default=>$this->connectors->manifests()[$provider]->resourceTypes}];
+            if($operations!==[]) $rows[]=['name'=>$name,'provider'=>$provider,'operations'=>$operations,'resource_types'=>match($name){'vmmanager.cluster'=>['cluster','hypervisor_node'],'vmmanager.inventory','vmmanager.guests'=>['hypervisor_node','virtual_machine','container'],default=>$this->connectors->manifests()[$provider]->resourceTypes}];
         }
         return $rows;
     }

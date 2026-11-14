@@ -30,7 +30,7 @@ try {
     $pdo=$db->connection();$ok((int)$pdo->query("SELECT current_setting('server_version_num')")->fetchColumn()>=170000,'PostgreSQL 17+');
     $pdo->exec('CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public');
     $pdo->exec('CREATE SCHEMA "'.$schema.'"');$created=true;$pdo->exec('SET search_path TO "'.$schema.'", public');
-    foreach(glob($root.'/migrations/pgsql/*.sql')?:[] as $file)if(!str_starts_with(basename($file),'0047_'))copy($file,$dir.'/migrations/'.basename($file));
+    foreach(glob($root.'/migrations/pgsql/*.sql')?:[] as $file)if(!str_starts_with(basename($file),'0047_')&&!str_starts_with(basename($file),'0048_'))copy($file,$dir.'/migrations/'.basename($file));
     (new MigrationRunner($db,$dir.'/migrations'))->run();
     $password='fixture-only-password-123!';$q=$pdo->prepare('INSERT INTO users(email,name,password_hash,two_factor_enabled) VALUES(:email,:name,:hash,true) RETURNING id::text');
     $q->execute(['email'=>'vmm-test@example.invalid','name'=>'VMM integration','hash'=>password_hash($password,PASSWORD_ARGON2ID)]);$actor=(string)$q->fetchColumn();
@@ -131,7 +131,19 @@ try {
     $ok($execution->status($actor,$id,$run['id'])['result']['connection']['vmmanager_cluster_discovery']['counts']['nodes']===2,'run history retains full snapshot');
     $authorize();$runtime->run($principal,$id,3,true);$q->execute(['id'=>$id]);$mapped2=array_column($q->fetchAll(PDO::FETCH_ASSOC),null,'external_id');
     $ok($mapped2['cluster:1']['asset_id']===$mapped['cluster:1']['asset_id']&&$mapped2['cluster:1']['presence']==='seen'&&$mapped2['cluster:999']['presence']==='missing','legacy inventory keeps cluster identity');
+    copy($root.'/migrations/pgsql/0048_vmmanager_guest_discovery.sql',$dir.'/migrations/0048_vmmanager_guest_discovery.sql');
+    $ok(count($runner->run()['applied'])===1&&$runner->run()['applied']===[],'upgrade from 0.7.3 and migration idempotency');
+    $ok($runtime->vmmanagerGuests($actor,$id)['state']==='not_collected','guest state initially absent');
+    $authorize();$guestPlan=$execution->createPlan($principal,$id,3,['name'=>'Detailed guests','collector'=>'vmmanager.guests','operation'=>'sync','ttl_seconds'=>3600,'interval_seconds'=>300]);
+    $guestRun=$execution->runPlan($actor,$id,$guestPlan['id'],'guest-sync');
+    $ok($execution->once()['status']==='succeeded','guest worker succeeds');
+    $g=$runtime->vmmanagerGuests($actor,$id);$ok($g['state']==='available'&&$g['snapshot']['counts']['guests']===2&&$g['snapshot']['guests'][0]['cpu_number']==='8','guest snapshot committed');
+    $q->execute(['id'=>$id]);$guestMapped=array_column($q->fetchAll(PDO::FETCH_ASSOC),null,'external_id');
+    $ok($guestMapped['host:21']['asset_id']===$mapped['host:21']['asset_id']&&$guestMapped['cluster:1']['presence']==='seen','guest identity and cluster isolation');
+    $beforeGuestRepeat=$count();$execution->runPlan($actor,$id,$guestPlan['id'],'guest-repeat');$ok($execution->once()['status']==='succeeded'&&$count()===$beforeGuestRepeat,'repeat guest sync no duplicates');
+    $ok($execution->status($actor,$id,$guestRun['id'])['result']['connection']['vmmanager_guest_discovery']['guests'][0]['disks'][0]['size_mib']==='9007199254740993','guest history retains precise disk data');
     $bindings->update($actor,$id,3,['vmmanager_profile'=>$profile]);$ok($runtime->vmmanagerCluster($actor,$id)['state']==='stale','profile revision invalidates current cluster snapshot');
+    $ok($runtime->vmmanagerGuests($actor,$id)['state']==='stale','profile revision invalidates guest snapshot');
     echo "VMmanager PostgreSQL/Vault/Queue/HTTPS integration: $n PASS\n";
 } catch(Throwable $e){$failed=true;fwrite(STDERR,'FAIL VMmanager PostgreSQL: '.$e::class.': '.$e->getMessage()."\n");}
 finally {

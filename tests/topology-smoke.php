@@ -46,7 +46,7 @@ $oldEnv=getenv('APP_ENV');$oldUrl=getenv('APP_URL');putenv('APP_ENV=local');pute
 $app=(new Application($root))->boot();
 try{
     $routes=$app->container()->get(Router::class)->routes();
-    $ok(count($routes)===210,'210 registered HTTP method routes');
+    $ok(count($routes)===211,'211 registered HTTP method routes');
     foreach(['/api/v1/inventory/relationships','/api/v1/inventory/relationships/{id}','/api/v1/inventory/topology'] as $route)$ok(in_array($route,array_column($routes,'path'),true),'registered '.$route);
     foreach(['/api/v1/inventory/relationships','/api/v1/inventory/topology'] as $route){
         $res=$app->handle(new HttpRequest('GET',$route,[], '', ['workspace_id'=>$id]));
