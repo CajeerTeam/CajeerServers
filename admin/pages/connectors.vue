@@ -18,7 +18,10 @@ type PveProfile={cluster:string|null;anchor_node:string;anchor_id:number|null;pr
 type PveConnection={version:string;cluster:string|null;anchor_node:string;anchor_id:number|null;endpoint_host:string;endpoint_port:number;failover:boolean;visible_members:number;quorate:boolean|null;permissions_visible?:boolean;root_privileges?:string[]}
 const profileText=ref(''),pveConnection=ref<PveConnection|null>(null)
 const canProfile=computed(()=>canManage.value&&workspaces.value.find(w=>w.id===workspace.value)?.role==='owner')
-type Target={vmmanager_profile?:VmmProfile|null;proxmox_profile?:PveProfile|null;id:string;workspace_id:string;provider:string;name:string;endpoint_host:string;endpoint_port:number;state:string;asset_id:string|null;version:number;etag:string;health_status:string;health_checked_at:string|null;health_success_at:string|null;health_duration_ms:number|null;health_error_code:string|null;circuit_open_until:string|null;consecutive_failures:number}
+type OsProfile={primary_pin:string;identity_hash:string;key_type?:string}|{engine_id:string;object_id:string}
+type OsConnection={provider:'ssh'|'winrm'|'snmp';profile_verified:boolean;identity_verified:boolean;trust_mode:string}
+const osProfileText=ref(''),osConnection=ref<OsConnection|null>(null)
+type Target={os_network_profile?:OsProfile|null;vmmanager_profile?:VmmProfile|null;proxmox_profile?:PveProfile|null;id:string;workspace_id:string;provider:string;name:string;endpoint_host:string;endpoint_port:number;state:string;asset_id:string|null;version:number;etag:string;health_status:string;health_checked_at:string|null;health_success_at:string|null;health_duration_ms:number|null;health_error_code:string|null;circuit_open_until:string|null;consecutive_failures:number}
 type Binding={id:string;connector_id:string;credential_id:string;purpose:string;type:string;state:string;credential_version:number|string}
 type Credential={credential_id:string;name:string;type:string;state:string}
 type Asset={id:string;name:string;type:string}
@@ -87,7 +90,7 @@ async function load(){const seq=++loadSequence,ws=workspace.value;openSequence++
     await searchAssets()
   }catch(e){if(seq===loadSequence)fail(e)}finally{if(seq===loadSequence)loading.value=false}
 }
-async function open(target:Target){if(target.workspace_id!==workspace.value)return;const seq=++openSequence;resources.value=[];resourceOffset.value=0;resourceHasMore.value=false;resolutionAssets.value={};selected.value=target.id;selectedTarget.value=target;profileText.value=target.proxmox_profile?JSON.stringify(target.proxmox_profile,null,2):'';pveConnection.value=null;vmmConnection.value=null;Object.assign(vmmForm,target.vmmanager_profile||{primary_pin:'',anchor_id:1,anchor_node:''});assetSelection.value=target.asset_id||'';Object.assign(edit,{name:target.name,endpoint_host:target.endpoint_host,endpoint_port:target.endpoint_port});editEtag.value=target.etag;bindings.value=[];binding.credential_id='';manualCredential.value=false;binding.purpose=drivers.value.find(d=>d.provider===target.provider)?.purpose||providers.find(p=>p.id===target.provider)?.purpose||'api';pendingVersions.value=[];lastRun.value=null;stepup.password='';stepup.totp='';reset();
+async function open(target:Target){if(target.workspace_id!==workspace.value)return;const seq=++openSequence;resources.value=[];resourceOffset.value=0;resourceHasMore.value=false;resolutionAssets.value={};selected.value=target.id;selectedTarget.value=target;osConnection.value=null;osProfileText.value=target.os_network_profile?JSON.stringify(target.os_network_profile,null,2):target.provider==='snmp'?JSON.stringify({engine_id:'',object_id:''},null,2):JSON.stringify({primary_pin:'',identity_hash:'',...(target.provider==='ssh'?{key_type:'ssh-ed25519'}:{})},null,2);profileText.value=target.proxmox_profile?JSON.stringify(target.proxmox_profile,null,2):'';pveConnection.value=null;vmmConnection.value=null;Object.assign(vmmForm,target.vmmanager_profile||{primary_pin:'',anchor_id:1,anchor_node:''});assetSelection.value=target.asset_id||'';Object.assign(edit,{name:target.name,endpoint_host:target.endpoint_host,endpoint_port:target.endpoint_port});editEtag.value=target.etag;bindings.value=[];binding.credential_id='';manualCredential.value=false;binding.purpose=drivers.value.find(d=>d.provider===target.provider)?.purpose||providers.find(p=>p.id===target.provider)?.purpose||'api';pendingVersions.value=[];lastRun.value=null;stepup.password='';stepup.totp='';reset();
   await navigateTo(`${inventoryContextUrl('connectors',workspace.value)}&target_id=${target.id}`,{replace:true});
   await loadResources(target,0);if(seq!==openSequence||selected.value!==target.id)return
   try{
@@ -111,6 +114,12 @@ async function savePveProfile(){
   let profile:PveProfile;try{profile=JSON.parse(profileText.value)}catch{error.value='Некорректный JSON профиля.';return}
   if(!confirm('Подтвердить доверенные endpoints и SHA-256 сертификатов? Прежние grants будут недействительны.'))return
   busy.value=true;reset();try{const updated=(await api.write<{data:Target}>('PATCH',`/connectors/targets/${item.id}`,{proxmox_profile:profile},true,{'If-Match':item.etag})).data;await open(updated);message.value='Профиль сохранён. Выполните MFA health check.'}catch(e){fail(e)}finally{busy.value=false}
+}
+async function saveOsProfile(){
+  const item=active.value;if(!item||!['ssh','winrm','snmp'].includes(item.provider)||!canProfile.value||busy.value)return
+  let profile:OsProfile;try{profile=JSON.parse(osProfileText.value)}catch{error.value='Некорректный JSON профиля.';return}
+  if(!confirm('Сохранить доверие, проверенное по независимому каналу? Старые grants станут недействительны.'))return
+  busy.value=true;reset();try{const updated=(await api.write<{data:Target}>('PATCH',`/connectors/targets/${item.id}`,{os_network_profile:profile},true,versionHeaders(item))).data;await open(updated);message.value='Профиль сохранён. Выполните MFA health check.'}catch(e){fail(e)}finally{busy.value=false}
 }
 async function saveVmmProfile(){
   const item=active.value;if(!item||item.provider!=='vmmanager'||!canProfile.value||busy.value)return
@@ -173,7 +182,7 @@ async function resolveResource(resource:DiscoveryResource,mode:'link'|'create'){
 async function executeRemote(sync:boolean){
   const item=active.value,credential=apiBinding.value
   if(busy.value||!item||!credential||!item.asset_id||(sync?!canSync.value:!canRun.value))return
-  busy.value=true;reset();lastRun.value=null;pveConnection.value=null;vmmConnection.value=null
+  busy.value=true;reset();lastRun.value=null;pveConnection.value=null;vmmConnection.value=null;osConnection.value=null
   try{
     await api.write('POST',`/vault/credentials/${credential.credential_id}/authorize-use`,{
       asset_id:item.asset_id,purpose:credential.purpose,password:stepup.password,totp:stepup.totp})
@@ -189,13 +198,14 @@ async function executeRemote(sync:boolean){
 async function checkHealth(){
   const item=active.value,credential=apiBinding.value
   if(!item||!credential||!item.asset_id||!canHealth.value)return
-  busy.value=true;reset();lastRun.value=null;pveConnection.value=null;vmmConnection.value=null
+  busy.value=true;reset();lastRun.value=null;pveConnection.value=null;vmmConnection.value=null;osConnection.value=null
   try{
     await api.write('POST',`/vault/credentials/${credential.credential_id}/authorize-use`,{
       asset_id:item.asset_id,purpose:credential.purpose,password:stepup.password,totp:stepup.totp})
-    const result=await api.write<{data:{status:string;duration_ms:number;connection?:PveConnection|VmmConnection}}>('POST',`/connectors/targets/${item.id}/health`,undefined,true,versionHeaders(item))
+    const result=await api.write<{data:{status:string;duration_ms:number;connection?:PveConnection|VmmConnection|OsConnection}}>('POST',`/connectors/targets/${item.id}/health`,undefined,true,versionHeaders(item))
     const connection=result.data.connection
     if(connection&&'provider' in connection&&connection.provider==='vmmanager')vmmConnection.value=connection
+    else if(connection&&'profile_verified' in connection)osConnection.value=connection
     else if(connection&&'quorate' in connection)pveConnection.value=connection
     message.value=`Проверка доступности: ${result.data.status}, ${result.data.duration_ms} мс.`
   }catch(e){fail(e)}finally{stepup.password='';stepup.totp='';await refreshHealth();busy.value=false}
@@ -333,6 +343,17 @@ onMounted(init)
         <p v-if="circuitOpen" class="muted">Фоновые и обычные операции приостановлены. После исправления причины выполните ручную проверку доступности с MFA.</p>
         <p v-if="active.provider==='pbs'">PBS: HTTPS 8007, API token Vault типа api_token (user@realm!token:secret). Создайте план pbs.backups с операцией inspect.</p>
         <p v-if="active.provider==='prometheus'">Prometheus: HTTPS /metrics, Bearer API token. Создайте план prometheus.metrics с операцией inspect.</p>
+        <section v-if="['ssh','winrm','snmp'].includes(active.provider)" class="panel" data-testid="os-network-profile">
+          <h3>Профиль доверия OS / Network</h3>
+          <p>{{active.os_network_profile?'Идентичность закреплена. После ротации выполните health check.':'Совместимый режим без индивидуального профиля. Настройте доверие перед включением обязательного режима.'}}</p>
+          <p v-if="active.provider==='ssh'">SSH: primary_pin — SHA-256 (hex) бинарного публичного ключа; key_type — ssh-ed25519, ssh-rsa (только RSA-SHA2), либо ECDSA. identity_hash — SHA-256 строки ssh:machine-id.</p>
+          <p v-else-if="active.provider==='winrm'">WinRM: primary_pin — SHA-256 DER-сертификата (hex); identity_hash — SHA-256 строки winrm:machineguid без дефисов, в нижнем регистре.</p>
+          <p v-else>SNMPv3 authPriv: engine_id — hex без разделителей, object_id — числовой sysObjectID с начальной точкой.</p>
+          <form v-if="canProfile" @submit.prevent="saveOsProfile"><label>Профиль JSON<textarea v-model="osProfileText" rows="6" required autocomplete="off" /></label><button class="btn" :disabled="busy">Сохранить профиль OS / Network</button></form>
+          <pre v-else-if="active.os_network_profile">{{JSON.stringify(active.os_network_profile,null,2)}}</pre>
+          <p v-if="osConnection">Trust: {{osConnection.trust_mode}} · профиль {{osConnection.profile_verified?'подтверждён':'не настроен'}} · identity {{osConnection.identity_verified?'подтверждена':'не закреплена'}}</p>
+          <p class="muted small">Настройка требует MFA. Сохранение не является удалённой проверкой; подтвердите fingerprint и идентичность независимо от обнаруженного endpoint.</p>
+        </section>
         <p v-if="active.provider==='snmp'">SNMP: UDP, read-only; профиль SNMPv3 с SHA-256/512 и AES128 обязателен по умолчанию. SNMPv2c доступен только при явном разрешении на сервере. Собираются sysName, sysObjectID, интерфейсы и IP. Для автоматической проверки выдайте ограниченный service grant health с расписанием через API или CLI.</p>
         <p>Для запуска требуется активная связка credential с этой конфигурацией и выбранным Inventory asset, а также такое же назначение credential на самом asset. Доступ выдаётся на одно действие после проверки пароля и TOTP. TLS проверяется; для собственного CA задайте PROXMOX_CA_FILE или VMMANAGER_CA_FILE на сервере. VMmanager 6 использует API v3, порт 443 и токен из Vault; доступны узлы, KVM ВМ и LXD контейнеры. SSH использует доверенный SSH_KNOWN_HOSTS_FILE и пароль или приватный ключ; WinRM — HTTPS, credential auth=basic и WINRM_CA_FILE для частного CA. Linux/Windows собирают CPU, RAM, диски и интерфейсы только на чтение.</p>
         <form v-if="(canRun||canHealth||canSync||canValidate)&&apiBinding&&active.asset_id" @submit.prevent="executeRemote(false)">

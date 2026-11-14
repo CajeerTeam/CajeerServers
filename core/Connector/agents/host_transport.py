@@ -2,6 +2,8 @@
 """Bounded, one-shot transport. Input is a private stdin pipe; output only typed data or a finite error."""
 import base64
 import http.client
+import hashlib
+import hmac
 import io
 import ipaddress
 import json
@@ -33,10 +35,11 @@ def ssh_collect(req):
     from cryptography.hazmat.primitives.asymmetric import ed25519, ec, rsa
     secret = req['credential']
     host, port = req['host'], req['port']
-    known = paramiko.HostKeys(req['known_hosts'])
+    profile = req.get('profile')
+    known = None if profile else paramiko.HostKeys(req['known_hosts'])
     label = host if port == 22 else f'[{host}]:{port}'
-    trusted = known.lookup(label)
-    if not trusted:
+    trusted = known.lookup(label) if known else None
+    if not profile and not trusted:
         fail('connector_trust_failed')
     sock = socket.create_connection((req['ip'], port), timeout=8)
     transport = paramiko.Transport(sock)
@@ -45,15 +48,23 @@ def ssh_collect(req):
         transport.auth_timeout = 8
         # Negotiate only algorithms for which the operator has a trusted key.
         algorithms = transport.get_security_options()
-        permitted = tuple(x for x in algorithms.key_types if x in trusted or
-                          (x in ('rsa-sha2-256', 'rsa-sha2-512') and 'ssh-rsa' in trusted))
+        if profile:
+            key_type = profile['key_type']
+            permitted = tuple(x for x in algorithms.key_types if x == key_type or
+                              (key_type == 'ssh-rsa' and x in ('rsa-sha2-256', 'rsa-sha2-512')))
+        else:
+            permitted = tuple(x for x in algorithms.key_types if x in trusted or
+                              (x in ('rsa-sha2-256', 'rsa-sha2-512') and 'ssh-rsa' in trusted))
         permitted = tuple(x for x in permitted if x not in ('ssh-rsa', 'ssh-dss'))
         if not permitted:
             fail('connector_trust_failed')
         algorithms.key_types = permitted
         transport.start_client(timeout=8)
         key = transport.get_remote_server_key()
-        if not known.check(label, key):
+        if profile:
+            if key.get_name() != profile['key_type'] or not hmac.compare_digest(hashlib.sha256(key.asbytes()).hexdigest(), profile['primary_pin']):
+                fail('connector_trust_failed')
+        elif not known.check(label, key):
             fail('connector_trust_failed')
         if req['credential_type'] == 'ssh_password':
             transport.auth_password(secret['username'], secret['password'], fallback=False)
@@ -134,14 +145,18 @@ def add(parent, ns, name, value=None, **attrs):
 
 
 class PinnedHTTPS(http.client.HTTPSConnection):
-    def __init__(self, host, port, ip, context):
+    def __init__(self, host, port, ip, context, pin=None):
         super().__init__(host, port, timeout=12, context=context)
         self.ip = ip
+        self.pin = pin
 
     def connect(self):
         raw = socket.create_connection((self.ip, self.port), self.timeout)
         try:
             self.sock = self._context.wrap_socket(raw, server_hostname=self.host)
+            if self.pin and not hmac.compare_digest(hashlib.sha256(self.sock.getpeercert(binary_form=True)).hexdigest(), self.pin):
+                self.sock.close()
+                fail('connector_trust_failed')
         except BaseException:
             raw.close()
             raise
@@ -190,7 +205,7 @@ class WinRM:
         content = add(envelope, SOAP, 'Body')
         if body is not None:
             content.append(body)
-        conn = PinnedHTTPS(self.req['host'], self.req['port'], self.req['ip'], self.context)
+        conn = PinnedHTTPS(self.req['host'], self.req['port'], self.req['ip'], self.context, (self.req.get('profile') or {}).get('primary_pin'))
         try:
             conn.request('POST', '/wsman', ET.tostring(envelope, encoding='utf-8', xml_declaration=True),
                          {'Content-Type': 'application/soap+xml;charset=UTF-8', 'Authorization': self.auth, 'Connection': 'close'})

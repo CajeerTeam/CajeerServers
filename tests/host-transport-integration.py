@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Real HTTPS WSMan protocol fixture; optional real SSH server with Paramiko (--ssh)."""
 import base64
+import hashlib
 import http.server
 import json
 import pathlib
@@ -90,6 +91,18 @@ def https_test(tmp):
         # The helper pins the first allowed IP and retains localhost as the TLS identity.
         out=execute('winrm',port,cred,ca=str(cert));assert out['complete'] and out['items'][0]['fields']['attributes']['host_hardware']['cpu_count']==4, out
         assert server.actions[-1]==TRANSFER+'Delete' and server.receives==2
+        pin=hashlib.sha256(ssl.PEM_cert_to_DER_cert(cert.read_text())).hexdigest()
+        profile={'primary_pin':pin,'identity_hash':hashlib.sha256(('winrm:'+DATA['identity'].replace('-','').lower()).encode()).hexdigest()}
+        out=execute('winrm',port,cred,ca=str(cert),profile=profile,require_profile=True,operation='health');assert out['connection']['profile_verified'] and out['connection']['identity_verified'],out
+        out=execute('winrm',port,cred,ca=str(cert),profile=profile,collector='winrm.inventory',require_profile=True);assert out['complete'],out
+        out=execute('winrm',port,cred,ca=str(cert),profile=profile,collector='winrm.metrics',operation='inspect',require_profile=True);assert len(out['metric_samples'])==7,out
+        n=len(server.requests);assert execute('winrm',port,cred,ca=str(cert),profile={**profile,'primary_pin':'0'*64})['error']=='connector_trust_failed';assert len(server.requests)==n
+        assert execute('winrm',port,cred,ca=str(cert),require_profile=True)['error']=='connector_trust_failed';assert len(server.requests)==n
+        assert execute('winrm',port,cred,ca=str(cert),profile={**profile,'identity_hash':'0'*64})['error']=='connector_trust_failed'
+        assert execute('winrm',port,cred,ca=str(cert),profile={**profile,'identity_hash':'0'*64},collector='winrm.metrics',operation='inspect')['error']=='connector_trust_failed'
+        assert execute('winrm',port,cred,profile=profile)['error']=='connector_trust_failed'
+        assert execute('winrm',port,cred,ca=str(cert),profile=profile,operation='validate_rotation')['connection']['identity_verified']
+        print('WinRM profile: 9 scenarios PASS')
         out=execute('winrm',port,cred,ca=str(cert),collector='winrm.inventory');assert out['complete'] and out['items'][0]['fields']['attributes']['host_hardware']['cpu_count']==4, out
         out=execute('winrm',port,cred,ca=str(cert),collector='winrm.metrics',operation='inspect');assert len(out['metric_samples'])==7 and out['metric_samples'][5]['value']=='18446744073709551615',out
         out=execute('winrm',port,cred,ca=str(cert),operation='health');assert not out['complete'],out
@@ -165,6 +178,17 @@ def ssh_test(tmp):
         n=len(auth_attempts);assert execute('ssh',port,cred,known_hosts=str(wrong))['error']=='connector_trust_failed';assert len(auth_attempts)==n
         assert execute('ssh',port,{**cred,'password':'wrong'},known_hosts=str(known))['error']=='connector_auth_failed'
         assert len(commands)==5
+        identity=(pathlib.Path('/etc/machine-id').read_text().strip().lower().replace('-',''))
+        profile={'primary_pin':hashlib.sha256(server_key.asbytes()).hexdigest(),'identity_hash':hashlib.sha256(('ssh:'+identity).encode()).hexdigest(),'key_type':'ssh-rsa'}
+        out=execute('ssh',port,cred,profile=profile,require_profile=True,operation='health');assert out['connection']['profile_verified'],out
+        out=execute('ssh',port,cred,profile=profile,collector='ssh.inventory',require_profile=True);assert out['complete'],out
+        out=execute('ssh',port,cred,profile=profile,collector='ssh.metrics',operation='inspect',require_profile=True);assert len(out['metric_samples'])>=5,out
+        n=len(auth_attempts);assert execute('ssh',port,cred,profile={**profile,'primary_pin':'0'*64})['error']=='connector_trust_failed';assert len(auth_attempts)==n
+        assert execute('ssh',port,cred,known_hosts=str(known),require_profile=True)['error']=='connector_trust_failed';assert len(auth_attempts)==n
+        assert execute('ssh',port,cred,profile={**profile,'identity_hash':'0'*64})['error']=='connector_trust_failed'
+        assert execute('ssh',port,cred,profile={**profile,'identity_hash':'0'*64},collector='ssh.metrics',operation='inspect')['error']=='connector_trust_failed'
+        out=execute('ssh',port,{'username':'test','private_key':pem},type='ssh_private_key',profile=profile,operation='validate_rotation');assert out['connection']['identity_verified'],out
+        print('SSH profile: 8 scenarios PASS')
     finally:stop.set();listener.close();thread.join(timeout=6)
     print('SSH protocol fixture: 7 scenarios PASS')
 

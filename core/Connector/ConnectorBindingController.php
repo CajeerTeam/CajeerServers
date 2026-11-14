@@ -204,7 +204,7 @@ final class ConnectorBindingController
     { $value=$r->query[$name]??null;if ($value!==null&&!is_string($value)) throw new HttpException(422,'Invalid connector filter.','validation_failed');return $value; }
     private function profileSession(HttpRequest $r):void
     {
-        if(array_key_exists('proxmox_profile',$r->attribute('json'))||array_key_exists('vmmanager_profile',$r->attribute('json'))){
+        if(array_key_exists('proxmox_profile',$r->attribute('json'))||array_key_exists('vmmanager_profile',$r->attribute('json'))||array_key_exists('os_network_profile',$r->attribute('json'))){
             $p=$this->auth->authenticate($r,sessionOnly:true);
             if(($p['mfa_verified']??false)!==true)throw new HttpException(403,'Active MFA session required to configure connector trust.','mfa_required');
         }

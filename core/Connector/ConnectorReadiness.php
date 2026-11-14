@@ -70,9 +70,18 @@ final class ConnectorReadiness
             }
             return true;
         },'Stored VMmanager profiles must be valid; mandatory profile mode requires trust for every active VMmanager target.');
-        $probe('connector_ssh_trust' ,function()use($cfg):bool {
+        $probe('connector_os_network_profiles',function()use($cfg):bool {
             $pdo=$this->app->container()->get(DatabaseManager::class)->connection();
-            $n=$pdo->query("SELECT count(*) FROM connector_targets WHERE provider='ssh' AND state='active'")->fetchColumn();
+            $q=$pdo->query("SELECT provider,os_network_profile,state FROM connector_targets WHERE provider IN ('ssh','winrm','snmp')");
+            while($row=$q->fetch(\PDO::FETCH_ASSOC)){
+                if($row['os_network_profile']===null){if($row['state']==='active'&&$cfg->get('connectors.os_network_require_profile',false)===true)return false;continue;}
+                OsNetworkProfile::normalize($row['provider'],json_decode($row['os_network_profile'],true,16,JSON_THROW_ON_ERROR));
+            }
+            return true;
+        },'Active OS/network targets require valid trust profiles in mandatory mode.');
+        $probe('connector_ssh_trust'  ,function()use($cfg):bool {
+            $pdo=$this->app->container()->get(DatabaseManager::class)->connection();
+            $n=$pdo->query("SELECT count(*) FROM connector_targets WHERE provider='ssh' AND state='active' AND os_network_profile IS NULL")->fetchColumn();
             $p=$cfg->get('connectors.ssh_known_hosts','');return (string)$n==='0'||(is_string($p)&&is_file($p)&&is_readable($p));
         },'Active SSH targets require an operator-owned known_hosts file.');
         return ['ok'=>!in_array(false,array_column($checks,'ok'),true),'checks'=>$checks];

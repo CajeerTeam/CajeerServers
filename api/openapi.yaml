@@ -1,7 +1,7 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.8.0
+  version: 0.8.1
   description: 'CajeerServers 0.7.1: VMmanager connection profiles, PVE/PBS integration and infrastructure collection.'
 servers:
 - url: /api/v1
@@ -6541,6 +6541,7 @@ paths:
                         anyOf:
                           - {$ref: '#/components/schemas/ProxmoxConnection'}
                           - {$ref: '#/components/schemas/VmmanagerConnection'}
+                          - {$ref: '#/components/schemas/OsNetworkConnection'}
         '403':
           $ref: '#/components/responses/Forbidden'
         '412':
@@ -6660,6 +6661,8 @@ paths:
                   type: integer
                   minimum: 1
                   maximum: 65535
+                os_network_profile:
+                  $ref: '#/components/schemas/OsNetworkProfile'
                 vmmanager_profile:
                   $ref: '#/components/schemas/VmmanagerProfile'
                 proxmox_profile:
@@ -6775,6 +6778,8 @@ paths:
                   type: integer
                   minimum: 1
                   maximum: 65535
+                os_network_profile:
+                  $ref: '#/components/schemas/OsNetworkProfile'
                 vmmanager_profile:
                   $ref: '#/components/schemas/VmmanagerProfile'
                 proxmox_profile:
@@ -11995,6 +12000,36 @@ components:
         root_privileges:
           type: array
           items: {type: string}
+    OsNetworkProfile:
+      description: Operator-verified trust; provider-specific. SSH/WinRM pins are hex SHA-256. Host identity is SHA-256 of provider colon normalized machine ID.
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [primary_pin, identity_hash, key_type]
+          properties:
+            primary_pin: {type: string, pattern: '^[a-fA-F0-9]{64}$'}
+            identity_hash: {type: string, pattern: '^[a-fA-F0-9]{64}$'}
+            key_type: {type: string, enum: [ssh-ed25519, ssh-rsa, ecdsa-sha2-nistp256, ecdsa-sha2-nistp384, ecdsa-sha2-nistp521]}
+        - type: object
+          additionalProperties: false
+          required: [primary_pin, identity_hash]
+          properties:
+            primary_pin: {type: string, pattern: '^[a-fA-F0-9]{64}$'}
+            identity_hash: {type: string, pattern: '^[a-fA-F0-9]{64}$'}
+        - type: object
+          additionalProperties: false
+          required: [engine_id, object_id]
+          properties:
+            engine_id: {type: string, pattern: '^(?:[a-fA-F0-9]{2}){5,32}$'}
+            object_id: {type: string, pattern: '^\.[0-2](?:\.(?:0|[1-9][0-9]{0,9})){2,63}$', maxLength: 255}
+    OsNetworkConnection:
+      type: object
+      required: [provider, profile_verified, identity_verified, trust_mode]
+      properties:
+        provider: {type: string, enum: [ssh, winrm, snmp]}
+        profile_verified: {type: boolean}
+        identity_verified: {type: boolean}
+        trust_mode: {type: string, enum: [ssh_pin, tls_pin, snmpv3_identity, known_hosts, tls_ca, snmp_legacy]}
     VmmanagerProfile:
       type: object
       additionalProperties: false
@@ -12441,6 +12476,10 @@ components:
         name: {type: string}
         endpoint_host: {type: string}
         endpoint_port: {type: integer, minimum: 1, maximum: 65535}
+        os_network_profile:
+          oneOf:
+            - $ref: '#/components/schemas/OsNetworkProfile'
+            - {type: 'null'}
         vmmanager_profile:
           oneOf:
             - $ref: '#/components/schemas/VmmanagerProfile'

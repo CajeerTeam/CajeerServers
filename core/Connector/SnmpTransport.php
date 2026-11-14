@@ -13,7 +13,7 @@ final class SnmpTransport
     private const IF_STATUS='.1.3.6.1.2.1.2.2.1.8';
     private const IP_IF='.1.3.6.1.2.1.4.20.1.2';
     private const IP_MODERN='.1.3.6.1.2.1.4.34.1.3';
-    public function __construct(private readonly EndpointPolicy $policy,private readonly bool $legacy=false,private readonly ?\Closure $factory=null) {}
+    public function __construct(private readonly EndpointPolicy $policy,private readonly bool $legacy=false,private readonly ?\Closure $factory=null,private readonly bool $requireProfile=false) {}
     public function credentialTypes():array { return $this->legacy?['snmp_v3','snmp_v2c']:['snmp_v3']; }
     private static function bad():never { throw new ConnectorTransportException('connector_protocol_error'); }
     private static function checkTime(float $deadline):void { if (microtime(true)>=$deadline) throw new ConnectorTransportException('connector_transport_failed'); }
@@ -62,13 +62,23 @@ final class SnmpTransport
         $bytes='';foreach($parts as $v){if(!ctype_digit($v)||(int)$v>255)self::bad();$bytes.=chr((int)$v);}
         $ip=inet_ntop($bytes);if($ip===false)self::bad();return $ip;
     }
+    private function verifyProfile(ConnectorContext $context,object $session):void
+    {
+        if($context->osNetworkProfile!==null)OsNetworkProfile::verifySnmp($context->osNetworkProfile,$session->get('.1.3.6.1.6.3.10.2.1.1.0'),$session->get(self::OBJECT));
+    }
+    private function requireTrust(ConnectorContext $context):void
+    {
+        if(($this->requireProfile&&$context->osNetworkProfile===null)||($context->osNetworkProfile!==null&&$context->credentialType!=='snmp_v3'))OsNetworkProfile::mismatch();
+    }
     public function metrics(ConnectorContext $context,#[\SensitiveParameter] array $credential):array
     {
         if($context->provider!=='snmp'||!in_array($context->credentialType,$this->credentialTypes(),true))throw new ConnectorTransportException('connector_auth_failed');
         if($context->credentialType==='snmp_v3'&&($credential['privacy_protocol']??null)!=='aes128')throw new ConnectorTransportException('connector_auth_failed');
+        $this->requireTrust($context);
         $ip=$this->policy->resolve($context->host);$session=$this->factory!==null?($this->factory)($ip,$context->port,$context->credentialType,$credential):new SnmpSession($ip,$context->port,$context->credentialType,$credential);
         $deadline=microtime(true)+45;$out=[];
         try{
+            $this->verifyProfile($context,$session);
             $uptime=$session->get('.1.3.6.1.2.1.1.3.0');if(!preg_match('/^[0-9]{1,10}$/D',$uptime)|| (float)$uptime>4294967295)self::bad();
             $out[]=\Cajeer\Servers\Metrics\MetricBatch::sample('snmp.uptime',(float)$uptime/100,'device',[],'gauge','seconds');
             foreach(['.1.3.6.1.2.1.31.1.1.1.6'=>'snmp.interface.receive','.1.3.6.1.2.1.31.1.1.1.10'=>'snmp.interface.transmit'] as $oid=>$metric){
@@ -76,6 +86,7 @@ final class SnmpTransport
                     $out[]=\Cajeer\Servers\Metrics\MetricBatch::sample($metric,$value,'device',['if_index'=>(string)$idx],'counter','bytes');}
             }
             foreach(['.1.3.6.1.2.1.2.2.1.14'=>'snmp.interface.receive_errors','.1.3.6.1.2.1.2.2.1.20'=>'snmp.interface.transmit_errors'] as $oid=>$metric){foreach(self::walk($session,$oid,$deadline) as $idx=>$value){$idx=self::index((string)$idx);if(!preg_match('/^[0-9]{1,10}$/D',$value)||(float)$value>4294967295)self::bad();$out[]=\Cajeer\Servers\Metrics\MetricBatch::sample($metric,$value,'device',['if_index'=>(string)$idx],'counter','errors');}}
+            $this->verifyProfile($context,$session);
             return $out;
         }finally{$session->close();}
     }
@@ -83,14 +94,16 @@ final class SnmpTransport
     {
         if ($context->provider!=='snmp'||!in_array($context->credentialType,$this->credentialTypes(),true)) throw new ConnectorTransportException('connector_auth_failed');
         if ($context->credentialType==='snmp_v3'&&($credential['privacy_protocol']??null)!=='aes128') throw new ConnectorTransportException('connector_auth_failed');
+        $this->requireTrust($context);
         $ip=$this->policy->resolve($context->host);
         $session=$this->factory!==null?($this->factory)($ip,$context->port,$context->credentialType,$credential):new SnmpSession($ip,$context->port,$context->credentialType,$credential);
         $deadline=microtime(true)+45;
         try {
+            $this->verifyProfile($context,$session);
             $name=self::text($session->get(self::NAME),255);self::checkTime($deadline);
             $object=self::numeric($session->get(self::OBJECT));self::checkTime($deadline);
             $result=['name'=>$name!==''?$name:$context->host,'object_id'=>$object];
-            if ($probe) return $result;
+            if ($probe) {$this->verifyProfile($context,$session);return $result;}
             $result['description']=self::text($session->get(self::DESCRIPTION),512);
             $expected=self::index($session->get(self::IF_NUMBER));if($expected>64) self::bad();
             $names=self::walk($session,self::IF_DESCR,$deadline);$states=self::walk($session,self::IF_STATUS,$deadline);
@@ -107,6 +120,7 @@ final class SnmpTransport
             }
             ksort($interfaces,SORT_NUMERIC);foreach($interfaces as &$row){ksort($row['addresses'],SORT_STRING);$row['addresses']=array_values($row['addresses']);}unset($row);
             ksort($addresses,SORT_STRING);$result['interfaces']=array_values($interfaces);$result['addresses']=array_values($addresses);
+            $this->verifyProfile($context,$session);
             return $result;
         } finally {$session->close();}
     }

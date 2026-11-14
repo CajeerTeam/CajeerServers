@@ -19,7 +19,7 @@ final class WindowsConnector implements ConnectorInterface, \Cajeer\Servers\Metr
     {
         if ($context->provider!=='winrm'||!$this->manifest()->supports($operation)||!$this->manifest()->accepts($context->credentialType,'winrm')) throw new \RuntimeException('Unsupported WinRM operation.');
         $credential=CredentialProfile::decodeForInternalUse($context->credentialType,$secret);
-        try { return HostObservation::result($this->transport->collect($context,$credential),'winrm',$operation); }
+        try { $result=HostObservation::result($this->transport->collect($context,$credential),'winrm',$operation);return new ConnectorResult($result->items,$result->complete,[],OsNetworkProfile::diagnostics($context)); }
         finally { foreach ($credential as &$value) if (is_string($value)) sodium_memzero($value); unset($value); }
     }
 }

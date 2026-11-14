@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 require dirname(__DIR__).'/core/autoload.php';
-use Cajeer\Servers\Connector\{ConnectorContext,ConnectorTransportException,EndpointPolicy,RouterConnector,SnmpTransport};
+use Cajeer\Servers\Connector\{ConnectorContext,ConnectorTransportException,EndpointPolicy,RouterConnector,SnmpTransport,SnmpSession};
 use Cajeer\Servers\Integration\ConnectorRegistry;
 use Cajeer\Servers\Http\Exception\HttpException;
 if (!extension_loaded('snmp')||!isset($argv[1])||!ctype_digit($argv[1])||(int)$argv[1]<1024||(int)$argv[1]>65535) exit(2);
@@ -23,6 +23,14 @@ foreach ([[$v2,$c2],[$v3,$c3]] as [$ctx,$secret]) {
     $ok(!$result->complete&&$item['external_id']==='device','stable partial observation');
     foreach(['health','validate_rotation'] as $op)$ok($registry->execute($ctx,$op,'snmp',$secret)->items[0]['fields']['name']==='cajeer-snmp-fixture',$op);
 }
+$session=new SnmpSession('127.0.0.1',$port,'snmp_v3',json_decode($c3,true,16,JSON_THROW_ON_ERROR));
+try{$profile=['engine_id'=>bin2hex($session->get('.1.3.6.1.6.3.10.2.1.1.0')),'object_id'=>'.'.ltrim($session->get('.1.3.6.1.2.1.1.2.0'),'.')];}finally{$session->close();}
+$trusted=new ConnectorContext('snmp','127.0.0.1',$port,'snmp_v3',null,null,$profile);
+$strict=new ConnectorRegistry(new RouterConnector(new SnmpTransport($policy,true,null,true)));
+foreach(['health','inspect','sync','validate_rotation'] as $op)$ok($strict->execute($trusted,$op,'snmp',$c3)->connection['profile_verified'],'native profile '.$op);
+$reject(fn()=>$strict->execute($v3,'health','snmp',$c3));
+$reject(fn()=>$strict->execute(new ConnectorContext('snmp','127.0.0.1',$port,'snmp_v3',null,null,array_replace($profile,['engine_id'=>'800000000000'])),'health','snmp',$c3));
+$reject(fn()=>$strict->execute(new ConnectorContext('snmp','127.0.0.1',$port,'snmp_v2c',null,null,$profile),'health','snmp',$c2));
 $reject(fn()=>$registry->execute($v2,'health','snmp','{"community":"bad-community"}'));
 $reject(fn()=>$registry->execute($v3,'health','snmp',str_replace('cajeer-test-auth','bad-passphrase',$c3)));
 $reject(fn()=>(new ConnectorRegistry(new RouterConnector(new SnmpTransport($policy))))->execute($v2,'health','snmp',$c2));

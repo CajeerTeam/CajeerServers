@@ -58,6 +58,18 @@ try{
     $gen=$service->generation($pdo);$when=$now();$data['cpu_count']=16;
     try{$db->transaction(function(PDO $pdo)use($repo,$service,$actor,$target,$snapshot,$data,$gen,$when):void{$repo->lockWorkspace($pdo,$target['workspace_id']);$service->apply($pdo,$actor,$target,$snapshot($data),$gen,$when,null);throw new RuntimeException('rollback');});}catch(RuntimeException $e){if($e->getMessage()!=='rollback')throw $e;}
     $ok($repo->find($pdo,$actor,$id)['attributes']['host_hardware']['cpu_count']===8,'rollback preserves hardware');
+    $pdo->prepare('UPDATE users SET two_factor_enabled=true WHERE id=:id')->execute(['id'=>$actor]);
+    $profile=['primary_pin'=>str_repeat('a',64),'identity_hash'=>hash('sha256','ssh:'.$data['identity']),'key_type'=>'ssh-ed25519'];
+    $trusted=$bindings->create($actor,['workspace_id'=>$ws,'provider'=>'ssh','name'=>'trusted source','endpoint_host'=>'trusted.test','endpoint_port'=>22,'os_network_profile'=>$profile]);
+    $ok($trusted['os_network_profile']==$profile&&$bindings->show($actor,$trusted['id'])['os_network_profile']==$profile,'stored profile');
+    $reject=function(int $status,callable $f)use($ok){try{$f();}catch(HttpException $e){$ok($e->status===$status,'expected profile error');return;}throw new RuntimeException('Expected profile error');};
+    $reject(409,fn()=>$bindings->update($actor,$trusted['id'],1,['os_network_profile'=>array_replace($profile,['identity_hash'=>str_repeat('b',64)])]));
+    $reject(422,fn()=>$bindings->update($actor,$trusted['id'],1,['os_network_profile'=>null]));
+    $reject(409,fn()=>$bindings->update($actor,$trusted['id'],1,['endpoint_host'=>'other.test']));
+    $reject(412,fn()=>$bindings->update($actor,$trusted['id'],99,['os_network_profile'=>$profile]));
+    $rotated=$bindings->update($actor,$trusted['id'],1,['os_network_profile'=>array_replace($profile,['primary_pin'=>str_repeat('c',64)])]);
+    $ok($rotated['version']===2&&$rotated['os_network_profile']['primary_pin']===str_repeat('c',64),'pin rotation version fence');
+    $reject(412,fn()=>$bindings->runtimeContext($actor,$trusted['id'],1,'health'));
     $ok($runner->validate()['valid'],'migration checksums');echo "Host hardware PostgreSQL: $n PASS\n";
 }catch(Throwable $e){$failed=true;fwrite(STDERR,'FAIL: '.$e->getMessage()."\n");}
 finally{if($created&&$pdo instanceof PDO){$pdo->exec('SET search_path TO public');$pdo->exec('DROP SCHEMA "'.$schema.'" CASCADE');}foreach(glob($dir.'/*.sql') as $f)unlink($f);rmdir($dir);}

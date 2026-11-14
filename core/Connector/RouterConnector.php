@@ -27,6 +27,6 @@ final class RouterConnector implements ConnectorInterface, \Cajeer\Servers\Metri
             if ($data['addresses']!==[]) $fields['ip_addresses']=$data['addresses']; // empty/invisible IP table does not erase existing addresses
         }
         // Endpoint-scoped identity is stable over sysName changes; never infer global identity from IP/name.
-        return new ConnectorResult([['type'=>'router','external_id'=>'device','fields'=>$fields]],false);
+        return new ConnectorResult([['type'=>'router','external_id'=>'device','fields'=>$fields]],false,[],OsNetworkProfile::diagnostics($context));
     }
 }

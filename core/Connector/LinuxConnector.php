@@ -19,7 +19,7 @@ final class LinuxConnector implements ConnectorInterface, \Cajeer\Servers\Metric
     {
         if ($context->provider!=='ssh'||!$this->manifest()->supports($operation)||!$this->manifest()->accepts($context->credentialType,'ssh')) throw new \RuntimeException('Unsupported SSH operation.');
         $credential=CredentialProfile::decodeForInternalUse($context->credentialType,$secret);
-        try { return HostObservation::result($this->transport->collect($context,$credential),'ssh',$operation); }
+        try { $result=HostObservation::result($this->transport->collect($context,$credential),'ssh',$operation);return new ConnectorResult($result->items,$result->complete,[],OsNetworkProfile::diagnostics($context)); }
         finally { foreach ($credential as &$value) if (is_string($value)) sodium_memzero($value); unset($value); }
     }
 }

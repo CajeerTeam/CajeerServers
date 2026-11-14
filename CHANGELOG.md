@@ -1,3 +1,9 @@
+## [0.8.1] — 2026-11-14 — OS / Network Connection Profiles
+
+- Рабочие профили SSH/WinRM/SNMP: per-target SHA-256 pin, привязка к machine-id/MachineGuid или engineID/sysObjectID.
+- Проверка до отправки SSH/WinRM credentials, SNMPv3 authPriv identity до/после сбора; обязательный режим, MFA/If-Match, ревизии и аудит.
+- Runtime, коллекции, метрики, ротация, Admin UI и SDK/OpenAPI; новые протокольные тесты.
+
 ## [0.8.0] — 2026-11-14 — VMmanager Integration Stable
 
 - Серверный запрет действий по неполному, устаревшему или датированному будущим guest inventory; строгая привязка Consul-задачи к гостю при сверке.

@@ -6,21 +6,22 @@ namespace Cajeer\Servers\Connector;
 final class HostTransport
 {
     public function __construct(private readonly EndpointPolicy $policy,private readonly string $python='/usr/bin/python3',
-        private readonly ?string $knownHosts=null,private readonly ?string $winrmCa=null) {}
+        private readonly ?string $knownHosts=null,private readonly ?string $winrmCa=null,private readonly bool $requireProfile=false) {}
 
     public function collect(ConnectorContext $context,#[\SensitiveParameter] array $credential,bool $metrics=false):array
     {
         if (!str_starts_with($this->python,'/') || !is_file($this->python) || !is_executable($this->python) || !function_exists('proc_open'))
             throw new ConnectorTransportException('connector_dependency_missing');
+        if($this->requireProfile&&$context->osNetworkProfile===null)OsNetworkProfile::mismatch();
         $ip=$this->policy->resolve($context->host);
-        if ($context->provider==='ssh' && ($this->knownHosts===null || !str_starts_with($this->knownHosts,'/') || !is_file($this->knownHosts) || !is_readable($this->knownHosts)))
+        if ($context->provider==='ssh' && $context->osNetworkProfile===null && ($this->knownHosts===null || !str_starts_with($this->knownHosts,'/') || !is_file($this->knownHosts) || !is_readable($this->knownHosts)))
             throw new ConnectorTransportException('connector_trust_failed');
         if ($context->provider==='winrm' && ($credential['auth']??null)!=='basic')
             throw new ConnectorTransportException('connector_auth_failed');
         if ($context->provider==='winrm' && $this->winrmCa!==null && (!str_starts_with($this->winrmCa,'/')||!is_file($this->winrmCa)||!is_readable($this->winrmCa)))
             throw new ConnectorTransportException('connector_trust_failed');
         $payload=json_encode(['provider'=>$context->provider,'host'=>$context->host,'ip'=>$ip,'port'=>$context->port,
-            'metrics'=>$metrics,'credential_type'=>$context->credentialType,'credential'=>$credential,'known_hosts'=>$this->knownHosts,'ca_file'=>$this->winrmCa],JSON_THROW_ON_ERROR);
+            'profile'=>$context->osNetworkProfile,'metrics'=>$metrics,'credential_type'=>$context->credentialType,'credential'=>$credential,'known_hosts'=>$this->knownHosts,'ca_file'=>$this->winrmCa],JSON_THROW_ON_ERROR);
         $pipes=[];
         $process=@proc_open([$this->python,'-I',__DIR__.'/agents/host_transport.py'],[0=>['pipe','r'],1=>['pipe','w'],2=>['file','/dev/null','w']],$pipes,__DIR__,['PATH'=>'/usr/bin:/bin','LANG'=>'C.UTF-8']);
         if (!is_resource($process)) { sodium_memzero($payload); throw new ConnectorTransportException('connector_dependency_missing'); }
@@ -51,6 +52,7 @@ final class HostTransport
             if (array_keys($decoded)===['error'] && in_array($decoded['error'],['connector_auth_failed','connector_transport_failed','connector_unavailable','connector_protocol_error','connector_trust_failed','connector_dependency_missing'],true))
                 throw new ConnectorTransportException($decoded['error']);
             if (array_keys($decoded)!==['data'] || !is_array($decoded['data'])) throw new ConnectorTransportException('connector_protocol_error');
+            if($context->osNetworkProfile!==null)OsNetworkProfile::verifyHost($context->provider,$context->osNetworkProfile,$decoded['data']['identity']??null);
             return $decoded['data'];
         } finally {
             if (is_string($payload)) sodium_memzero($payload);
