@@ -61,9 +61,7 @@ final class MigrationRunner
     public function validate(): array
     {
         foreach ($this->files() as $file) {
-            if ($this->parser->split($this->content($file['path'], $file['checksum'])) === []) {
-                throw new RuntimeException('Migration SQL must contain at least one statement.');
-            }
+            $this->statements($file);
         }
         $rows = $this->status();
         $valid = !in_array('modified', array_column($rows, 'status'), true)
@@ -75,7 +73,7 @@ final class MigrationRunner
     /**
      * @return array{applied: list<string>, pending: list<string>, dry_run: bool}
      */
-    public function run(bool $dryRun = false, int $lockTimeoutSeconds = 10): array
+    public function run(bool $dryRun = false, int $lockTimeoutSeconds = 10, bool $atomic = false): array
     {
         if ($lockTimeoutSeconds < 0 || $lockTimeoutSeconds > 120) {
             throw new RuntimeException('Migration lock timeout must be 0..120 seconds.');
@@ -95,7 +93,7 @@ final class MigrationRunner
                 }
             }
             $pending = array_values(array_diff(array_keys($files), array_keys($applied)));
-            if ($applied === [] && !$this->journalExists($pdo)) {
+            if ($applied === []) {
                 foreach (['users', 'roles', 'permissions', 'connectors', 'inventory_assets', 'audit_log'] as $table) {
                     $guard = $pdo->prepare('SELECT to_regclass(:name)');
                     if ($guard === false || !$guard->execute(['name' => $table])) {
@@ -109,42 +107,50 @@ final class MigrationRunner
             if ($pending !== [] && $applied !== [] && strcmp($pending[0], max(array_keys($applied))) <= 0) {
                 throw new RuntimeException('Out-of-order migration detected; manual reconciliation required.');
             }
-            if ($dryRun) {
-                foreach ($pending as $version) {
-                    if ($this->parser->split($this->content($files[$version]['path'], $files[$version]['checksum'])) === []) {
-                        throw new RuntimeException('Empty SQL migration is not permitted: ' . $version);
-                    }
-                }
-            }
+            foreach ($pending as $version) $this->statements($files[$version]);
             if ($dryRun || $pending === []) {
                 return ['applied' => [], 'pending' => $pending, 'dry_run' => $dryRun];
             }
-            $completed = [];
-            foreach ($pending as $version) {
-                // One transaction per migration: no partial schema or false journal entry on failure.
-                $sql = $this->content($files[$version]['path'], $files[$version]['checksum']);
-                $statements = $this->parser->split($sql);
-                if ($statements === []) {
-                    throw new RuntimeException('Empty SQL migration is not permitted: ' . $version);
+            $apply = function () use ($pending, $files): array {
+                $completed = [];
+                foreach ($pending as $version) {
+                    // One transaction per migration: no partial schema or false journal entry on failure.
+                    $statements = $this->statements($files[$version]);
+                    $this->database->transaction(function (PDO $connection) use ($version, $statements, $files): void {
+                        $this->createJournal($connection);
+                        $start = hrtime(true);
+                        foreach ($statements as $statement) {
+                            $connection->exec($statement);
+                        }
+                        $ms = max(0, (int) round((hrtime(true) - $start) / 1_000_000));
+                        $insert = $connection->prepare('INSERT INTO ' . self::JOURNAL . ' (version, checksum, execution_ms) VALUES (:version, :checksum, :execution_ms)');
+                        if ($insert === false || !$insert->execute(['version' => $version, 'checksum' => $files[$version]['checksum'], 'execution_ms' => $ms])) {
+                            throw new RuntimeException('Could not record successfully applied migration.');
+                        }
+                    });
+                    $completed[] = $version;
                 }
-                $this->database->transaction(function (PDO $connection) use ($version, $statements, $files): void {
-                    $this->createJournal($connection);
-                    $start = hrtime(true);
-                    foreach ($statements as $statement) {
-                        $connection->exec($statement);
-                    }
-                    $ms = max(0, (int) round((hrtime(true) - $start) / 1_000_000));
-                    $insert = $connection->prepare('INSERT INTO ' . self::JOURNAL . ' (version, checksum, execution_ms) VALUES (:version, :checksum, :execution_ms)');
-                    if ($insert === false || !$insert->execute(['version' => $version, 'checksum' => $files[$version]['checksum'], 'execution_ms' => $ms])) {
-                        throw new RuntimeException('Could not record successfully applied migration.');
-                    }
-                });
-                $completed[] = $version;
-            }
-            return ['applied' => $completed, 'pending' => [], 'dry_run' => false];
+                return ['applied' => $completed, 'pending' => [], 'dry_run' => false];
+            };
+            return $atomic ? $this->database->transaction(function (PDO $connection) use ($apply): array {
+                $connection->exec("SET LOCAL lock_timeout = '10s'");
+                $connection->exec("SET LOCAL statement_timeout = '15min'");
+                return $apply();
+            }) : $apply();
         } finally {
             $this->releaseLock($pdo);
         }
+    }
+
+    /** Parse every pending file before executing any SQL, and reject transaction control. */
+    private function statements(array $file): array
+    {
+        $statements=$this->parser->split($this->content($file['path'],$file['checksum']));
+        if ($statements===[]) throw new RuntimeException('Empty SQL migration is not permitted.');
+        foreach ($statements as $statement) {
+            if (preg_match('/^\s*(?:BEGIN|START\s+TRANSACTION|COMMIT|END|ROLLBACK|ABORT|SAVEPOINT|RELEASE|PREPARE\s+TRANSACTION)\b/i', $statement)) throw new RuntimeException('Migration must not control its transaction.');
+        }
+        return $statements;
     }
 
     private function postgres(): PDO
@@ -239,7 +245,7 @@ final class MigrationRunner
     private function acquireLock(PDO $pdo, int $seconds): void
     {
         $sql = 'SELECT pg_try_advisory_lock(:namespace, :resource)';
-        $start = microtime(true);
+        $start = hrtime(true);
         do {
             $stmt = $pdo->prepare($sql);
             if ($stmt === false || !$stmt->execute(['namespace' => self::LOCK_NAMESPACE, 'resource' => self::LOCK_RESOURCE])) {
@@ -248,7 +254,7 @@ final class MigrationRunner
             if (in_array($stmt->fetchColumn(), [true, 1, '1', 't', 'true'], true)) {
                 return;
             }
-            if ((microtime(true) - $start) >= $seconds) {
+            if ((hrtime(true) - $start) >= $seconds * 1_000_000_000) {
                 break;
             }
             usleep(100_000);

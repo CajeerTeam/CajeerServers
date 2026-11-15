@@ -68,7 +68,7 @@ final class WebInstaller
             return $this->form('Некорректные поля настройки, проверьте адрес, БД и пароль администратора.', 422);
         }
         try {
-            $result = $this->installer->install($input);
+            $result = $this->installer->install($input, $fields['setup_token'] ?? '');
             unset($_SESSION['cajeer_install_csrf']);
             session_regenerate_id(true);
             return $this->page('Installation completed', '<h1>Установка завершена</h1><p>Администратор создан: ' . self::h($result['admin_email']) . '</p><p>Вход в панель доступен по адресу /login после настройки Nuxt.</p>');

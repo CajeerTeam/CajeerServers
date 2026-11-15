@@ -372,7 +372,11 @@ final class Application
     public function handle(HttpRequest $request): HttpResponse
     {
         $this->ensureBooted();
-        return $this->container()->get(HttpKernel::class)->handle($request);
+        if ($request->path === '/api/v1/live' && in_array($request->method, ['GET','HEAD'], true)) return $this->container()->get(HttpKernel::class)->handle($request);
+        try { $lease = (new \Cajeer\Servers\Update\Maintenance($this->basePath()))->shared(); }
+        catch (\Throwable) { return HttpResponse::problem(['title'=>'Service unavailable','status'=>503,'detail'=>'Maintenance in progress.'],503,['Retry-After'=>'60']); }
+        try { return $this->container()->get(HttpKernel::class)->handle($request); }
+        finally { fclose($lease); }
     }
 
     public function httpKernel(): HttpKernel

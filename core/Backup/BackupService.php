@@ -17,7 +17,7 @@ final class BackupService
 {
     public function __construct(private readonly Application $app) {}
 
-    public function create(string $output, string $keyFile, bool $databaseOnly = false): array
+    public function create(string $output, string $keyFile, bool $databaseOnly = false, ?string $sourceVersion = null, ?string $upgradeId = null): array
     {
         $key = BackupKey::load($keyFile);
         try {
@@ -76,7 +76,8 @@ final class BackupService
                 $writer->json('H', [
                     'format' => 1, 'mode' => $databaseOnly ? 'database' : 'full',
                     'created_utc' => gmdate('Y-m-d\TH:i:s\Z'),
-                    'database' => $database, 'app_version' => $this->app->version(),
+                    'database' => $database, 'app_version' => $sourceVersion ?? $this->app->version(),
+                    'upgrade_id' => $upgradeId,
                     'consistent_storage' => false, // DB and files require operator-enforced quiescence.
                 ]);
                 $count = 0; $storageBytes = 0;

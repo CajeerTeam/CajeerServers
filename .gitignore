@@ -26,3 +26,8 @@
 __pycache__/
 *.pyc
 .phpunit.cache/
+
+/storage/app/maintenance.lock
+/storage/app/maintenance.json
+/storage/app/upgrade.json
+/storage/app/.upgrade-*

@@ -36,6 +36,12 @@ final class InstallService
         $checks[] = ['name' => 'Argon2id', 'ok' => defined('PASSWORD_ARGON2ID')];
         $checks[] = ['name' => 'writable .env', 'ok' => $this->writer->checkWritable()];
         $checks[] = ['name' => 'private storage', 'ok' => is_writable($this->state->directory())];
+        foreach (['logs','cache','tmp','files'] as $name) {
+            $path=$this->root.'/storage/'.$name;
+            $checks[]=['name'=>'writable storage/'.$name,'ok'=>is_dir($path)&&is_writable($path)];
+        }
+        $free = @disk_free_space($this->state->directory());
+        $checks[] = ['name' => 'storage free space >=64MiB', 'ok' => $free !== false && $free >= 67108864];
         $checks[] = ['name' => 'PostgreSQL migrations available', 'ok' => is_file($this->root . '/migrations/pgsql/0003_installation_state.sql')];
         $checks[] = ['name' => 'not installed', 'ok' => !$this->state->isInstalled()];
         return ['ok' => !in_array(false, array_column($checks, 'ok'), true), 'checks' => $checks];
@@ -47,10 +53,11 @@ final class InstallService
      * @param array<string,string> $input
      * @return array{installed:bool,installed_at:string,admin_email:string,migrations:list<string>}
      */
-    public function install(array $input): array
+    public function install(array $input, ?string $webToken = null): array
     {
-        return $this->state->exclusive(function () use ($input): array {
+        return $this->state->exclusive(function () use ($input, $webToken): array {
             if ($this->state->isInstalled()) throw new RuntimeException('CajeerServers is already installed.');
+            if ($webToken !== null && !$this->state->verifyWebToken($webToken)) throw new RuntimeException('Invalid or rotated setup token.');
             $preflight = $this->preflight();
             if (!$preflight['ok']) {
                 $failed = array_column(array_filter($preflight['checks'], static fn (array $c): bool => !$c['ok']), 'name');
@@ -76,52 +83,58 @@ final class InstallService
             // Fail BEFORE overwriting .env if PostgreSQL is unavailable, outdated,
             // or an administrator/database-backed installation already exists.
             $pdo = $manager->connection();
-            $version = $pdo->query("SELECT current_setting('server_version_num')")->fetchColumn();
-            if (!ctype_digit((string) $version) || (int) $version < 170000) {
-                throw new RuntimeException('PostgreSQL 17 or newer is required.');
-            }
-            $stateTable = $pdo->query("SELECT to_regclass('cajeer_installation')")->fetchColumn();
-            if (!in_array($stateTable, [null, false], true)
-                && (int) $pdo->query('SELECT count(*) FROM cajeer_installation')->fetchColumn() > 0) {
-                throw new RuntimeException('Database is already installed. Run install:recover if the local marker was lost.');
-            }
-            $usersTable = $pdo->query("SELECT to_regclass('users')")->fetchColumn();
-            if (!in_array($usersTable, [null, false], true)
-                && (int) $pdo->query('SELECT count(*) FROM users')->fetchColumn() > 0) {
-                throw new RuntimeException('Database contains existing users; installation refused.');
-            }
-            $this->writer->write($env);
-            $migrations = (new MigrationRunner($manager, $this->root . '/migrations/pgsql'))->run();
-            $record = $manager->transaction(function (PDO $pdo) use ($data, $passwordHash): array {
-                // Distinct from migration advisory lock; guards duplicate admin creation.
-                $pdo->query('SELECT pg_advisory_xact_lock(1128352282, 1397904994)')?->fetchColumn();
-                $record = $pdo->query('SELECT installation_id::text AS id, installed_at::text AS created FROM cajeer_installation WHERE singleton_id = 1')->fetch(PDO::FETCH_ASSOC);
-                if (is_array($record)) throw new RuntimeException('Database is already installed; refusing to create another administrator.');
-                if ((int) $pdo->query('SELECT count(*) FROM users')->fetchColumn() !== 0) {
-                    throw new RuntimeException('Database contains users; use an existing installation or reconcile manually.');
+            if (!in_array($pdo->query('SELECT pg_try_advisory_lock(1128352282,1397904994)')->fetchColumn(), [true,1,'1','t'], true)) throw new RuntimeException('Another installation is running.');
+            try {
+                $version = $pdo->query("SELECT current_setting('server_version_num')")->fetchColumn();
+                $this->checkDatabasePrivileges($pdo);
+                if (!ctype_digit((string) $version) || (int) $version < 170000) {
+                    throw new RuntimeException('PostgreSQL 17 or newer is required.');
                 }
-                $role = $pdo->prepare('INSERT INTO roles (slug,name) VALUES (:slug,:name) ON CONFLICT (slug) DO NOTHING');
-                $role->execute(['slug' => 'administrator', 'name' => 'Администратор']);
-                $roleId = $pdo->query("SELECT id::text FROM roles WHERE slug = 'administrator'")->fetchColumn();
-                if (!is_string($roleId) || $roleId === '') throw new RuntimeException('Could not initialize administrator role.');
-                $user = $pdo->prepare('INSERT INTO users (email, name, password_hash) VALUES (:email,:name,:hash) RETURNING id::text');
-                $user->execute(['email' => $data['admin_email'], 'name' => $data['admin_name'], 'hash' => $passwordHash]);
-                $userId = $user->fetchColumn();
-                if (!is_string($userId) || $userId === '') throw new RuntimeException('Could not create administrator.');
-                $link = $pdo->prepare('INSERT INTO user_roles (user_id, role_id) VALUES (:user_id, :role_id)');
-                $link->execute(['user_id' => $userId, 'role_id' => $roleId]);
-                // Migration 0009 creates the default workspace before the first administrator exists.
-                $pdo->prepare("INSERT INTO workspace_members (workspace_id,user_id,role) SELECT w.id,:user,'owner' FROM workspaces w JOIN organizations o ON o.id=w.organization_id WHERE o.slug='default' AND w.slug='default' ON CONFLICT DO NOTHING")->execute(['user'=>$userId]);
-                $row = $pdo->prepare('INSERT INTO cajeer_installation (admin_user_id) VALUES (:user_id) RETURNING installation_id::text, installed_at::text');
-                $row->execute(['user_id' => $userId]);
-                $installed = $row->fetch(PDO::FETCH_NUM);
-                if (!is_array($installed) || count($installed) < 2) throw new RuntimeException('Could not record installation state.');
-                $audit = $pdo->prepare("INSERT INTO audit_log (actor_type, actor_id, action, target_type, target_id, result) VALUES ('system', :actor, 'installation.completed', 'user', :target, 'success')");
-                $audit->execute(['actor' => $userId, 'target' => $userId]);
-                return ['id' => (string) $installed[0], 'at' => (string) $installed[1]];
-            });
-            $this->state->finish($record['id'], $record['at']);
-            return ['installed' => true, 'installed_at' => $record['at'], 'admin_email' => $data['admin_email'], 'migrations' => $migrations['applied']];
+                $stateTable = $pdo->query("SELECT to_regclass('cajeer_installation')")->fetchColumn();
+                if (!in_array($stateTable, [null, false], true)
+                    && (int) $pdo->query('SELECT count(*) FROM cajeer_installation')->fetchColumn() > 0) {
+                    throw new RuntimeException('Database is already installed. Run install:recover if the local marker was lost.');
+                }
+                $usersTable = $pdo->query("SELECT to_regclass('users')")->fetchColumn();
+                if (!in_array($usersTable, [null, false], true)
+                    && (int) $pdo->query('SELECT count(*) FROM users')->fetchColumn() > 0) {
+                    throw new RuntimeException('Database contains existing users; installation refused.');
+                }
+                $runner = new MigrationRunner($manager, $this->root . '/migrations/pgsql');
+                $runner->run(true);
+                $this->writer->write($env);
+                $migrations = $runner->run(false, 10, true);
+                $record = $manager->transaction(function (PDO $pdo) use ($data, $passwordHash): array {
+                    // Distinct from migration advisory lock; guards duplicate admin creation.
+                    $pdo->query('SELECT pg_advisory_xact_lock(1128352282, 1397904994)')?->fetchColumn();
+                    $record = $pdo->query('SELECT installation_id::text AS id, installed_at::text AS created FROM cajeer_installation WHERE singleton_id = 1')->fetch(PDO::FETCH_ASSOC);
+                    if (is_array($record)) throw new RuntimeException('Database is already installed; refusing to create another administrator.');
+                    if ((int) $pdo->query('SELECT count(*) FROM users')->fetchColumn() !== 0) {
+                        throw new RuntimeException('Database contains users; use an existing installation or reconcile manually.');
+                    }
+                    $role = $pdo->prepare('INSERT INTO roles (slug,name) VALUES (:slug,:name) ON CONFLICT (slug) DO NOTHING');
+                    $role->execute(['slug' => 'administrator', 'name' => 'Администратор']);
+                    $roleId = $pdo->query("SELECT id::text FROM roles WHERE slug = 'administrator'")->fetchColumn();
+                    if (!is_string($roleId) || $roleId === '') throw new RuntimeException('Could not initialize administrator role.');
+                    $user = $pdo->prepare('INSERT INTO users (email, name, password_hash) VALUES (:email,:name,:hash) RETURNING id::text');
+                    $user->execute(['email' => $data['admin_email'], 'name' => $data['admin_name'], 'hash' => $passwordHash]);
+                    $userId = $user->fetchColumn();
+                    if (!is_string($userId) || $userId === '') throw new RuntimeException('Could not create administrator.');
+                    $link = $pdo->prepare('INSERT INTO user_roles (user_id, role_id) VALUES (:user_id, :role_id)');
+                    $link->execute(['user_id' => $userId, 'role_id' => $roleId]);
+                    // Migration 0009 creates the default workspace before the first administrator exists.
+                    $pdo->prepare("INSERT INTO workspace_members (workspace_id,user_id,role) SELECT w.id,:user,'owner' FROM workspaces w JOIN organizations o ON o.id=w.organization_id WHERE o.slug='default' AND w.slug='default' ON CONFLICT DO NOTHING")->execute(['user'=>$userId]);
+                    $row = $pdo->prepare('INSERT INTO cajeer_installation (admin_user_id) VALUES (:user_id) RETURNING installation_id::text, installed_at::text');
+                    $row->execute(['user_id' => $userId]);
+                    $installed = $row->fetch(PDO::FETCH_NUM);
+                    if (!is_array($installed) || count($installed) < 2) throw new RuntimeException('Could not record installation state.');
+                    $audit = $pdo->prepare("INSERT INTO audit_log (actor_type, actor_id, action, target_type, target_id, result) VALUES ('system', :actor, 'installation.completed', 'user', :target, 'success')");
+                    $audit->execute(['actor' => $userId, 'target' => $userId]);
+                    return ['id' => (string) $installed[0], 'at' => (string) $installed[1]];
+                });
+                $this->state->finish($record['id'], $record['at']);
+                return ['installed' => true, 'installed_at' => $record['at'], 'admin_email' => $data['admin_email'], 'migrations' => $migrations['applied']];
+            } finally { $pdo->query('SELECT pg_advisory_unlock(1128352282,1397904994)'); }
         });
     }
 
@@ -130,6 +143,7 @@ final class InstallService
     {
         return $this->state->exclusive(function (): array {
             $localInstalled = $this->state->isInstalled();
+            (new EnvironmentLoader())->load($this->root . '/.env');
             $config = [
                 'driver' => 'pgsql', 'host' => EnvironmentLoader::getString('DB_HOST', '127.0.0.1'),
                 'port' => EnvironmentLoader::getString('DB_PORT', '5432'),
@@ -149,8 +163,12 @@ final class InstallService
             $stmt = $pdo->query('SELECT installation_id::text AS id, installed_at::text AS created FROM cajeer_installation WHERE singleton_id = 1');
             $row = $stmt->fetch(PDO::FETCH_ASSOC);
             if (!is_array($row)) throw new RuntimeException('No completed installation exists in PostgreSQL.');
+            // Recover only an installation whose migration journal matches the running code.
+            $manager = new DatabaseManager(new ConfigRepository($this->root . '/config'), new ConnectionFactory(), $config);
+            $validation = (new MigrationRunner($manager, $this->root . '/migrations/pgsql'))->validate();
+            if (!$validation['valid'] || in_array('pending',array_column($validation['rows'],'status'),true)) throw new RuntimeException('Schema mismatch; recover the matching release first.');
             if ($localInstalled) {
-                $local = json_decode((string) file_get_contents($this->state->directory() . '/installed.json'), true);
+                $local = $this->state->record();
                 if (!is_array($local) || !isset($local['installation_id'])
                     || !hash_equals((string) $row['id'], (string) $local['installation_id'])) {
                     throw new RuntimeException('Local and database installation markers disagree; manual reconciliation required.');
@@ -160,6 +178,55 @@ final class InstallService
             $this->state->finish((string) $row['id'], (string) $row['created']);
             return $this->state->status();
         });
+    }
+
+    /** Read-only comparison; a missing marker is not evidence that PostgreSQL is empty. */
+    public function inspect(): array
+    {
+        $marker=$this->state->record();
+        try {
+            $db=new DatabaseManager(new ConfigRepository($this->root.'/config'),new ConnectionFactory());
+            if ($db->driver()!=='pgsql') throw new RuntimeException('PostgreSQL required.');
+            $pdo=$db->connection();
+            $exists=$pdo->query("SELECT to_regclass('cajeer_installation')")->fetchColumn();
+            $id=in_array($exists,[null,false],true)?null:$pdo->query('SELECT installation_id::text FROM cajeer_installation WHERE singleton_id=1')->fetchColumn();
+            $dbInstalled=is_string($id)&&$id!=='';
+            $users=$pdo->query("SELECT to_regclass('users')")->fetchColumn();
+            $hasUsers=!in_array($users,[null,false],true) && (int)$pdo->query('SELECT count(*) FROM users')->fetchColumn()>0;
+            $status=match(true) {
+                !$dbInstalled && $hasUsers=>'untracked_users',
+                $marker===null && !$dbInstalled=>'not_installed',
+                $marker===null=>'marker_missing',
+                !$dbInstalled=>'database_missing',
+                !hash_equals($marker['installation_id'],$id)=>'identity_mismatch',
+                default=>'consistent',
+            };
+            return ['ok'=>in_array($status,['not_installed','consistent'],true),'status'=>$status,'local_installed'=>$marker!==null,'database_installed'=>$dbInstalled];
+        } catch (\Throwable) { return ['ok'=>false,'status'=>'database_unavailable','local_installed'=>$marker!==null,'database_installed'=>null]; }
+    }
+
+    /** Check real PostgreSQL access without changing data or configuration. */
+    public function databasePreflight(): array
+    {
+        try {
+            $manager=new DatabaseManager(new ConfigRepository($this->root . '/config'),new ConnectionFactory());
+            if ($manager->driver()!=='pgsql') throw new RuntimeException('PostgreSQL required.');
+            $pdo=$manager->connection();
+            if ((int)$pdo->query("SELECT current_setting('server_version_num')")->fetchColumn()<170000) throw new RuntimeException('PostgreSQL 17+ required.');
+            $this->checkDatabasePrivileges($pdo);
+            $state=$this->inspect();
+            if ($state['status']!=='not_installed') return ['ok'=>false,'detail'=>'Database is not an uninstalled target.','status'=>$state['status']];
+            $plan=(new MigrationRunner($manager,$this->root.'/migrations/pgsql'))->run(true);
+            return ['ok'=>true,'pending'=>$plan['pending']];
+        } catch (\Throwable) { return ['ok'=>false,'detail'=>'PostgreSQL connection, version, privileges or migration history check failed.']; }
+    }
+
+    private function checkDatabasePrivileges(PDO $pdo): void
+    {
+        $ok=$pdo->query("SELECT current_schema()='public' AND current_setting('transaction_read_only')='off' AND has_schema_privilege(current_user,'public','USAGE') AND has_schema_privilege(current_user,'public','CREATE')")->fetchColumn();
+        if (!in_array($ok,[true,1,'1','t'],true)) throw new RuntimeException('Installation requires writable public schema with USAGE and CREATE privileges.');
+        $crypto=$pdo->query("SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname='pgcrypto') OR (EXISTS(SELECT 1 FROM pg_available_extensions WHERE name='pgcrypto') AND has_database_privilege(current_user,current_database(),'CREATE'))")->fetchColumn();
+        if (!in_array($crypto,[true,1,'1','t'],true)) throw new RuntimeException('pgcrypto must be installed or available to the database owner.');
     }
 
     /** @param array<string,string> $input @return array{admin_email:string,admin_name:string,admin_password:string,env:array<string,string>} */

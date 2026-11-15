@@ -121,6 +121,19 @@ SQL;
     $pdo->failOn = null;
     unlink($directory . '/migrations/0003_failure.sql');
 
+    file_put_contents($directory . '/migrations/0003_atomic_first.sql', 'CREATE TABLE atomic_first(id integer);');
+    file_put_contents($directory . '/migrations/0004_atomic_fail.sql', 'FAIL_SQL;');
+    $pdo->failOn='FAIL_SQL';
+    $throws(fn()=>$runner->run(false,0,true),'atomic batch failure propagates');
+    $check(!isset($pdo->applied['0003_atomic_first']) && !in_array('CREATE TABLE atomic_first(id integer)',$pdo->executedSchema,true),'atomic batch rolls back earlier migration and journal');
+    $check(!$pdo->inTransaction() && !$pdo->locked,'atomic failure releases both locks');
+    $pdo->failOn=null;
+    unlink($directory . '/migrations/0004_atomic_fail.sql');
+    file_put_contents($directory . '/migrations/0004_control.sql', 'BEGIN; SELECT 1; COMMIT;');
+    $throws(fn()=>$runner->run(true),'dry run rejects transaction escape');
+    $check(!isset($pdo->applied['0003_atomic_first']),'invalid later file cannot apply earlier migration');
+    unlink($directory . '/migrations/0003_atomic_first.sql');unlink($directory . '/migrations/0004_control.sql');
+
     $pdo->blockLock = true;
     $throws(static fn () => $runner->run(false, 0), 'concurrent migration lock denied');
     $pdo->blockLock = false;

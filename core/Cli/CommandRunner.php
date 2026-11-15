@@ -29,7 +29,13 @@ final class CommandRunner
             $command = 'help';
         }
         $this->app->errors()->mode('cli');
+        $lease = null;
         try {
+            $maintenance = new \Cajeer\Servers\Update\Maintenance($this->app->basePath());
+            if (in_array($command, ['maintenance:status','maintenance:enable','maintenance:disable','upgrade:apply','upgrade:restore'], true)) {
+                return (new UpgradeCommands($this->app))->run($command, $argv);
+            }
+            if (!in_array($command, ['help','version','--version','-V','health:live','install:status','backup:key:generate','backup:verify'], true)) $lease = $maintenance->shared();
             return match ($command) {
                 'help' => $this->help(),
                 'version', '--version', '-V' => $this->version(),
@@ -40,9 +46,9 @@ final class CommandRunner
                 'release:check' => $this->releaseCheck($argv),
                 'install' => (new InstallCommand(new InstallService($this->app->basePath())))->run($argv),
                 'install:web-token' => $this->webInstallToken(),
-                'install:status' => $this->installStatus(in_array('--json', $argv, true)),
+                'install:status' => $this->installStatus(in_array('--json', $argv, true), in_array('--database', $argv, true)),
                 'install:recover' => $this->installRecover(),
-                'install:check' => $this->installCheck(in_array('--json', $argv, true)),
+                'install:check' => $this->installCheck(in_array('--json', $argv, true), in_array('--database', $argv, true)),
                 'database:check', 'db:check' => $this->databaseCheck(in_array('--json', $argv, true)),
                 'migrate' => $this->migrate($argv),
                 'migrate:status' => $this->migrationStatus(in_array('--json', $argv, true)),
@@ -66,7 +72,7 @@ final class CommandRunner
         } catch (Throwable $error) {
             fwrite(STDERR, $this->app->errors()->cliMessage($error));
             return 1;
-        }
+        } finally { if (is_resource($lease)) fclose($lease); }
     }
 
     private function syslog(string $path):int
@@ -92,7 +98,7 @@ final class CommandRunner
     private function help(): int
     {
         fwrite(STDOUT, <<<'TEXT'
-CajeerServers CLI 0.5.6
+CajeerServers CLI
 
 Рабочие команды:
   help                 Список доступных команд
@@ -128,8 +134,13 @@ CajeerServers CLI 0.5.6
   config:check         То же, что env:check
   config:get <key>     Прочитать несекретное значение конфигурации
   doctor [--json]      Проверить PHP, расширения, storage и конфигурацию
-  install:check        Реальная проверка предпосылок установщика (--json)
-  install:status       Текущий статус установки (--json)
+  maintenance:status   Статус режима обслуживания и upgrade
+  maintenance:enable   Остановить допуск запросов и задач (после drain)
+  upgrade:apply        --previous=/old/release --archive=/secure/pre-upgrade.cjdr --key-file=/secure/backup.key --offline
+  upgrade:restore      --key-file=PATH --target-db=NAME --confirm-target=NAME --storage-target=PATH --recovery-target=PATH --offline
+  maintenance:disable  Проверить готовность и открыть приложение
+  install:check        Реальная проверка предпосылок установщика [--database] [--json]
+  install:status       Текущий статус установки [--database] [--json]
   install:recover      Восстановить локальный marker из подтверждённой PostgreSQL-записи
   install:web-token    Сгенерировать одноразовый код для Web Installer
   install             Установка PostgreSQL, миграции и первого администратора
@@ -286,17 +297,30 @@ TEXT
         return in_array(false, $checks, true) ? 1 : 0;
     }
 
-    private function installCheck(bool $json): int
+    private function installCheck(bool $json, bool $database): int
     {
-        $result = (new InstallService($this->app->basePath()))->preflight();
+        $installer = new InstallService($this->app->basePath());
+        $result = $installer->preflight();
+        if ($database) {
+            $db = $installer->databasePreflight();
+            $result['database']=$db;
+            $result['checks'][]=['name'=>'PostgreSQL connection, privileges and migration dry-run','ok'=>$db['ok']];
+            $result['ok']=$result['ok'] && $db['ok'];
+        }
         $text = implode("\n", array_map(static fn (array $c): string => sprintf('[%s] %s', $c['ok'] ? 'OK' : 'FAIL', $c['name']), $result['checks'])) . "\n";
         $this->output($result, $json, $text);
         return $result['ok'] ? 0 : 1;
     }
 
-    private function installStatus(bool $json): int
+    private function installStatus(bool $json, bool $database): int
     {
-        $result = (new InstallService($this->app->basePath()))->state()->status();
+        $installer=new InstallService($this->app->basePath());
+        if ($database) {
+            $result=$installer->inspect();
+            $this->output($result,$json,'Installation state: '.$result['status']."\n");
+            return $result['ok']?0:1;
+        }
+        $result = $installer->state()->status();
         $this->output($result, $json, $result['installed'] ? "Installed (local marker).\n" : "Not installed (local marker missing; database state not verified).\n");
         return 0;
     }
@@ -332,7 +356,18 @@ TEXT
         }
         $json = in_array('--json', $argv, true);
         $dryRun = in_array('--dry-run', $argv, true);
-        $result = $this->app->container()->get(MigrationRunner::class)->run($dryRun);
+        $runner = $this->app->container()->get(MigrationRunner::class);
+        if (!$dryRun) {
+            $plan=$runner->run(true);
+            if ($plan['pending']!==[]) {
+                $installed=(new \Cajeer\Servers\Installer\InstallState($this->app->basePath()))->isInstalled();
+                $pdo=$this->app->container()->get(DatabaseManager::class)->connection();
+                $table=$pdo->query("SELECT to_regclass('cajeer_installation')")->fetchColumn();
+                $installed=$installed || (!in_array($table,[null,false],true) && (int)$pdo->query('SELECT count(*) FROM cajeer_installation')->fetchColumn()>0);
+                if ($installed) { fwrite(STDERR, "Installed database has pending migrations; use offline upgrade:apply.\n"); return 1; }
+            }
+            $result=$runner->run(false);
+        } else $result=$runner->run(true);
         $message = $dryRun
             ? 'Pending migrations (dry-run): ' . (implode(', ', $result['pending']) ?: 'none') . "\n"
             : 'Applied migrations: ' . (implode(', ', $result['applied']) ?: 'none') . "\n";

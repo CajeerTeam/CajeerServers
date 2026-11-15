@@ -35,14 +35,21 @@ final class InstallState
     /** @return array{installed: bool, installed_at: ?string} */
     public function status(): array
     {
-        if (!$this->isInstalled()) return ['installed' => false, 'installed_at' => null];
+        $data = $this->record();
+        return ['installed' => $data !== null, 'installed_at' => $data['installed_at'] ?? null];
+    }
+
+    public function record(): ?array
+    {
         $path = $this->directory() . '/installed.json';
         if (is_link($path)) throw new RuntimeException('Unsafe installation marker.');
-        $data = json_decode((string) file_get_contents($path), true);
-        if (!is_array($data) || !isset($data['installed_at']) || !is_string($data['installed_at'])) {
+        if (!file_exists($path)) return null;
+        $data = json_decode((string) file_get_contents($path), true, 16, JSON_THROW_ON_ERROR);
+        if (!is_array($data) || !is_string($data['installed_at'] ?? null)
+            || !is_string($data['installation_id'] ?? null) || !preg_match('/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/iD', $data['installation_id'])) {
             throw new RuntimeException('Invalid installation marker.');
         }
-        return ['installed' => true, 'installed_at' => $data['installed_at']];
+        return $data;
     }
 
     public function finish(string $installationId, string $installedAt): void
@@ -101,11 +108,25 @@ final class InstallState
         $temporary = tempnam($this->directory(), '.cajeer-');
         if ($temporary === false) throw new RuntimeException('Unable to write installer state.');
         try {
-            if (!chmod($temporary, 0600) || file_put_contents($temporary, $data, LOCK_EX) !== strlen($data) || !rename($temporary, $path)) {
+            $handle = fopen($temporary, 'wb');
+            if (!is_resource($handle)) throw new RuntimeException('Cannot open temporary state file.');
+            try {
+                if (!chmod($temporary, 0600) || fwrite($handle,$data)!==strlen($data) || !fflush($handle) || !fsync($handle)) throw new RuntimeException('Cannot durably write state file.');
+            } finally { fclose($handle); }
+            if (!rename($temporary, $path)) {
                 throw new RuntimeException('Unable to atomically write installer state.');
             }
+            $this->syncDirectory(dirname($path));
         } finally {
             if (is_file($temporary)) @unlink($temporary);
         }
+    }
+    private function syncDirectory(string $directory): void
+    {
+        if (PHP_OS_FAMILY !== 'Linux') return;
+        $handle=fopen($directory,'r');
+        if (!is_resource($handle)) throw new RuntimeException('Cannot open state directory for durability.');
+        try { if (!fsync($handle)) throw new RuntimeException('Cannot durably sync state directory.'); }
+        finally { fclose($handle); }
     }
 }

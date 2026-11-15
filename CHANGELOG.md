@@ -1,3 +1,11 @@
+## [0.9.2] — 2026-11-15 — Installation, Upgrade & Migration Stability
+
+- Add single-host maintenance admission, version drift protection and offline resumable upgrade from 0.9.1 with authenticated full backup, atomic migrations and readiness gate.
+- Add isolated recovery of the source release database and files, with migration and installation identity validation.
+- Harden installer DB session lock, Web Installer token validation, private password files, durable environment/marker writes and PostgreSQL preflight. Prevent online pending migrations on installed systems.
+- Add native lock and migration regression coverage and real PostgreSQL 17/18 + Redis upgrade/recovery integration in CI.
+- No new schema migration; existing 0001–0060 files remain byte-identical. Full production acceptance is still required; dependency blockers from 0.9.1 remain.
+
 ## [0.9.1] — 2026-11-15 — Reproducible Build & Dependency Stability
 
 - SDK: npm v3 lock with actual TypeScript 5.8.3 registry integrity; PHP resolution platform pinned to 8.4.0; exact Node/npm/Composer release toolchain.

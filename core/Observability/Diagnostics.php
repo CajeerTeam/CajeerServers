@@ -30,7 +30,12 @@ final class Diagnostics
             if (!$this->runtime->run()['ok']) throw new \RuntimeException('runtime_not_ready');
         });
         $this->probe($checks, 'installation', function (): void {
-            if (!$this->installation->isInstalled()) throw new \RuntimeException('installation_incomplete');
+            $marker=$this->installation->record();
+            if ($marker===null) throw new \RuntimeException('installation_incomplete');
+            $db=$this->container->get(DatabaseManager::class);
+            if ($db->driver()!=='pgsql') throw new \RuntimeException('installation_database_unsupported');
+            $id=$db->connection()->query('SELECT installation_id::text FROM cajeer_installation WHERE singleton_id=1')->fetchColumn();
+            if (!is_string($id) || !hash_equals($id,$marker['installation_id'])) throw new \RuntimeException('installation_identity_mismatch');
         });
         $this->probe($checks, 'database', function (): void {
             $this->container->get(DatabaseManager::class)->ping();

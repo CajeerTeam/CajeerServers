@@ -34,6 +34,7 @@ if ($user === '') { fwrite(STDERR, "CAJEER_PG_TEST_USERNAME missing.\n"); exit(2
 $root = sys_get_temp_dir() . '/cajeer-pg-install-' . bin2hex(random_bytes(8));
 mkdir($root . '/config', 0700, true);
 mkdir($root . '/storage/app', 0700, true);
+foreach (['logs','cache','tmp','files'] as $name) mkdir($root.'/storage/'.$name,0700,true);
 mkdir($root . '/migrations/pgsql', 0700, true);
 copy(dirname(__DIR__) . '/.env.example', $root . '/.env.example');
 foreach (glob(dirname(__DIR__) . '/migrations/pgsql/*.sql') as $sql) copy($sql, $root . '/migrations/pgsql/' . basename($sql));

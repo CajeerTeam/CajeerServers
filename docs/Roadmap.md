@@ -415,3 +415,10 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 - [x] Clean build and validation pipeline, actual SSR smoke, PHPUnit, CI evidence and isolated resolver.
 - [ ] Resolve and commit Composer and Admin locks on a network-connected runner; complete online install/build/audits on PHP 8.4/8.5.
 - [ ] Confirm reproducibility from a fresh committed checkout; see `docs/Reproducible-Build-0.9.1.md`.
+
+## 0.9.2 — Installation, Upgrade & Migration Stability
+
+- [x] Maintenance admission and version drift guard, offline upgrade journal and full encrypted pre-upgrade backup.
+- [x] Atomic migration batches, installer concurrency and identity checks, isolated recovery.
+- [x] Native maintenance and migration regressions; PostgreSQL 17/18 upgrade/recovery CI scenario.
+- [ ] Complete real PostgreSQL/Redis CI and deployment rehearsal on a retained 0.9.1 build. See `docs/Installation-Upgrade-Migration-0.9.2.md`.

@@ -47,9 +47,15 @@ final class EnvironmentWriter
         $temporary = tempnam($this->root, '.cajeer-env-');
         if ($temporary === false) throw new RuntimeException('Cannot create temporary configuration.');
         try {
-            if (!chmod($temporary, 0600) || file_put_contents($temporary, $data, LOCK_EX) !== strlen($data) || !rename($temporary, $path)) {
+            $handle = fopen($temporary, 'wb');
+            if (!is_resource($handle)) throw new RuntimeException('Cannot open temporary state file.');
+            try {
+                if (!chmod($temporary, 0600) || fwrite($handle,$data)!==strlen($data) || !fflush($handle) || !fsync($handle)) throw new RuntimeException('Cannot durably write state file.');
+            } finally { fclose($handle); }
+            if (!rename($temporary, $path)) {
                 throw new RuntimeException('Unable to atomically save .env.');
             }
+            $this->syncDirectory(dirname($path));
         } finally {
             if (is_file($temporary)) @unlink($temporary);
         }
@@ -65,5 +71,13 @@ final class EnvironmentWriter
     {
         // EnvironmentLoader accepts double-quoted escaped backslashes and quotes.
         return '"' . str_replace(['\\', '"'], ['\\\\', '\\"'], $value) . '"';
+    }
+    private function syncDirectory(string $directory): void
+    {
+        if (PHP_OS_FAMILY !== 'Linux') return;
+        $handle=fopen($directory,'r');
+        if (!is_resource($handle)) throw new RuntimeException('Cannot open state directory for durability.');
+        try { if (!fsync($handle)) throw new RuntimeException('Cannot durably sync state directory.'); }
+        finally { fclose($handle); }
     }
 }

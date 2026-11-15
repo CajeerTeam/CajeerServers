@@ -57,7 +57,7 @@ CFG);
     foreach (glob(dirname(__DIR__) . '/migrations/pgsql/*.sql') as $file) {
         copy($file, $migrationDir . '/' . basename($file));
     }
-    file_put_contents($migrationDir . '/0010_rollback_probe.sql', "CREATE TABLE cajeer_test_rollback_probe(id integer);\nSELECT non_existing_function_probe();\n");
+    file_put_contents($migrationDir . '/9000_rollback_probe.sql', "CREATE TABLE cajeer_test_rollback_probe(id integer);\nSELECT non_existing_function_probe();\n");
     try {
         (new MigrationRunner($manager, $migrationDir))->run();
         throw new RuntimeException('Expected probe SQL to fail.');
@@ -65,10 +65,23 @@ CFG);
         // Expected PostgreSQL failure; the transaction must be rolled back.
     }
     $exists = $pdo->query("SELECT to_regclass('cajeer_test_rollback_probe')")?->fetchColumn();
-    $journal = $pdo->query("SELECT count(*) FROM cajeer_schema_migrations WHERE version='0010_rollback_probe'")?->fetchColumn();
+    $journal = $pdo->query("SELECT count(*) FROM cajeer_schema_migrations WHERE version='9000_rollback_probe'")?->fetchColumn();
     if ($exists !== null || (int) $journal !== 0) {
         throw new RuntimeException('Failed SQL was not rolled back atomically.');
     }
+    unlink($migrationDir . '/9000_rollback_probe.sql');
+    file_put_contents($migrationDir . '/9000_atomic_first.sql', 'CREATE TABLE cajeer_test_atomic_first(id integer);');
+    file_put_contents($migrationDir . '/9001_atomic_failure.sql', 'SELECT non_existing_function_probe();');
+    try {
+        (new MigrationRunner($manager, $migrationDir))->run(false,10,true);
+        throw new RuntimeException('Expected atomic batch failure.');
+    } catch (PDOException) {}
+    if ($pdo->query("SELECT to_regclass('cajeer_test_atomic_first')")->fetchColumn() !== null || (int)$pdo->query("SELECT count(*) FROM cajeer_schema_migrations WHERE version LIKE '900%'")->fetchColumn() !== 0) throw new RuntimeException('Atomic upgrade leaked earlier migration.');
+    unlink($migrationDir . '/9000_atomic_first.sql'); unlink($migrationDir . '/9001_atomic_failure.sql');
+    file_put_contents($migrationDir . '/9000_control_probe.sql', 'BEGIN; CREATE TABLE cajeer_test_control_probe(id integer); COMMIT;');
+    $refused=false;
+    try { (new MigrationRunner($manager,$migrationDir))->run(false,10,true); } catch (RuntimeException) { $refused=true; }
+    if (!$refused || $pdo->query("SELECT to_regclass('cajeer_test_control_probe')")->fetchColumn() !== null) throw new RuntimeException('Transaction control escape accepted.');
     echo "PASS: real PostgreSQL integration, " . implode(', ', $first['applied']) . ", idempotency, schema, rollback.\n";
 } catch (Throwable $error) {
     fwrite(STDERR, '[FAIL] PostgreSQL integration: ' . $error::class . "; see test DB/logs.\n");

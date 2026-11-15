@@ -19,6 +19,7 @@ $assert = static function (bool $condition, string $title) use (&$checks): void 
 };
 $root = sys_get_temp_dir() . '/cajeer-install-test-' . bin2hex(random_bytes(8));
 mkdir($root . '/storage/app', 0700, true);
+foreach (['logs','cache','tmp','files'] as $name) mkdir($root.'/storage/'.$name,0700,true);
 mkdir($root . '/migrations/pgsql', 0700, true);
 mkdir($root . '/config', 0700, true);
 copy(dirname(__DIR__) . '/migrations/pgsql/0003_installation_state.sql', $root . '/migrations/pgsql/0003_installation_state.sql');

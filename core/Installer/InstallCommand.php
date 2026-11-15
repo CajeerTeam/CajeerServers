@@ -22,10 +22,13 @@ final class InstallCommand
         $values = [];
         $passwordFile = null;
         $dbPasswordFile = null;
+        $seen = [];
         foreach (array_slice($argv, 2) as $argument) {
             if (!preg_match('/^--([a-z-]+)=(.*)$/sD', $argument, $match)) {
                 throw new RuntimeException('Invalid install argument. Run cajeer help.');
             }
+            if (isset($seen[$match[1]])) throw new RuntimeException('Repeated installer argument.');
+            $seen[$match[1]]=true;
             if ($match[1] === 'admin-password-file') $passwordFile = $match[2];
             elseif ($match[1] === 'db-password-file') $dbPasswordFile = $match[2];
             elseif (isset($keys[$match[1]])) $values[$keys[$match[1]]] = $match[2];
@@ -71,6 +74,7 @@ final class InstallCommand
         if ($path === '' || is_link($path) || !is_file($path) || !is_readable($path)) {
             throw new RuntimeException('Secret file must be a readable, regular non-symlink file.');
         }
+        if ((fileperms($path) & 0077) !== 0) throw new RuntimeException('Secret file must be owner-only (0600 or stricter).');
         if (filesize($path) === false || filesize($path) > 4096) throw new RuntimeException('Secret file exceeds 4 KiB.');
         $contents = file_get_contents($path);
         if ($contents === false) throw new RuntimeException('Cannot read secret file.');
