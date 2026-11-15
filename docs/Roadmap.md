@@ -422,3 +422,8 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 - [x] Atomic migration batches, installer concurrency and identity checks, isolated recovery.
 - [x] Native maintenance and migration regressions; PostgreSQL 17/18 upgrade/recovery CI scenario.
 - [ ] Complete real PostgreSQL/Redis CI and deployment rehearsal on a retained 0.9.1 build. See `docs/Installation-Upgrade-Migration-0.9.2.md`.
+
+## 1.0.1 — Stable Core Acceptance
+
+- Исполняемый offline upgrade 1.0.0 → 1.0.1, storage/Vault round-trip, изолированные PostgreSQL tests и strict evidence, подписанная проверка точного релиза.
+- Полная production acceptance остаётся обязательной. [Runbook](Stable-Core-Acceptance-1.0.1.md).

@@ -127,7 +127,9 @@ SQL)->fetchColumn();
                 'An independent, valid Vault master key must be configured securely.');
             $this->probe($checks, 'vault_verifier', fn (): bool => $this->app->container()->get(CredentialsVault::class)->check()['ok'] === true,
                 'Vault key must match its PostgreSQL verifier.');
-            $this->probe($checks, 'dependencies', fn (): bool => $this->app->container()->get(Diagnostics::class)->run()['ok'] === true,
+            $this->probe($checks, 'vault_roundtrip', fn (): bool => $this->app->container()->get(CredentialsVault::class)->probe()['ok'] === true,
+                'Vault must encrypt, persist, read and decrypt a probe within a rolled-back transaction.');
+            $this->probe($checks, 'dependencies', fn (): bool => $this->app->container()->get(Diagnostics::class)->run(true)['ok'] === true,
                 'Required PostgreSQL, Redis, queue, scheduler and storage must pass readiness checks.');
         }
         $result['ok'] = !in_array(false, array_column($checks, 'ok'), true);

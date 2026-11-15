@@ -140,6 +140,14 @@ jobs:
           echo "$RUNNER_TEMP/cajeer-agents/bin" >> "$GITHUB_PATH"
       - name: SNMP test daemon
         run: sudo apt-get update -qq && sudo apt-get install -y snmpd
+      - name: Strict acceptance database lifecycle
+        run: |
+          bash scripts/acceptance-postgres.sh php tests/database-postgres-integration.php
+          set +e
+          bash scripts/acceptance-postgres.sh bash -c 'exit 77'
+          status=$?
+          set -e
+          test "$status" -eq 77
       - name: PostgreSQL workspace, Inventory CRUD, IPAM and Topology integration
         run: |
           export CAJEER_CI_ISOLATE_PG=1

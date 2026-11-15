@@ -2,9 +2,13 @@
 
 **CajeerServers** — русскоязычная self-hosted веб-оболочка для наблюдения и управления инфраструктурой. Это **не ОС**, не прошивка и не замена Proxmox/VMmanager. В 0.4.0 добавлена реальная серверная проверка ожидающей версии Credentials Vault через Proxmox с MFA и блокировкой активации без proof; в 0.3.9 добавлена работающая админ-панель Credentials Vault с browser E2E для изолированного staging; в 0.3.8 добавлены шифрованные CLI-backups и offline recovery; в 0.3.7 реализована read-only интеграция Proxmox VE через HTTPS; в 0.4.4 добавлена read-only интеграция VMmanager 6; в 0.4.5 добавлены рабочие SSH и WinRM драйверы; в 0.4.6 добавлены SNMP и постоянный Connector Health; custom поддерживается через доверенный PHP SDK.
 
+## Версия 1.0.1 — Stable Core Acceptance
+
+Offline upgrade 1.0.0 → 1.0.1, проверка реального storage/Vault round-trip, изолированные PostgreSQL сценарии и отчёт strict acceptance с результатом каждого шага. Все 64 миграции сохранены. Исходный канал `development` до полной фактической приёмки; stable distribution требует подписанного approval. [Приёмка и обновление](docs/Stable-Core-Acceptance-1.0.1.md).
+
 ## Версия 1.0.0 — Stable Core Release
 
-Заморозка scope ядра, исправления изоляции локального хранилища, offline upgrade 0.9.9 → 1.0.0, проверка production deployment, portable output, безопасная распаковка и подписанная публикация неизменённой принятой сборки. Все 64 миграции сохранены. Исходный канал `development` до полной фактической приёмки; stable distribution требует signed approval. [Установка, сборка, приёмка и выпуск](docs/Stable-Core-Release-1.0.0.md).
+Заморозка scope ядра, изоляция локального хранилища, offline upgrade 0.9.9 → 1.0.0, безопасная распаковка и подписанная публикация неизменённой принятой сборки. [Инструкция](docs/Stable-Core-Release-1.0.0.md).
 
 ## Версия 0.9.9 — Stable Core Release Candidate
 

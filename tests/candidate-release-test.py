@@ -4,6 +4,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -137,15 +138,47 @@ class CandidateTests(unittest.TestCase):
                     if mode[0]=='redirect':self.send_response(302);self.send_header('Location','/login');self.end_headers();return
                     data='<html>login</html>';kind='text/html'
                 else:self.send_error(404);return
-                self.send_response(200);self.send_header('Content-Type',kind);self.end_headers();self.wfile.write((json.dumps(data) if isinstance(data,dict) else data).encode())
+                self.send_response(200);self.send_header('Content-Type',kind if mode[0]!='badtype' else 'application/json-invalid')
+                if mode[0]=='cached': self.send_header('Age','60')
+                self.end_headers();self.wfile.write((json.dumps(data) if isinstance(data,dict) else data).encode())
         with ThreadingHTTPServer(('127.0.0.1',0),Handler) as server:
             thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
             try:
                 base=f'http://127.0.0.1:{server.server_port}';c.probe(base,'0.9.9',identity)
-                for m in ('wrong','unready','redirect'):
+                for m in ('wrong','unready','redirect','cached','badtype'):
                     mode[0]=m
                     with self.assertRaises((ValueError,OSError)):c.probe(base,'0.9.9',identity)
             finally:server.shutdown();thread.join()
+    def test_deployment_permission_and_hardlink_rejected(self):
+        self.seal(); target = self.deploy(); path = target/'core/runtime.php'
+        path.chmod(0o666)
+        with self.assertRaisesRegex(ValueError, 'permissions'):
+            c.verify_deployment(target)
+        path.chmod(0o644)
+        outside = target.parent/'outside.php'; os.link(path, outside)
+        with self.assertRaisesRegex(ValueError, 'Missing candidate file'):
+            c.verify_deployment(target)
+
+    def test_manifest_special_file_rejected(self):
+        self.seal(); marker = self.dest/c.MARKER; marker.unlink(); os.mkfifo(marker)
+        with self.assertRaisesRegex(ValueError, 'Unsafe candidate manifest'):
+            c.verify(self.root, marker)
+
+    def test_report_parent_alias_to_deployment_rejected(self):
+        self.seal(); target = self.deploy(); alias = target.parent/'alias'; alias.symlink_to(target, target_is_directory=True)
+        with self.assertRaisesRegex(ValueError, 'Unsafe acceptance report path'):
+            c.accept(self.root, self.dest/c.MARKER, alias/'evidence.json', target)
+        self.assertFalse((target/'evidence.json.lock').exists())
+
+    def test_strict_evidence_plan_matches_runner(self):
+        runner = (ROOT/'scripts/verify-release.php').read_text()
+        labels = set(re.findall(r"\$run\('([^']+)'", runner)) - {'Nuxt build', 'Production release gate'}
+        labels.add('PHP lint')
+        for variable, prefix, suffix in (('$suite', '', ' smoke'), ('$name', 'PostgreSQL ', '')):
+            line = next(line for line in runner.splitlines() if 'foreach ([' in line and ' as '+variable+')' in line)
+            labels.update(prefix+name+suffix for name in re.findall(r"'([^']+)'", line))
+        self.assertEqual(labels, c.STRICT_REQUIRED)
+
     def test_origin_validation(self):
         for url in ('http://example.com','https://user@example.com','https://example.com/path','https://example.com?x=y'):
             with self.assertRaises(ValueError):c.origin(url)

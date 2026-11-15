@@ -6,8 +6,20 @@ declare(strict_types=1);
 $root = dirname(__DIR__);
 $strict = in_array('--strict', $argv, true);
 $deployment = null;
+$evidence = null;
 foreach (array_slice($argv, 1) as $option) {
     if ($option === '--strict') continue;
+    if ($strict && $evidence === null && str_starts_with($option, '--evidence=')) {
+        $requested = substr($option, strlen('--evidence='));
+        $parent = realpath(dirname($requested));
+        if (!str_starts_with($requested, '/') || $parent === false || !is_dir($parent)
+            || $parent === $root || str_starts_with($parent, $root.'/')
+            || basename($requested) === '' || file_exists($requested) || is_link($requested)) {
+            fwrite(STDERR, "FAIL: evidence must be a new file outside the source tree.\n"); exit(2);
+        }
+        $evidence = $parent.'/'.basename($requested);
+        continue;
+    }
     if ($strict && $deployment === null && str_starts_with($option, '--deployment-root=')) {
         $requested = substr($option, strlen('--deployment-root='));
         $deployment = str_starts_with($requested, '/') ? realpath($requested) : false;
@@ -21,17 +33,22 @@ foreach (array_slice($argv, 1) as $option) {
         }
         continue;
     }
-    fwrite(STDERR, "Usage: php scripts/verify-release.php [--strict [--deployment-root=/absolute/path]]\n"); exit(2);
+    fwrite(STDERR, "Usage: php scripts/verify-release.php [--strict [--deployment-root=/absolute/path] [--evidence=/absolute/path]]\n"); exit(2);
 }
 require $root . '/core/autoload.php';
 $failures = 0;
 $steps = 0;
+$evidenceSteps = [];
+if ($evidence !== null && ($deployment === null || dirname($evidence) === $deployment || str_starts_with(dirname($evidence), $deployment.'/'))) {
+    fwrite(STDERR, "FAIL: evidence requires a separate sealed deployment and an external output path.\n"); exit(2);
+}
 // GNU timeout supervises the entire process group, including subprocesses spawned by tests.
 // Strict deployment checks must never wait indefinitely on a stalled tool or fixture.
 $timeout = is_executable('/usr/bin/timeout') ? '/usr/bin/timeout' : (is_executable('/bin/timeout') ? '/bin/timeout' : null);
 if ($strict && $timeout === null) { fwrite(STDERR, "FAIL: strict verification requires GNU timeout.\n"); exit(2); }
-$run = static function (string $name, array $command, string $cwd, ?array $environment = null, int $seconds = 300) use (&$failures, &$steps, $timeout): void {
+$run = static function (string $name, array $command, string $cwd, ?array $environment = null, int $seconds = 300) use (&$failures, &$steps, &$evidenceSteps, $timeout): void {
     $steps++;
+    $started = hrtime(true);
     fwrite(STDOUT, "== $name ==\n");
     if (!function_exists('proc_open')) { fwrite(STDERR, "FAIL: proc_open unavailable\n"); $failures++; return; }
     $pipes = [];
@@ -40,6 +57,7 @@ $run = static function (string $name, array $command, string $cwd, ?array $envir
     if (!is_resource($process)) { fwrite(STDERR, "FAIL: cannot start $name\n"); $failures++; return; }
     stream_copy_to_stream($pipes[1], STDOUT); fclose($pipes[1]);
     $status = proc_close($process);
+    $evidenceSteps[] = ['name'=>$name, 'exit'=>$status, 'elapsed_ms'=>(int)((hrtime(true)-$started)/1000000)];
     if ($status !== 0) { $reason = in_array($status,[124,137],true) ? "timeout or killed (limit {$seconds}s)" : "exit $status"; fwrite(STDERR, "FAIL: $name ($reason)\n"); $failures++; }
 };
 
@@ -53,6 +71,7 @@ foreach (['core', 'app', 'api', 'bin', 'public', 'tests', 'installer', 'scripts'
 }
 sort($phpFiles);
 $lintErrors = 0;
+$lintStarted = hrtime(true);
 foreach ($phpFiles as $file) {
     $pipes = [];
     $process = @proc_open([PHP_BINARY, '-l', $file], [0=>['file','/dev/null','r'], 1=>['pipe','w'], 2=>['pipe','w']], $pipes, $root);
@@ -62,6 +81,7 @@ foreach ($phpFiles as $file) {
     if (proc_close($process) !== 0) { $lintErrors++; fwrite(STDERR, "$file: $out $err\n"); }
 }
 $steps++;
+$evidenceSteps[] = ['name'=>'PHP lint', 'exit'=>($lintErrors > 0 || $phpFiles === []) ? 1 : 0, 'elapsed_ms'=>(int)((hrtime(true)-$lintStarted)/1000000)];
 fwrite(STDOUT, sprintf("PHP lint: %d files, %d failures\n", count($phpFiles), $lintErrors));
 if ($lintErrors > 0 || $phpFiles === []) $failures++;
 
@@ -121,26 +141,26 @@ if ($strict) {
     $osNetworkAcceptance=getenv('CAJEER_OS_NETWORK_ACCEPTANCE_CONFIG');
     if (!$osNetworkAcceptance) { fwrite(STDERR, "FAIL: strict verification requires CAJEER_OS_NETWORK_ACCEPTANCE_CONFIG for operator-owned SSH/WinRM/SNMP/RouterOS acceptance.\n"); $failures++; }
     else { $run('OS / Network live acceptance', [PHP_BINARY,'scripts/verify-os-network-live.php',$osNetworkAcceptance], $root, null, 3600); }
-    $run('RouterOS PostgreSQL integration', ['python3','tests/routeros-https-integration.py','--postgres'], $root);
+    $run('RouterOS PostgreSQL integration', ['bash','scripts/acceptance-postgres.sh','python3','tests/routeros-https-integration.py','--postgres'], $root);
     $run('PBS HTTPS integration', ['python3','tests/pbs-backup-https-integration.py'], $root);
     $run('Proxmox snapshot HTTPS integration', ['python3','tests/proxmox-snapshots-https-integration.py'], $root);
     $run('Connector actions HTTPS integration', ['python3','tests/connector-actions-https-integration.py'], $root);
     $run('TypeScript SDK integration', ['bash','tests/connector-sdk-integration.sh'], $root);
     $run('SNMP protocol integration', ['bash','tests/snmp-protocol-integration.sh'], $root);
     $run('SSH and WinRM protocol integration', ['python3','tests/host-transport-integration.py','--ssh'], $root);
-    $run('VMmanager HTTPS + PostgreSQL integration', ['python3','tests/vmmanager-https-integration.py','--postgres'], $root);
-    $run('VMmanager power PostgreSQL integration', ['python3','tests/vmmanager-power-https-integration.py','--postgres'], $root);
+    $run('VMmanager HTTPS + PostgreSQL integration', ['bash','scripts/acceptance-postgres.sh','python3','tests/vmmanager-https-integration.py','--postgres'], $root);
+    $run('VMmanager power PostgreSQL integration', ['bash','scripts/acceptance-postgres.sh','python3','tests/vmmanager-power-https-integration.py','--postgres'], $root);
     if (getenv('CAJEER_PG_TEST') !== '1' || !preg_match('/^cajeer_test_[a-z0-9_]+$/D', getenv('CAJEER_PG_TEST_DATABASE') ?: '')) {
         fwrite(STDERR, "FAIL: strict verification requires CAJEER_PG_TEST=1 and an isolated cajeer_test_* database.\n"); $failures++;
     } else {
-        $run('SNMP discovery PostgreSQL / native SNMP integration', ['bash','tests/snmp-protocol-integration.sh','--postgres'], $root, null, 600);
-        $run('Windows and Linux discovery PostgreSQL / WinRM and SSH integration', ['python3','tests/host-transport-integration.py','--ssh','--postgres'], $root, null, 600);
-        $run('PBS PostgreSQL / HTTPS integration', ['python3','tests/pbs-backup-https-integration.py','--postgres'], $root);
+        $run('SNMP discovery PostgreSQL / native SNMP integration', ['bash','scripts/acceptance-postgres.sh','bash','tests/snmp-protocol-integration.sh','--postgres'], $root, null, 600);
+        $run('Windows and Linux discovery PostgreSQL / WinRM and SSH integration', ['bash','scripts/acceptance-postgres.sh','python3','tests/host-transport-integration.py','--ssh','--postgres'], $root, null, 600);
+        $run('PBS PostgreSQL / HTTPS integration', ['bash','scripts/acceptance-postgres.sh','python3','tests/pbs-backup-https-integration.py','--postgres'], $root);
         foreach (['database','auth','security','infrastructure','admin','inventory','workspaces','inventory-crud','ipam','topology','catalog','history','transfer','cmdb','vault','vault-crud','vault-access','vault-rotation','vault-bindings','proxmox-profile','connector-reconciliation','host-hardware','connector-health','connector-events','connector-actions','script-registry','script-execution','collection-plans','metrics','ingestion','backup'] as $name) {
-            $run("PostgreSQL $name", [PHP_BINARY, 'tests/' . $name . '-postgres-integration.php'], $root);
+            $run("PostgreSQL $name", ['bash','scripts/acceptance-postgres.sh',PHP_BINARY, 'tests/' . $name . '-postgres-integration.php'], $root);
         }
         // Strict acceptance must exercise the declared capacity profile, not the tiny CI fixture.
-        $run('PostgreSQL capacity acceptance', [PHP_BINARY, 'scripts/benchmark-postgres.php', '--assets=100000', '--targets=1000', '--samples=1000000', '--events=100000', '--clients=50', '--iterations=100', '--p95-ms=500'], $root, null, 3600);
+        $run('PostgreSQL capacity acceptance', ['bash','scripts/acceptance-postgres.sh',PHP_BINARY, 'scripts/benchmark-postgres.php', '--assets=100000', '--targets=1000', '--samples=1000000', '--events=100000', '--clients=50', '--iterations=100', '--p95-ms=500'], $root, null, 3600);
         $run('PostgreSQL install / upgrade / recovery', [PHP_BINARY, 'tests/upgrade-postgres-integration.php'], $root, null, 600);
         $run('Full platform HTTP / PostgreSQL / TLS / DR journey', ['python3','tests/platform-http-e2e.py'], $root, null, 900);
         $installerDb = getenv('CAJEER_INSTALL_PG_TEST_DATABASE') ?: '';
@@ -184,4 +204,17 @@ if ($strict) {
     }
 }
 fwrite(STDOUT, "Release verification: $steps steps; failures: $failures" . ($strict ? ' (strict)' : ' (native)') . "\n");
+if ($failures === 0 && $evidence !== null) {
+    if (count($evidenceSteps) !== $steps) { fwrite(STDERR, "FAIL: missing step evidence.\n"); exit(1); }
+    $payload = json_encode(['format'=>1, 'version'=>trim((string)file_get_contents($root.'/VERSION')),
+        'candidate_id'=>getenv('CAJEER_CANDIDATE_ID'), 'steps'=>$evidenceSteps], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES)."\n";
+    // Candidate orchestrator provides a private temporary directory. Do not overwrite evidence.
+    $oldMask = umask(0077);
+    $handle = @fopen($evidence, 'xb');
+    umask($oldMask);
+    if ($handle === false) { fwrite(STDERR, "FAIL: cannot create strict evidence.\n"); exit(1); }
+    $ok = fwrite($handle, $payload) === strlen($payload) && fflush($handle) && fsync($handle);
+    fclose($handle);
+    if (!$ok) { @unlink($evidence); fwrite(STDERR, "FAIL: cannot persist strict evidence.\n"); exit(1); }
+}
 exit($failures === 0 ? 0 : 1);

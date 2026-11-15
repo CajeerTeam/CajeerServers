@@ -92,6 +92,21 @@ try {
     putenv('PROMETHEUS_SCRAPE_TOKEN=' . str_repeat('A', 48));
     $app = (new Application(dirname(__DIR__)))->boot();
     try {
+        $diskRoot = $path.'/disk';
+        $disk = new \Cajeer\Servers\Storage\LocalDisk($diskRoot);
+        $app->container()->instance(\Cajeer\Servers\Storage\StorageDiskInterface::class, $disk);
+        $diag = $app->container()->get(\Cajeer\Servers\Observability\Diagnostics::class);
+        $check($diag->run(true)['checks']['storage']['ok'], 'deep storage probe writes, reads and deletes real local file');
+        $check(glob($diskRoot.'/_health/*') === [], 'deep storage probe leaves no objects');
+        rmdir($diskRoot.'/_health'); rmdir($diskRoot);
+        $app->container()->instance(\Cajeer\Servers\Storage\StorageDiskInterface::class, new class implements \Cajeer\Servers\Storage\StorageDiskInterface {
+            private string $data = '';
+            public function put(string $key, string $contents): void {$this->data = $contents;}
+            public function get(string $key): string {return $this->data;}
+            public function exists(string $key): bool {return true;}
+            public function delete(string $key): bool {return true;}
+        });
+        $check(!$diag->run(true)['checks']['storage']['ok'], 'deep storage probe rejects false successful delete');
         $r = $app->handle(new HttpRequest('GET','/api/v1/live'));
         $check($r->status === 200 && json_decode($r->body, true)['status'] === 'alive', 'liveness endpoint works');
         $r = $app->handle(new HttpRequest('GET','/api/v1/ready'));

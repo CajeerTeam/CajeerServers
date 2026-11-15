@@ -1,3 +1,12 @@
+## [1.0.1] — 2026-11-15 — Stable Core Acceptance
+
+- Support offline upgrade from exactly 1.0.0, preserve all 64 migrations and previous completed journal.
+- Require real storage write/read/delete and Vault encrypted transactional round-trip in strict deployment verification.
+- Isolate PostgreSQL acceptance scenarios in fresh generated databases; propagate failed test and cleanup exit status.
+- Require version/candidate-bound strict per-step evidence (format 3 acceptance) for signed 1.0.1 publication and installation; keep format 2 for previously accepted 1.0.0.
+- Reject unsafe file permissions/hardlinks and aliased report paths; strengthen HTTP soak cache/content-type/deadline validation and recheck deployment after strict tests.
+- Production channel remains development until actual full staging/live/soak acceptance and independent signed approval.
+
 ## [1.0.0] — 2026-11-15 — Stable Core Release
 
 - Reject local storage roots overlapping source code, web root or installation state, including aliases and not-yet-created paths; share the guard across runtime, backup, restore and deployment checks.

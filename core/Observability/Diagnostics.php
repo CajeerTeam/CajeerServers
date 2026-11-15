@@ -72,7 +72,9 @@ final class Diagnostics
                     throw new \RuntimeException('storage_readback_failed');
                 }
             } finally {
-                if ($written) $disk->delete($key);
+                if ($written && (!$disk->delete($key) || $disk->exists($key))) {
+                    throw new \RuntimeException('storage_cleanup_failed');
+                }
             }
         });
         $ok = !in_array(false, array_column($checks, 'ok'), true);

@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import re
+import signal
 import stat
 import subprocess
 import sys
@@ -44,14 +45,17 @@ def safe_path(root, name):
     target = root.joinpath(*p.parts)
     if any(x.is_symlink() for x in [target, *target.parents] if x != root and root in x.parents):
         raise ValueError('Symlinks are not supported in candidate files')
-    if not target.is_file():
+    if not target.is_file() or target.stat().st_nlink != 1:
         raise ValueError('Missing candidate file: ' + name)
     return target
 
 
 def entry(root, name):
     p = safe_path(root, name)
-    return {'sha256': digest(p), 'size': p.stat().st_size, 'executable': bool(p.stat().st_mode & stat.S_IXUSR)}
+    mode = p.stat().st_mode
+    if mode & (stat.S_ISUID | stat.S_ISGID | stat.S_ISVTX | 0o022):
+        raise ValueError('Unsafe candidate file permissions: ' + name)
+    return {'sha256': digest(p), 'size': p.stat().st_size, 'executable': bool(mode & stat.S_IXUSR)}
 
 
 def git(root, *args):
@@ -125,8 +129,10 @@ def check_build(root, commit, version):
 
 
 def verify(root, marker):
-    if marker.is_symlink(): raise ValueError('Unsafe candidate manifest')
-    if marker.stat().st_size > 16 * 1024 * 1024: raise ValueError('Candidate manifest too large')
+    marker_stat = marker.lstat()
+    if not stat.S_ISREG(marker_stat.st_mode) or marker_stat.st_nlink != 1:
+        raise ValueError('Unsafe candidate manifest')
+    if marker_stat.st_size > 16 * 1024 * 1024: raise ValueError('Candidate manifest too large')
     raw = marker.read_bytes()
     data = json.loads(raw)
     if data.get('format') != 1 or raw != canonical(data) or data.get('version') != (root/'VERSION').read_text().strip():
@@ -227,7 +233,7 @@ def verify_archive(package, raw, data):
     allowed=set(data['files']) | {MARKER,SBOM}
     with tarfile.open(package,'r:gz') as tar:
         for member in tar:
-            if not member.isfile() or member.name in seen:
+            if not member.isfile() or member.name in seen or member.mode & 0o7022:
                 raise ValueError('Invalid candidate archive member')
             name=PurePosixPath(member.name)
             if name.is_absolute() or str(name)!=member.name or not name.parts or '..' in name.parts or '\\' in member.name or member.name not in allowed:
@@ -313,19 +319,48 @@ def origin(value):
 
 
 def probe(base, version, identity):
+    # Socket timeouts bound individual reads, not DNS or a trickle of headers.
+    # Acceptance runs as a Linux CLI in the main thread; enforce a wall-clock deadline.
+    if signal.getitimer(signal.ITIMER_REAL)[0] > 0:
+        raise ValueError('Cannot nest staging probe deadline')
+    def expired(signum, frame):
+        raise TimeoutError('Staging probe deadline exceeded')
+    previous = signal.signal(signal.SIGALRM, expired)
+    try:
+        signal.setitimer(signal.ITIMER_REAL, 30)
+        return _probe(base, version, identity)
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
+
+
+def _probe(base, version, identity):
     opener=build_opener(NoRedirect())
+    deadline = time.monotonic() + 30
     for path, kind in (('/api/v1/system','application/json'),('/api/v1/ready','application/json'),('/login','text/html')):
-        with opener.open(Request(base+path,headers={'Accept':kind}),timeout=10) as response:
-            if response.status!=200 or kind not in response.headers.get('Content-Type',''):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0: raise ValueError('Staging probe deadline exceeded')
+        headers = {'Accept': kind, 'Cache-Control': 'no-cache, no-store', 'Pragma': 'no-cache'}
+        with opener.open(Request(base+path, headers=headers), timeout=min(10, remaining)) as response:
+            if response.status != 200 or response.headers.get_content_type() != kind:
                 raise ValueError('Unexpected staging response: '+path)
-            body=response.read(2*1024*1024+1)
-            if len(body)>2*1024*1024: raise ValueError('Staging response too large')
+            if response.headers.get('Age', '0') != '0':
+                raise ValueError('Cached staging response: '+path)
+            body = bytearray()
+            while True:
+                if time.monotonic() >= deadline: raise ValueError('Staging probe deadline exceeded')
+                chunk = response.read1(65536)
+                if not chunk: break
+                body.extend(chunk)
+                if len(body) > 2*1024*1024: raise ValueError('Staging response too large')
+            if time.monotonic() > deadline: raise ValueError('Staging probe deadline exceeded')
         if path.endswith('/system'):
             data=json.loads(body)
-            if data.get('version')!=version or data.get('api_version')!='v1' or data.get('candidate_id')!=identity:
+            if not isinstance(data, dict) or data.get('version')!=version or data.get('api_version')!='v1' or data.get('candidate_id')!=identity:
                 raise ValueError('Staging candidate identity mismatch')
         elif path.endswith('/ready'):
-            if json.loads(body).get('status')!='ready': raise ValueError('Staging not ready')
+            data = json.loads(body)
+            if not isinstance(data, dict) or data.get('status') != 'ready': raise ValueError('Staging not ready')
         elif b'<html' not in body.lower(): raise ValueError('Staging login is not HTML')
 
 
@@ -343,9 +378,93 @@ def soak(check, seconds, interval, clock=time.monotonic, sleep=time.sleep):
         sleep(min(interval,seconds-elapsed))
 
 
+STRICT_REQUIRED = frozenset((
+    'PHP lint',
+    'runtime smoke', 'http smoke', 'database smoke', 'installer smoke', 'upgrade smoke', 'auth smoke',
+    'security smoke', 'security-hardening smoke', 'infrastructure smoke', 'runtime-reliability smoke',
+    'performance smoke', 'observability smoke', 'admin smoke', 'release smoke',
+    'inventory-readiness smoke', 'workspaces smoke', 'inventory smoke', 'ipam smoke', 'topology smoke',
+    'network-discovery smoke', 'system-events smoke', 'catalog smoke', 'history smoke', 'transfer smoke',
+    'cmdb-integrity smoke', 'data-integrity smoke', 'import-dispatch smoke', 'vault-crypto smoke',
+    'vault-crud smoke', 'vault-profiles smoke', 'vault-access smoke', 'vault-rotation smoke',
+    'vault-bindings smoke', 'vault-stable smoke', 'proxmox-runtime smoke', 'proxmox-profile smoke',
+    'proxmox-cluster smoke', 'proxmox-guests smoke', 'proxmox-storage-network smoke',
+    'proxmox-tasks smoke', 'connector-runtime smoke', 'connector-execution smoke',
+    'connector-reconciliation smoke', 'vmmanager-runtime smoke', 'host-runtime smoke',
+    'os-network-profile smoke', 'linux-discovery smoke', 'windows-discovery smoke', 'snmp-health smoke',
+    'snmp-discovery smoke', 'connector-events smoke', 'connector-actions smoke', 'proxmox-snapshots smoke',
+    'pbs-backup smoke', 'connector-stability smoke', 'collector-runtime smoke', 'script-registry smoke',
+    'script-execution smoke', 'script-output smoke', 'collection-plans smoke', 'metrics smoke',
+    'ingestion smoke', 'data-exchange smoke', 'collection-stability smoke',
+    'network-configuration-backup smoke', 'backup smoke', 'production-operations smoke',
+    'storage-isolation smoke',
+    'Sealed candidate regressions', 'Stable distribution signature and installation regressions',
+    'Portable production output regressions', 'Dependency lock validation regressions',
+    'Standalone Admin build smoke harness regressions', 'Python lock audit regressions',
+    'Admin frontend static', 'Inventory navigation contract', 'Vault Admin UI contract',
+    'Connector lifecycle UI policy', 'Browser staging preflight regression',
+    'Platform real HTTP admission smoke', 'Browser release report policy',
+    'Data collection navigation and UI policy', 'Proxmox Admin navigation policy',
+    'VMmanager navigation and dashboard policy', 'OS / Network navigation and dashboard policy',
+    'OS / Network staging TLS fixture', 'VMmanager admin fixture HTTPS integration',
+    'VMmanager HTTPS integration', 'VMmanager power HTTPS integration', 'RouterOS REST HTTPS integration',
+    'Syslog socket integration', 'Linux event probe integration', 'Linux discovery probe integration',
+    'Linux host inventory probe regression', 'Host transport stream regression',
+    'WinRM HTTPS protocol and trust integration', 'OS / Network live acceptance fixture',
+    'VMmanager live acceptance fixture', 'Script sandbox integration',
+    'Connector stability HTTPS integration', 'Data export HTTPS integration',
+    'Ingestion HTTPS integration', 'Metrics HTTPS integration', 'Proxmox profile HTTPS integration',
+    'Proxmox HTTPS integration', 'Proxmox Admin staging fixture HTTPS integration',
+    'Proxmox live acceptance', 'VMmanager live acceptance', 'OS / Network live acceptance',
+    'RouterOS PostgreSQL integration', 'PBS HTTPS integration', 'Proxmox snapshot HTTPS integration',
+    'Connector actions HTTPS integration', 'TypeScript SDK integration', 'SNMP protocol integration',
+    'SSH and WinRM protocol integration', 'VMmanager HTTPS + PostgreSQL integration',
+    'VMmanager power PostgreSQL integration', 'SNMP discovery PostgreSQL / native SNMP integration',
+    'Windows and Linux discovery PostgreSQL / WinRM and SSH integration',
+    'PBS PostgreSQL / HTTPS integration', 'PostgreSQL capacity acceptance',
+    'PostgreSQL install / upgrade / recovery', 'Full platform HTTP / PostgreSQL / TLS / DR journey',
+    'PostgreSQL installer', 'Redis integration', 'Composer lock consistency', 'PHPUnit', 'Nuxt typecheck',
+    'Sealed deployment release gate', 'Sealed Nuxt SSR bundle', 'Real deployed HTTP',
+    'Playwright E2E preflight', 'Playwright E2E (all suites must pass)',
+    'PostgreSQL database', 'PostgreSQL auth', 'PostgreSQL security', 'PostgreSQL infrastructure',
+    'PostgreSQL admin', 'PostgreSQL inventory', 'PostgreSQL workspaces', 'PostgreSQL inventory-crud',
+    'PostgreSQL ipam', 'PostgreSQL topology', 'PostgreSQL catalog', 'PostgreSQL history',
+    'PostgreSQL transfer', 'PostgreSQL cmdb', 'PostgreSQL vault', 'PostgreSQL vault-crud',
+    'PostgreSQL vault-access', 'PostgreSQL vault-rotation', 'PostgreSQL vault-bindings',
+    'PostgreSQL proxmox-profile', 'PostgreSQL connector-reconciliation', 'PostgreSQL host-hardware',
+    'PostgreSQL connector-health', 'PostgreSQL connector-events', 'PostgreSQL connector-actions',
+    'PostgreSQL script-registry', 'PostgreSQL script-execution', 'PostgreSQL collection-plans',
+    'PostgreSQL metrics', 'PostgreSQL ingestion', 'PostgreSQL backup',
+))
+
+
+def validate_strict_evidence(evidence, version, identity):
+    if not isinstance(evidence, dict) or set(evidence) != {'format','version','candidate_id','steps'} \
+            or type(evidence['format']) is not int or evidence['format'] != 1 \
+            or evidence['version'] != version or evidence['candidate_id'] != identity:
+        raise ValueError('Strict verification evidence identity mismatch')
+    steps = evidence['steps']
+    if not isinstance(steps, list) or len(steps) != len(STRICT_REQUIRED):
+        raise ValueError('Strict verification evidence is incomplete')
+    names = set()
+    for step in steps:
+        if not isinstance(step, dict) or set(step) != {'name','exit','elapsed_ms'} \
+                or not isinstance(step['name'], str) or not 0 < len(step['name']) <= 200 \
+                or step['name'] in names or type(step['exit']) is not int or step['exit'] != 0 \
+                or type(step['elapsed_ms']) is not int or step['elapsed_ms'] < 0:
+            raise ValueError('Invalid or failed strict verification step')
+        names.add(step['name'])
+    if names != STRICT_REQUIRED:
+        raise ValueError('Strict verification evidence lacks mandatory scenarios')
+    return evidence
+
+
 def accept(root, marker, report, deployment_root):
     # A separate lock covers the entire test/soak/publication lifetime.
-    report = report.absolute()
+    report = report.parent.resolve() / report.name
+    root = root.resolve()
+    deployment_root = deployment_root.resolve()
+    marker = marker.parent.resolve() / marker.name
     if report.is_symlink() or report == root or report == deployment_root or root in report.parents or deployment_root in report.parents:
         raise ValueError('Unsafe acceptance report path')
     if marker.parent == report.parent and report.name in (MARKER,SBOM,'release-candidate.tar.gz','release-candidate.sha256','.seal.lock'):
@@ -388,8 +507,17 @@ def _accept(root, marker, report, deployment_root):
     deployment_check(deployment_root)
     env=dict(os.environ,CAJEER_CANDIDATE_ID=identity,PYTHONDONTWRITEBYTECODE="1")
     started=int(time.time())
-    subprocess.run(['php','scripts/verify-release.php','--strict','--deployment-root='+str(deployment_root)],cwd=root,env=env,check=True)
-    # Strict tests exercise the sealed Nuxt output and actual deployment.
+    with tempfile.TemporaryDirectory(prefix='cajeer-strict-') as tmp:
+        evidence_path = Path(tmp) / 'strict.json'
+        subprocess.run(['php','scripts/verify-release.php','--strict','--deployment-root='+str(deployment_root),
+                        '--evidence='+str(evidence_path)],cwd=root,env=env,check=True)
+        if evidence_path.stat().st_size > 1024 * 1024:
+            raise ValueError('Strict verification evidence too large')
+        evidence = validate_strict_evidence(json.loads(evidence_path.read_bytes()), data['version'], identity)
+    # Re-check after destructive test suites, before committing to the soak.
+    if verify_deployment(deployment_root, identity)[0] != identity:
+        raise ValueError('Staging deployment changed during strict verification')
+    deployment_check(deployment_root)
     check()
     count,elapsed=soak(check,72*3600,60)
     if clean_source(root)[0]!=data['commit'] or verify(root,marker)[0]!=identity or digest(package)!=package_hash:
@@ -397,9 +525,12 @@ def _accept(root, marker, report, deployment_root):
     deployment_check(deployment_root)
     if verify_deployment(deployment_root,identity)[0]!=identity:
         raise ValueError('Staging deployment changed during acceptance')
-    atomic_write(report,canonical({'format':2,'status':'passed','scope':'strict_verification_deployment_capacity_and_http_soak','promotion_ready':False,'candidate_id':identity,'commit':data['commit'],
+    finished = int(time.time())
+    if finished - started < int(elapsed) or count < 2881:
+        raise ValueError('Incomplete soak timing evidence')
+    atomic_write(report,canonical({'format':3,'strict_verification':evidence,'status':'passed','scope':'strict_verification_deployment_capacity_and_http_soak','promotion_ready':False,'candidate_id':identity,'commit':data['commit'],
                                   'version':data['version'],'archive_sha256':package_hash,'strict_exit':0,'deployment_exit':0,'capacity_profile':'100k-assets/1k-targets/1m-samples/100k-events/50-clients/p95-500ms','soak_seconds':int(elapsed),'soak_checks':count,
-                                  'started_at':started,'finished_at':int(time.time())}))
+                                  'started_at':started,'finished_at':finished}))
 
 
 def main():
@@ -420,7 +551,7 @@ def main():
         else:
             if not a.manifest or not a.report or not a.deployment_root: raise ValueError('accept requires --manifest, --deployment-root and --report')
             if a.manifest.resolve()==a.report.resolve(): raise ValueError('Manifest and report must differ')
-            accept(root,a.manifest.resolve(),a.report.parent.resolve()/a.report.name,a.deployment_root.resolve());print('Candidate acceptance passed')
+            accept(root,a.manifest,a.report,a.deployment_root);print('Candidate acceptance passed')
     except (OSError,ValueError,KeyError,TypeError,subprocess.CalledProcessError) as error:
         print('Candidate verification failed:',type(error).__name__,str(error) if isinstance(error,ValueError) else '',file=sys.stderr);return 1
     return 0

@@ -1,8 +1,8 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 1.0.0
-  description: 'CajeerServers 1.0.0: infrastructure inventory, credentials, connectors, collection and operations.'
+  version: 1.0.1
+  description: 'CajeerServers 1.0.1: infrastructure inventory, credentials, connectors, collection and operations.'
 servers:
 - url: /api/v1
 security: []

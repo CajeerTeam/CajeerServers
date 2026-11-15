@@ -20,6 +20,7 @@ r = load('distribution', ROOT / 'scripts/release-distribution.py')
 fixtures = load('fixtures', ROOT / 'tests/candidate-release-test.py')
 
 class DistributionTests(unittest.TestCase):
+    VERSION = "1.0.0"
     def setUp(self):
         self.fixture = fixtures.CandidateTests('test_real_seal_and_deploy')
         self.fixture.setUp()
@@ -27,12 +28,12 @@ class DistributionTests(unittest.TestCase):
         self.root = self.fixture.root
         self.base = self.root.parent
         self.directory = self.fixture.dest
-        self.fixture.write('VERSION', '1.0.0\n')
+        self.fixture.write('VERSION', self.VERSION+'\n')
         self.fixture.git('add', 'VERSION')
-        self.fixture.git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', '1.0.0 fixture')
+        self.fixture.git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', self.VERSION+' fixture')
         commit = self.fixture.git('rev-parse', 'HEAD').decode().strip()
         names = [*r.candidate.INPUTS, 'storage/tmp/release-build.tar.gz', *r.candidate.output_names(self.root)]
-        self.fixture.write('storage/tmp/release-build.sha256', f'version=1.0.0\nsource_commit={commit}\n' + ''.join(f'{r.candidate.digest(self.root/n)}  {n}\n' for n in names))
+        self.fixture.write('storage/tmp/release-build.sha256', f'version={self.VERSION}\nsource_commit={commit}\n' + ''.join(f'{r.candidate.digest(self.root/n)}  {n}\n' for n in names))
         self.identity = r.candidate.seal(self.root, self.directory)
         self.package_hash = r.candidate.digest(self.directory / r.PACKAGE)
         self.private = self.base / 'test-only-private.pem'
@@ -40,9 +41,13 @@ class DistributionTests(unittest.TestCase):
         self.command('openssl', 'genpkey', '-algorithm', 'ED25519', '-out', str(self.private))
         self.command('openssl', 'pkey', '-in', str(self.private), '-pubout', '-out', str(self.public))
         self.report = {'format': 2, 'status': 'passed', 'scope': 'strict_verification_deployment_capacity_and_http_soak',
-                       'promotion_ready': False, 'version': '1.0.0', 'candidate_id': self.identity, 'commit': commit,
+                       'promotion_ready': False, 'version': self.VERSION, 'candidate_id': self.identity, 'commit': commit,
                        'archive_sha256': self.package_hash, 'strict_exit': 0, 'deployment_exit': 0, 'capacity_profile': r.CAPACITY,
                        'soak_seconds': 259200, 'soak_checks': 4321, 'started_at': 1000000, 'finished_at': 1259300}
+        if self.VERSION == '1.0.1':
+            self.report['format'] = 3
+            self.report['strict_verification'] = {'format':1, 'version':self.VERSION, 'candidate_id':self.identity,
+                'steps':[{'name':name,'exit':0,'elapsed_ms':10} for name in sorted(r.candidate.STRICT_REQUIRED)]}
         self.sign()
 
     def command(self, *args):
@@ -51,7 +56,7 @@ class DistributionTests(unittest.TestCase):
     def sign(self, review=None):
         raw = r.candidate.canonical(self.report)
         (self.directory / r.ACCEPTANCE).write_bytes(raw)
-        approval = {'format': 1, 'channel': 'stable', 'version': '1.0.0', 'candidate_id': self.identity,
+        approval = {'format': 1, 'channel': 'stable', 'version': self.VERSION, 'candidate_id': self.identity,
                     'archive_sha256': self.package_hash, 'acceptance_sha256': hashlib.sha256(raw).hexdigest(),
                     'reviews': {name: 'passed' for name in r.REVIEWS}}
         if review is not None: approval['reviews']['security'] = review
@@ -151,5 +156,33 @@ class DistributionTests(unittest.TestCase):
                 raise RuntimeError('simulated disk failure')
         self.assertFalse(target.exists())
         self.assertEqual([p for p in self.base.glob('.cajeer-release-*') if p.is_dir()], [])
+
+class PatchDistributionTests(DistributionTests):
+    VERSION = '1.0.1'
+
+    def test_old_format_cannot_publish_patch(self):
+        self.report['format'] = 2
+        del self.report['strict_verification']
+        self.sign()
+        with self.assertRaisesRegex(ValueError, 'Acceptance evidence'):
+            r.accepted(self.directory, self.identity, self.public)
+
+    def test_failed_or_missing_strict_step_rejected_even_with_signature(self):
+        evidence = self.report['strict_verification']
+        evidence['steps'][0]['exit'] = 77
+        self.sign()
+        with self.assertRaisesRegex(ValueError, 'failed strict'):
+            r.accepted(self.directory, self.identity, self.public)
+        evidence['steps'][0]['exit'] = 0
+        next(s for s in evidence['steps'] if s['name'] == 'PostgreSQL vault')['name'] = 'not a required step'
+        self.sign()
+        with self.assertRaisesRegex(ValueError, 'mandatory scenarios'):
+            r.accepted(self.directory, self.identity, self.public)
+
+    def test_wrong_evidence_identity(self):
+        self.report['strict_verification']['candidate_id'] = '0'*64
+        self.sign()
+        with self.assertRaisesRegex(ValueError, 'identity mismatch'):
+            r.accepted(self.directory, self.identity, self.public)
 
 if __name__ == '__main__': unittest.main(verbosity=2)

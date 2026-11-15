@@ -50,8 +50,8 @@ def bundle(directory, expected_id):
     identity = hashlib.sha256(raw).hexdigest()
     if not candidate.HEX.fullmatch(expected_id) or identity != expected_id:
         raise ValueError('Candidate identity differs from the trusted ID')
-    if data.get('format') != 1 or data.get('version') != '1.0.0' or not isinstance(data.get('files'), dict):
-        raise ValueError('Expected a complete 1.0.0 candidate')
+    if data.get('format') != 1 or data.get('version') not in ('1.0.0', '1.0.1') or not isinstance(data.get('files'), dict):
+        raise ValueError('Expected a supported 1.0.x candidate')
     if not set(candidate.INPUTS) <= data['files'].keys():
         raise ValueError('Candidate lacks reviewed inputs')
     package_hash = candidate.digest(paths[PACKAGE])
@@ -69,13 +69,15 @@ def accepted(directory, expected_id, public_key):
     approval_path = candidate.safe_path(directory, APPROVAL)
     signature_path = candidate.safe_path(directory, SIGNATURE)
     report_raw, report = read_json(report_path)
-    expected = {'format': 2, 'status': 'passed',
+    expected = {'format': 3 if data['version'] == '1.0.1' else 2, 'status': 'passed',
                 'scope': 'strict_verification_deployment_capacity_and_http_soak',
-                'version': '1.0.0', 'candidate_id': identity, 'commit': data['commit'],
+                'version': data['version'], 'candidate_id': identity, 'commit': data['commit'],
                 'archive_sha256': package_hash, 'strict_exit': 0, 'deployment_exit': 0,
                 'capacity_profile': CAPACITY, 'promotion_ready': False}
     if any(type(report.get(key)) is not type(value) or report.get(key) != value for key, value in expected.items()):
         raise ValueError('Acceptance evidence does not match the exact release')
+    if data['version'] == '1.0.1':
+        candidate.validate_strict_evidence(report.get('strict_verification'), data['version'], identity)
     # The soak allows at most 90 seconds between probe starts. Require real
     # elapsed duration and a plausible minimum number of successful probes.
     seconds, checks = report.get('soak_seconds'), report.get('soak_checks')
@@ -85,7 +87,7 @@ def accepted(directory, expected_id, public_key):
             or finished - started < seconds):
         raise ValueError('Incomplete 72-hour acceptance evidence')
     approval_raw, approval = read_json(approval_path)
-    expected_approval = {'format': 1, 'channel': 'stable', 'version': '1.0.0',
+    expected_approval = {'format': 1, 'channel': 'stable', 'version': data['version'],
                          'candidate_id': identity, 'archive_sha256': package_hash,
                          'acceptance_sha256': hashlib.sha256(report_raw).hexdigest(),
                          'reviews': {name: 'passed' for name in REVIEWS}}

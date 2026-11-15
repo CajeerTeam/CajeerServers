@@ -642,3 +642,12 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 - [x] Candidate identity in staging checks, executable strict acceptance and 72-hour availability soak.
 - [ ] Resolve Composer/Admin locks, complete full build, CI matrix, live acceptance, performance/DR and soak on the same candidate.
 - [ ] Review security and compatibility findings before 1.0.0 stable promotion.
+
+## 1.0.1 — Stable Core Acceptance
+
+- [x] Offline upgrade 1.0.0 → 1.0.1, без изменений 64 миграций.
+- [x] Фактические storage/Vault round-trip, изоляция PostgreSQL сценариев, отчёт шагов strict и проверка подписанной публикации.
+- [x] Защита integrity/HTTP soak и регрессионные проверки.
+- [ ] Full production acceptance: PHP/PG matrix, locked build, live devices, browser, capacity, DR, 72h soak and independent approval.
+
+См. [Stable Core Acceptance 1.0.1](docs/Stable-Core-Acceptance-1.0.1.md).
