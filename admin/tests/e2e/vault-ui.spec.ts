@@ -1,3 +1,4 @@
+import {randomUUID} from 'node:crypto'
 import {freshAdminTotp} from './admin-totp'
 import { test, expect, type Page } from '@playwright/test'
 
@@ -218,37 +219,36 @@ test('Vault UI: typed secret profile is sent encrypted, never reflected in metad
   }
 })
 
-// Optional separate viewer identity for negative RBAC/CSRF checks on staging.
-test('Vault UI: read-only identity cannot edit or post secret payloads', async ({ page }) => {
-  const viewerEmail = process.env.E2E_VAULT_VIEWER_EMAIL || ''
-  const viewerPass = process.env.E2E_VAULT_VIEWER_PASSWORD || ''
-  test.skip(!enabled || !viewerEmail || !viewerPass, 'Requires dedicated staging viewer identity')
-  await signIn(page, viewerEmail, viewerPass, process.env.E2E_VAULT_VIEWER_MFA)
-  const spaces = await page.request.get(`${api}/workspaces`)
-  expect(spaces.ok()).toBe(true)
-  const ws = ((await spaces.json()).data as { id: string; role: string }[]).find(s => s.role === 'viewer')?.id
-  test.skip(!ws, 'Viewer must be attached to a workspace')
-  await page.goto(`/vault?workspace_id=${ws}`)
-  await expect(page.getByRole('heading', { name: 'Credentials Vault' })).toBeVisible()
-  await expect(page.getByTestId('vault-create')).toHaveCount(0)
-  const unauthorized = await page.request.post(`${api}/vault/credentials`, {
-    headers: { 'X-CSRF-Token': await csrf(page) },
-    data: { workspace_id: ws, name: 'should-not-exist', type: 'api_token', secret: 'synthetic-denied' },
-  })
-  expect(unauthorized.status()).toBe(403)
-  const listing = await page.request.get(`${api}/vault/credentials?workspace_id=${ws}`)
-  expect(listing.ok()).toBe(true)
-  const visible = (await listing.json()).data as VaultCredential[]
-  if (visible.length) {
-    const record = visible[0]
-    const forbiddenPatch = await page.request.patch(`${api}/vault/credentials/${record.id}`, {
-      headers: { 'X-CSRF-Token': await csrf(page), 'If-Match': record.etag },
-      data: { description: 'viewer-must-not-update' },
-    })
-    expect(forbiddenPatch.status()).toBe(403)
-    const forbiddenDelete = await page.request.delete(`${api}/vault/credentials/${record.id}`, {
-      headers: { 'X-CSRF-Token': await csrf(page), 'If-Match': record.etag },
-    })
-    expect(forbiddenDelete.status()).toBe(403)
+// Create an isolated viewer and a real credential, never skip an empty listing.
+test('Vault UI: read-only identity cannot edit or post secret payloads', async ({ page, browser }) => {
+  test.skip(!enabled || !email || !password, 'Requires disposable Vault staging')
+  await signIn(page,email,password,await freshAdminTotp())
+  const r=page.request, label=`vault-viewer-${randomUUID().slice(0,8)}`
+  async function post(path:string,data:unknown){const response=await r.post(api+path,{data,headers:{'X-CSRF-Token':await csrf(page)}});expect(response.ok(),path).toBe(true);return await response.json()}
+  const spaces=await r.get(api+'/workspaces');expect(spaces.ok()).toBe(true)
+  const owner=((await spaces.json()).data as {id:string;organization_id:string;role:string}[]).find(s=>s.role==='owner')!
+  expect(owner).toBeTruthy()
+  const ws=(await post('/workspaces',{organization_id:owner.organization_id,slug:label,name:label})).id as string
+  const record=(await post('/vault/credentials',{workspace_id:ws,name:label,type:'api_token',secret:'synthetic-viewer-'+label})).data as VaultCredential
+  const viewerEmail=label+'@example.invalid',viewerPass='fixture-'+randomUUID()
+  const user=(await post('/security/users',{email:viewerEmail,name:label,password:viewerPass})).id as string
+  const viewer=await browser.newContext({baseURL:process.env.E2E_BASE_URL})
+  try {
+    await post('/security/roles',{slug:label,name:label,permissions:['workspaces.read','vault.credentials.read']})
+    expect((await r.post(api+`/security/users/${user}/roles/${label}`,{headers:{'X-CSRF-Token':await csrf(page)}})).ok()).toBe(true)
+    expect((await r.put(api+`/workspaces/${ws}/members/${user}`,{data:{role:'viewer'},headers:{'X-CSRF-Token':await csrf(page)}})).status()).toBe(204)
+    const vp=await viewer.newPage();await signIn(vp,viewerEmail,viewerPass)
+    await vp.goto(`/vault?workspace_id=${ws}`)
+    await expect(vp.getByRole('heading',{name:'Credentials Vault'})).toBeVisible()
+    await expect(vp.getByTestId('vault-create')).toHaveCount(0)
+    const listing=await vp.request.get(api+`/vault/credentials?workspace_id=${ws}`);expect(listing.ok()).toBe(true)
+    expect((await listing.json()).data.map((x:VaultCredential)=>x.id)).toContain(record.id)
+    expect((await vp.request.post(api+'/vault/credentials',{headers:{'X-CSRF-Token':await csrf(vp)},data:{workspace_id:ws,name:'should-not-exist',type:'api_token',secret:'synthetic-denied'}})).status()).toBe(403)
+    expect((await vp.request.patch(api+`/vault/credentials/${record.id}`,{headers:{'X-CSRF-Token':await csrf(vp),'If-Match':record.etag},data:{description:'viewer-must-not-update'}})).status()).toBe(403)
+    expect((await vp.request.delete(api+`/vault/credentials/${record.id}`,{headers:{'X-CSRF-Token':await csrf(vp),'If-Match':record.etag}})).status()).toBe(403)
+    expect([403,404]).toContain((await vp.request.get(api+`/vault/credentials?workspace_id=${owner.id}`)).status())
+  } finally {
+    await viewer.close()
+    expect((await r.patch(api+`/security/users/${user}`,{headers:{'X-CSRF-Token':await csrf(page)},data:{active:false}})).ok()).toBe(true)
   }
 })

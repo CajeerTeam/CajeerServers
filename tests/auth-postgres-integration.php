@@ -114,9 +114,18 @@ try {
     $expectHttp(401, static fn () => $auth->authenticate(new HttpRequest('GET', '/api/v1/auth/me', ['Authorization' => 'Bearer ' . $issued['token'] . 'oops'])));
     $expectHttp(401, static fn () => $auth->authenticate(new HttpRequest('GET', '/api/v1/auth/me', ['Authorization' => 'Bearer ' . $issued['token'], 'Cookie' => $cookieHeader]), [], true));
 
-    $freshCsrf = $auth->rotateCsrf($session);
-    $expectHttp(403, static fn () => $auth->requireCsrf($browser('POST', '/api/v1/auth/tokens', $login['csrf_token']), $auth->authenticate($browser('GET','/api/v1/auth/me'))));
+    $freshCsrf = $auth->csrfToken($browser('GET','/api/v1/auth/csrf'), $session);
+    $test($freshCsrf === $login['csrf_token'], 'parallel CSRF fetches preserve current session token');
+    $test($auth->csrfToken($browser('GET','/api/v1/auth/csrf'), $session) === $freshCsrf, 'second tab gets identical token');
+    $auth->requireCsrf($browser('POST','/api/v1/auth/tokens',$login['csrf_token']), $auth->authenticate($browser('GET','/api/v1/auth/me')));
+    // Simulate a session created by 0.9.7: first GET migrates the old random-token digest.
+    $legacy = bin2hex(random_bytes(32));
+    $pdo->prepare('UPDATE auth_sessions SET csrf_hash=:hash WHERE id=:id')->execute(['hash'=>hash('sha256',$legacy),'id'=>$session['id']]);
+    $legacyPrincipal=$auth->authenticate($browser('GET','/api/v1/auth/me'));
+    $auth->requireCsrf($browser('POST','/api/v1/auth/tokens',$legacy),$legacyPrincipal);
+    $test($auth->csrfToken($browser('GET','/api/v1/auth/csrf'),$legacyPrincipal)===$freshCsrf,'legacy CSRF migrated to stable token');
     $session = $auth->authenticate($browser('GET', '/api/v1/auth/me'));
+    $expectHttp(403,static fn()=>$auth->requireCsrf($browser('POST','/api/v1/auth/tokens',$legacy),$session));
     $auth->requireCsrf($browser('POST', '/api/v1/auth/tokens', $freshCsrf), $session);
     $auth->revokeToken($session, $issued['id']);
     $expectHttp(401, static fn () => $auth->authenticate($bearer, ['profile:read']));
@@ -124,6 +133,7 @@ try {
 
     $newSession = $auth->loginOrReject($email, $password, '192.0.2.12');
     $test(count($auth->sessions($session)) === 2, 'multiple simultaneous sessions tracked');
+    $test($newSession['csrf_token']!==$freshCsrf,'independent session has different CSRF');
     $thisCookie = explode(';', $newSession['cookie'], 2)[0];
     $other = $auth->authenticate(new HttpRequest('GET','/api/v1/auth/me',['Cookie' => $thisCookie]));
     $auth->revokeSession($session, $other['id']);

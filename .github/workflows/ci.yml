@@ -191,6 +191,7 @@ jobs:
         run: |
           php tests/backup-postgres-integration.php
           php tests/upgrade-postgres-integration.php
+          python3 tests/platform-http-e2e.py
   windows-native-agents:
     name: Windows Server / native PowerShell CIM and Event Log
     runs-on: windows-2025

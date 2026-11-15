@@ -23,7 +23,7 @@ export function useApi() {
   async function write<T>(method: 'POST' | 'PUT' | 'PATCH' | 'DELETE', path: string, body?: unknown, csrf = true, extraHeaders: Record<string,string> = {}): Promise<T> {
     const headers: Record<string, string> = { Accept: 'application/json', ...extraHeaders }
     if (csrf) {
-      // Rotating CSRF per operation means reloads never need to persist a token.
+      // Fetch the session-bound CSRF token without persisting it in browser storage.
       const response = await get<{ csrf_token: string }>('/auth/csrf')
       headers['X-CSRF-Token'] = response.csrf_token
     }

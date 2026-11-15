@@ -100,7 +100,7 @@ SQL);
             }
             $pdo->prepare('DELETE FROM auth_login_attempts WHERE subject_hash = :hash')->execute(['hash' => $key]);
             $issued = TokenCodec::issue('cs1');
-            $csrf = self::randomSecret();
+            $csrf = TokenCodec::csrf($issued['credential'], $this->appKey());
             $save = $pdo->prepare("INSERT INTO auth_sessions (id, user_id, secret_hash, csrf_hash, expires_at, mfa_verified) VALUES (:id,:user,:secret,:csrf,now() + interval '12 hours',:mfa)");
             $save->execute(['id' => $issued['id'], 'user' => $user['id'], 'secret' => $issued['hash'], 'csrf' => TokenCodec::digest($csrf), 'mfa' => $mfaEnabled ? 'true' : 'false']);
             $this->audit($pdo, (string) $user['id'], 'auth.login.succeeded', 'success', 'session', $issued['id']);
@@ -207,13 +207,20 @@ SQL);
         }
     }
 
-    /** @param array<string,mixed> $principal */
-    public function rotateCsrf(array $principal): string
+    /** Stable per-session CSRF token: parallel tabs must not invalidate one another.
+     * Legacy sessions upgrade their stored hash on the first authenticated fetch.
+     */
+    public function csrfToken(HttpRequest $request, array $principal): string
     {
         $this->onlySession($principal);
-        $csrf = self::randomSecret();
-        $stmt = $this->database->connection()->prepare('UPDATE auth_sessions SET csrf_hash = :hash WHERE id = :id AND revoked_at IS NULL AND expires_at > now()');
-        $stmt->execute(['hash' => TokenCodec::digest($csrf), 'id' => $principal['id']]);
+        $raw = $this->cookie->read($request);
+        if (!is_string($raw) || TokenCodec::parse($raw, 'cs1') !== $principal['id']) throw self::unauthorized();
+        $csrf = TokenCodec::csrf($raw, $this->appKey());
+        $hash = TokenCodec::digest($csrf);
+        if (hash_equals((string) ($principal['csrf_hash'] ?? ''), $hash)) return $csrf;
+        // Check the live session, including its credential, before migrating a legacy hash.
+        $stmt = $this->database->connection()->prepare('UPDATE auth_sessions SET csrf_hash = :hash WHERE id = :id AND secret_hash = :secret AND revoked_at IS NULL AND expires_at > now()');
+        $stmt->execute(['hash' => $hash, 'id' => $principal['id'], 'secret' => TokenCodec::digest($raw)]);
         if ($stmt->rowCount() !== 1) throw self::unauthorized();
         return $csrf;
     }
@@ -369,11 +376,6 @@ SQL);
         if (str_starts_with($key, 'base64:')) $key = base64_decode(substr($key, 7), true) ?: '';
         if (strlen($key) < 32 || strlen(count_chars($key, 3)) < 8) throw new RuntimeException('Application encryption key is not configured securely.');
         return $key;
-    }
-
-    private static function randomSecret(): string
-    {
-        return rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '=');
     }
 
     private static function dbBool(mixed $value): bool

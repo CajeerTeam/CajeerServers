@@ -61,6 +61,8 @@ $run('Inventory navigation contract', ['node', '--experimental-strip-types', 'te
 $run('Vault Admin UI contract', ['node', '--experimental-strip-types', 'tests/vault-ui-contract.mjs'], $root . '/admin');
 $run('Connector lifecycle UI policy', ['node', '--experimental-strip-types', 'tests/connector-lifecycle-contract.mjs'], $root . '/admin');
 
+$run('Browser staging preflight regression', ['node','--test','tests/e2e/preflight.test.mjs'], $root . '/admin');
+$run('Platform real HTTP admission smoke', ['python3','tests/platform-http-e2e.py','--smoke'], $root);
 $run('Browser release report policy', ['node','tests/e2e/report-contract.mjs'], $root . '/admin');
 $run('Data collection navigation and UI policy', ['node','--experimental-strip-types','tests/collection-navigation-contract.mjs'], $root . '/admin');
 
@@ -120,6 +122,7 @@ if ($strict) {
         }
         $run('PostgreSQL performance regression', [PHP_BINARY, 'scripts/benchmark-postgres.php'], $root, null, 600);
         $run('PostgreSQL install / upgrade / recovery', [PHP_BINARY, 'tests/upgrade-postgres-integration.php'], $root, null, 600);
+        $run('Full platform HTTP / PostgreSQL / TLS / DR journey', ['python3','tests/platform-http-e2e.py'], $root, null, 900);
         $installerDb = getenv('CAJEER_INSTALL_PG_TEST_DATABASE') ?: '';
         if (!preg_match('/^cajeer_test_[a-z0-9_]+_test$/D', $installerDb) || $installerDb === getenv('CAJEER_PG_TEST_DATABASE')) {
             fwrite(STDERR, "FAIL: installer integration requires a separate EMPTY CAJEER_INSTALL_PG_TEST_DATABASE=cajeer_test_*_test.\n");
@@ -150,7 +153,7 @@ if ($strict) {
         fwrite(STDERR, "FAIL: strict verification requires disposable E2E staging, credentials, E2E_ALLOW_WRITES=1, E2E_ISOLATED_STAGING=1, E2E_CONNECTOR_UI=1, E2E_ADMIN_TOTP_SECRET and fixture host.\n"); $failures++;
     } else {
         $run('Playwright E2E preflight', ['npm', 'run', 'test:e2e:preflight'], $root . '/admin');
-        $run('Playwright E2E (critical suites must execute)', ['bash','scripts/verify-browser-e2e.sh'], $root, null, 1800);
+        $run('Playwright E2E (all suites must pass)', ['bash','scripts/verify-browser-e2e.sh'], $root, null, 5400);
     }
 }
 fwrite(STDOUT, "Release verification: $steps steps; failures: $failures" . ($strict ? ' (strict)' : ' (native)') . "\n");

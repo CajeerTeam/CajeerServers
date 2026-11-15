@@ -2,6 +2,10 @@
 
 **CajeerServers** — русскоязычная self-hosted веб-оболочка для наблюдения и управления инфраструктурой. Это **не ОС**, не прошивка и не замена Proxmox/VMmanager. В 0.4.0 добавлена реальная серверная проверка ожидающей версии Credentials Vault через Proxmox с MFA и блокировкой активации без proof; в 0.3.9 добавлена работающая админ-панель Credentials Vault с browser E2E для изолированного staging; в 0.3.8 добавлены шифрованные CLI-backups и offline recovery; в 0.3.7 реализована read-only интеграция Proxmox VE через HTTPS; в 0.4.4 добавлена read-only интеграция VMmanager 6; в 0.4.5 добавлены рабочие SSH и WinRM драйверы; в 0.4.6 добавлены SNMP и постоянный Connector Health; custom поддерживается через доверенный PHP SDK.
 
+## Версия 0.9.8 — Full Platform Integration & E2E
+
+Стабильный CSRF для параллельных запросов, сквозной HTTP/PostgreSQL/TLS/DR сценарий и строгая проверка всех браузерных E2E. Без новой миграции. [Инструкция](docs/Full-Platform-Integration-E2E-0.9.8.md).
+
 ## Версия 0.9.7 — Production Operations & Disaster Recovery
 
 Managed encrypted backup, drain, off-site verification, retention, recovery drill, эксплуатационные метрики и alert rules, systemd backup timer и production SSR/FPM. Без новой миграции. [Инструкция](docs/Production-Operations-DR-0.9.7.md).

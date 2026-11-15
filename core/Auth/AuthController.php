@@ -32,8 +32,9 @@ final class AuthController
 
     public function csrf(HttpRequest $request): HttpResponse
     {
+        $this->auth->requireSameOrigin($request);
         $principal = $this->auth->authenticate($request, sessionOnly: true);
-        return HttpResponse::json(['csrf_token' => $this->auth->rotateCsrf($principal)]);
+        return HttpResponse::json(['csrf_token' => $this->auth->csrfToken($request, $principal)]);
     }
 
     public function logout(HttpRequest $request): HttpResponse

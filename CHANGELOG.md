@@ -1,3 +1,10 @@
+## [0.9.8] — 2026-11-15 — Full Platform Integration & E2E
+
+- Fix cross-tab CSRF races with session-bound, domain-separated HMAC and legacy hash migration.
+- Add disposable real HTTP/PostgreSQL/Scheduler/worker/TLS fixture/backup/restore journey, including recovered API verification.
+- Require every browser suite and first-pass test; reject skipped or partial reports and mismatched/unready staging. Provision an isolated Vault viewer; enable all staging scenarios.
+- Integrate full HTTP journey into PostgreSQL CI and strict verification. Offline upgrade 0.9.7 → 0.9.8, no new migrations. Live and full deployment acceptance remain mandatory.
+
 ## [0.9.7] — 2026-11-15 — Production Operations & Disaster Recovery
 
 - Add exclusive admission drain for managed full backups, verified encrypted off-site publication, authenticated retention and durable status.

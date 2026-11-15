@@ -20,6 +20,17 @@ test('end-to-end authentication, dashboard, audit and diagnostic job', async ({ 
   await page.getByRole('button', { name: 'Войти', exact: true }).click()
   await expect(page).toHaveURL(/\/$/)
   await expect(page.getByRole('heading', { name: 'Обзор инфраструктурной платформы' })).toBeVisible()
+  // A second tab must not invalidate a token already fetched by the first tab.
+  const secondTab = await page.context().newPage()
+  try {
+    const first = await page.request.get('/api/v1/auth/csrf')
+    const second = await secondTab.request.get('/api/v1/auth/csrf')
+    expect(first.ok() && second.ok()).toBe(true)
+    const token = (await first.json()).csrf_token as string
+    expect(token === (await second.json()).csrf_token).toBe(true)
+    const job = await page.request.post('/api/v1/admin/jobs', {data:{type:'storage.probe'},headers:{'X-CSRF-Token':token}})
+    expect(job.status()).toBe(202)
+  } finally { await secondTab.close() }
   await page.getByRole('link', { name: 'Очередь и задачи' }).click()
   await expect(page.getByRole('heading', { name: 'Очередь и диагностические задачи' })).toBeVisible()
   page.once('dialog', dialog => dialog.accept())
@@ -46,7 +57,7 @@ test('end-to-end authentication, dashboard, audit and diagnostic job', async ({ 
 
 
 test('workspace administration: create organization and workspace via secured UI', async ({ page }) => {
-  test.skip(!email || !password, 'Requires isolated installed 0.2.2 backend and admin test account.')
+  test.skip(!email || !password, 'Requires isolated installed backend and admin test account.')
   await page.goto('/login')
   await page.getByLabel('Email').fill(email)
   await page.getByLabel('Пароль').fill(password)

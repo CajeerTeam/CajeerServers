@@ -21,6 +21,13 @@ final class TokenCodec
         return ['id' => $id, 'credential' => $credential, 'hash' => self::digest($credential)];
     }
 
+    /** Domain-separated HMAC of the high-entropy session credential, never of its public UUID alone. */
+    public static function csrf(string $credential, string $appKey): string
+    {
+        if (self::parse($credential, 'cs1') === null || strlen($appKey) < 32) throw new \InvalidArgumentException('Invalid CSRF derivation inputs.');
+        return rtrim(strtr(base64_encode(hash_hmac('sha256', "cajeer:csrf:v1\0".$credential, $appKey, true)), '+/', '-_'), '=');
+    }
+
     public static function digest(string $credential): string
     {
         return hash('sha256', $credential);

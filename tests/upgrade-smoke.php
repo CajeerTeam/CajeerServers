@@ -68,8 +68,8 @@ try {
     $reject(fn()=>$state->record(),'invalid marker identity rejected');
     unlink($root.'/storage/app/installed.json');
     $state->finish('00000000-0000-0000-0000-000000000001','2026-11-15T00:00:00Z');
-    $check($state->record()['version']==='0.9.7','marker records installed code version');
-    $old=$state->record();$old['version']='0.9.6';file_put_contents($root.'/storage/app/installed.json',json_encode($old));
+    $check($state->record()['version']==='0.9.8','marker records installed code version');
+    $old=$state->record();$old['version']='0.9.7';file_put_contents($root.'/storage/app/installed.json',json_encode($old));
     $check($gate->requiresUpgrade(),'old marker detects code version drift');
     $check($app->handle(new HttpRequest('GET','/api/v1/health'))->status===503,'old marker cannot serve upgraded code');
     $state->finish($old['installation_id'],$old['installed_at']);
@@ -78,7 +78,7 @@ try {
     $oldDir=$root.'/source-096';mkdir($oldDir.'/migrations/pgsql',0700,true);
     foreach(glob($source.'/migrations/pgsql/*.sql') as $file)copy($file,$oldDir.'/migrations/pgsql/'.basename($file));
     $method=new ReflectionMethod(UpgradeService::class,'sourceFiles');$service=new UpgradeService($app);
-    $check(count($method->invoke($service,$oldDir))===64,'0.9.6 source migration set accepted');
+    $check(count($method->invoke($service,$oldDir))===64,'0.9.7 source migration set accepted');
     unlink($oldDir.'/migrations/pgsql/0064_performance_scalability.sql');
     $reject(fn()=>$method->invoke($service,$oldDir),'missing source migration rejected');
     echo "Upgrade native smoke: $count PASS. PostgreSQL upgrade/recovery tested separately.\n";

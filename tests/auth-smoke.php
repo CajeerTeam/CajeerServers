@@ -44,6 +44,13 @@ try {
     $config = new ConfigRepository(dirname(__DIR__) . '/config');
     $cookie = new SessionCookie($config);
     $session = TokenCodec::issue('cs1');
+    $key = random_bytes(32);
+    $csrf = TokenCodec::csrf($session['credential'], $key);
+    $check($csrf === TokenCodec::csrf($session['credential'], $key), 'CSRF stable across parallel requests');
+    $check(strlen($csrf) === 43 && !str_contains($session['credential'], $csrf), 'CSRF does not expose session secret');
+    $check($csrf !== TokenCodec::csrf(TokenCodec::issue('cs1')['credential'], $key), 'CSRF bound to session');
+    $check($csrf !== TokenCodec::csrf($session['credential'], random_bytes(32)), 'CSRF bound to APP_KEY');
+    try { TokenCodec::csrf($token['credential'], $key); $check(false, 'API token cannot derive CSRF'); } catch (InvalidArgumentException) { $check(true, 'API token cannot derive CSRF'); }
     $set = $cookie->set($session['credential']);
     $check(str_contains($set, 'cajeer_session=') && str_contains($set, 'SameSite=Strict') && str_contains($set, 'HttpOnly'), 'local cookie protected');
     $check(!str_contains($set, 'Secure'), 'local http cookie not Secure');

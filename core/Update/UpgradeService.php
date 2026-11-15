@@ -52,7 +52,7 @@ final class UpgradeService
             if ($old === false || $old === realpath($this->app->basePath()) || !is_dir($old)) throw new RuntimeException('A separate retained source release directory is required.');
             $from = trim((string) file_get_contents($old . '/VERSION'));
             $to = $this->app->version();
-            if ($from !== '0.9.6' || $to !== '0.9.7') throw new RuntimeException('Supported upgrade is 0.9.6 to 0.9.7.');
+            if ($from !== '0.9.7' || $to !== '0.9.8') throw new RuntimeException('Supported upgrade is 0.9.7 to 0.9.8.');
             if (!str_starts_with($archive,'/') || !str_starts_with($key,'/')) throw new RuntimeException('Backup and key paths must be absolute.');
             $db = $this->app->container()->get(DatabaseManager::class);
             if ($db->driver() !== 'pgsql') throw new RuntimeException('Upgrade requires PostgreSQL.');

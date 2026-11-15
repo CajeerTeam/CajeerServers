@@ -19,7 +19,7 @@ test('Data collection: signed script, scheduled metrics, push/import, verified e
   const ws=(await post<{id:string}>(r,'/workspaces',{organization_id:owner!.organization_id,slug:label,name:label})).id
   const asset=(await post<{data:{id:string}}>(r,'/inventory/assets',{workspace_id:ws,type:'cluster',name:label})).data.id
   const cred=(await post<{data:{id:string}}>(r,'/vault/credentials',{workspace_id:ws,name:label,type:'proxmox_api',secret:{token_id:'cajeer-e2e@pve!fixture',token_secret:'fixture-only-cajeer-token'}})).data.id
-  const target=(await post<{data:{id:string;etag:string}}>(r,'/connectors/targets',{workspace_id:ws,provider:'proxmox',name:label,endpoint_host:host,endpoint_port:Number(process.env.E2E_CONNECTOR_FIXTURE_PORT||8443),asset_id:asset})).data
+  const target=(await post<{data:{id:string;etag:string}}>(r,'/connectors/targets',{workspace_id:ws,provider:'proxmox',name:label,endpoint_host:host,endpoint_port:Number(process.env.E2E_CONNECTOR_FIXTURE_PORT||8443),asset_id:asset,proxmox_profile:{cluster:null,anchor_node:'cajeer-e2e-pve',anchor_id:null,primary_pin:process.env.E2E_CONNECTOR_FIXTURE_PIN,fallbacks:[]}})).data
   const path=`/connectors/targets/${target.id}`
   await post(r,path+'/credential-bindings',{credential_id:cred,purpose:'api',attach_to_asset:true},{'If-Match':target.etag})
   const url=(view:string)=>`/collections?workspace_id=${ws}&target_id=${target.id}&view=${view}`

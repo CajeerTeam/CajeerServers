@@ -631,3 +631,14 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 - [x] Count-free Inventory pagination, Admin keyset, batch events, stable metric cutoffs and read indexes.
 - [x] Executable PostgreSQL and HTTP load harnesses; local liveness load and native regressions.
 - [ ] Run PostgreSQL 17/18 benchmarks, full authenticated HTTP load, 24-hour soak and production capacity acceptance. See `docs/Performance-Scalability-0.9.6.md`.
+
+## 0.9.7 — Production Operations & Disaster Recovery
+
+- Managed encrypted backup, drain, off-site verification and recovery drill; operations dashboard and alerting.
+- [ ] Real deployment and disaster recovery acceptance.
+
+## 0.9.8 — Full Platform Integration & E2E
+
+- [x] Session CSRF concurrency fix and strict complete browser report gate.
+- [x] Executable full HTTP/PostgreSQL/TLS/DR integration journey and staging preflight.
+- [ ] Run full PostgreSQL/Redis CI, all browser suites and physical-device acceptance.

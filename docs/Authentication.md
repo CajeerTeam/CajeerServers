@@ -26,7 +26,7 @@ curl --fail-with-body -sS -c cookies.txt -X POST "$API/auth/login" \
   -d '{"email":"admin@example.com","password":"REPLACE_WITH_SECRET"}'
 # В JSON придёт csrf_token, который надо сохранить приватно (не в localStorage).
 curl -sS -b cookies.txt "$API/auth/me"
-curl -sS -b cookies.txt "$API/auth/csrf"   # выдаёт новый csrf_token, старый инвалидируется
+curl -sS -b cookies.txt "$API/auth/csrf"   # возвращает стабильный csrf_token текущей сессии
 curl -sS -b cookies.txt -X POST "$API/auth/logout" \
   -H 'X-CSRF-Token: REPLACE_WITH_LATEST_CSRF'
 rm -f cookies.txt

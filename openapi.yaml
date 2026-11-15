@@ -1,7 +1,7 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.9.7
+  version: 0.9.8
   description: 'CajeerServers 0.7.1: VMmanager connection profiles, PVE/PBS integration and infrastructure collection.'
 servers:
 - url: /api/v1
@@ -210,10 +210,10 @@ paths:
   /auth/csrf:
     get:
       operationId: authCsrf
-      summary: Выдать новый CSRF для текущей сессии
+      summary: Получить CSRF текущей сессии
       responses:
         '200':
-          description: Новый токен, предыдущий становится недействительным
+          description: Стабильный токен текущей сессии; параллельные запросы не инвалидируют его
           content:
             application/json:
               schema:
