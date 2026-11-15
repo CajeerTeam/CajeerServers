@@ -97,6 +97,7 @@ $run('RouterOS REST HTTPS integration', ['python3','tests/routeros-https-integra
 $run('Syslog socket integration', ['python3','tests/syslog-receiver-integration.py'], $root);
 $run('Linux event probe integration', ['python3','tests/linux-events-integration.py'], $root);
 $run('Linux discovery probe integration', ['python3','tests/linux-discovery-integration.py'], $root);
+$run('Linux host inventory probe regression', ['python3','tests/linux-collect-regression.py'], $root);
 $run('Host transport stream regression', ['python3','tests/host-transport-stream-regression.py'], $root);
 $run('WinRM HTTPS protocol and trust integration', ['python3','tests/host-transport-integration.py'], $root);
 $run('OS / Network live acceptance fixture', ['python3','tests/os-network-live-acceptance-integration.py'], $root, null, 240);

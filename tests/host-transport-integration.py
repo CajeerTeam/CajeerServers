@@ -236,6 +236,27 @@ def ssh_test(tmp):
     pem=client_key.private_bytes(serialization.Encoding.PEM,serialization.PrivateFormat.OpenSSH,serialization.NoEncryption()).decode()
     expected=paramiko.Ed25519Key.from_private_key(__import__('io').StringIO(pem))
     commands=[];auth_attempts=[]
+    last_probe={}
+    # Extra wire-level regression: execute the exact production collector,
+    # injecting a valid zero-capacity block device at the lsblk boundary.
+    # All ordinary discovery, metrics and PostgreSQL scenarios still use the
+    # real Linux host and its unmodified command results.
+    disk_mode='normal'
+    disk_wrapper=r"""
+import json, subprocess, sys
+original=subprocess.check_output
+def check_output(args,*pos,**kw):
+    raw=original(args,*pos,**kw)
+    if args[0]=='lsblk':
+        data=json.loads(raw)
+        data['blockdevices'].append({'name':'cajeer-fixture-zero','size':0,'type':'disk'})
+        if sys.argv[2]=='conflict':
+            data['blockdevices'].append({'name':'cajeer-fixture-zero','size':1,'type':'disk'})
+        return json.dumps(data).encode()
+    return raw
+subprocess.check_output=check_output
+exec(compile(sys.argv[1], '<fixed-linux-collector>', 'exec'), {'__name__':'__main__'})
+"""
     class Server(paramiko.ServerInterface):
         def check_auth_password(self,user,password):
             auth_attempts.append('password')
@@ -258,7 +279,23 @@ def ssh_test(tmp):
                         assert args[3] in ('system','software','services','storage','network')
                         assert args[2]==(ROOT/'core/Connector/agents/linux_discovery.py').read_text()
                 assert 'fixture-secret' not in args[2]
-                proc=subprocess.run([sys.executable,'-c',*args[2:]],capture_output=True,timeout=35)
+                is_inventory=len(args)==3 and args[2]==(ROOT/'core/Connector/agents/linux_collect.py').read_text()
+                if len(args)==3:
+                    assert is_inventory or args[2]==(ROOT/'core/Connector/agents/linux_metrics.py').read_text()
+                last_probe.clear()
+                last_probe.update(stage='collector',inventory=is_inventory)
+                child_command=[sys.executable,'-c',*args[2:]]
+                if is_inventory and disk_mode!='normal':
+                    child_command=[sys.executable,'-c',disk_wrapper,args[2],disk_mode]
+                try:
+                    proc=subprocess.run(child_command,capture_output=True,timeout=35)
+                except subprocess.TimeoutExpired:
+                    last_probe.update(stage='collector_timeout')
+                    channel.send_exit_status(124);channel.shutdown_write();return
+                last_probe.update(stage='sending',returncode=proc.returncode,stdout_bytes=len(proc.stdout),stderr_bytes=len(proc.stderr))
+                # Store bytes privately, never print host data, credentials or remote stderr.
+                if is_inventory and proc.returncode==0:
+                    last_probe['snapshot']=proc.stdout
                 # Real SSH exit status is not an EOF marker. Deliver a late stdout tail.
                 if proc.returncode==0:
                     channel.sendall(proc.stdout[:len(proc.stdout)//2]);channel.send_exit_status(0)
@@ -266,6 +303,7 @@ def ssh_test(tmp):
                 else:
                     channel.sendall(proc.stdout);channel.send_exit_status(proc.returncode)
                 channel.sendall_stderr(proc.stderr);channel.shutdown_write()
+                last_probe['stage']='eof_sent'
             threading.Thread(target=run,daemon=True).start();return True
     listener=socket.socket();listener.bind(('127.0.0.1',0));listener.listen(8);listener.settimeout(.2);port=listener.getsockname()[1]
     stop=threading.Event()
@@ -295,6 +333,13 @@ def ssh_test(tmp):
         n=len(auth_attempts);assert execute('ssh',port,cred,known_hosts=str(wrong),expected_error='connector_trust_failed')['error']=='connector_trust_failed';assert len(auth_attempts)==n
         assert execute('ssh',port,{**cred,'password':'wrong'},known_hosts=str(known),expected_error='connector_auth_failed')['error']=='connector_auth_failed'
         assert len(commands)==5
+        disk_mode='zero'
+        out=execute('ssh',port,cred,known_hosts=str(known))
+        assert out['complete'] and 'cajeer-fixture-zero' not in [d['name'] for d in out['items'][0]['fields']['attributes']['host_hardware']['disks']]
+        disk_mode='conflict'
+        assert execute('ssh',port,cred,known_hosts=str(known),expected_error='connector_protocol_error')['error']=='connector_protocol_error'
+        disk_mode='normal'
+        print('Linux inventory SSH: zero capacity accepted, conflicting capacity rejected PASS')
         identity=(pathlib.Path('/etc/machine-id').read_text().strip().lower().replace('-',''))
         profile={'primary_pin':hashlib.sha256(server_key.asbytes()).hexdigest(),'identity_hash':hashlib.sha256(('ssh:'+identity).encode()).hexdigest(),'key_type':'ssh-rsa'}
         out=execute('ssh',port,cred,profile=profile,require_profile=True,operation='health');assert out['connection']['profile_verified'],out
@@ -338,6 +383,29 @@ def ssh_test(tmp):
             profile_path=tmp/'linux-profile.json'
             profile_path.write_text(json.dumps(profile))
             subprocess.run(['php',str(ROOT/'tests/linux-discovery-postgres-integration.php'),str(port),str(profile_path),sys.executable],check=True,timeout=300)
+    except (AssertionError, subprocess.SubprocessError):
+        # Keep a bounded, non-secret diagnostic on unexpected failures. A
+        # local replay of only the observation validator distinguishes bad
+        # inventory data from SSH/helper framing; it does not retry the test.
+        snapshot=last_probe.get('snapshot')
+        diagnostic={k:v for k,v in last_probe.items() if k!='snapshot'}
+        if snapshot is not None:
+            validation=r"""
+require $argv[1].'/core/autoload.php';
+try {
+    $data=json_decode(stream_get_contents(STDIN),true,16,JSON_THROW_ON_ERROR);
+    $result=\Cajeer\Servers\Connector\HostObservation::result($data,'ssh','sync');
+    $manifest=new \Cajeer\Servers\Connector\ConnectorManifest('ssh','ssh',['ssh_password','ssh_private_key'],\Cajeer\Servers\Connector\ConnectorManifest::OPERATIONS,['server'],'ssh');
+    $result->validated($manifest);
+} catch (Throwable $e) { exit(1); }
+"""
+            try:
+                result=subprocess.run(['php','-r',validation,str(ROOT)],input=snapshot,capture_output=True,timeout=10)
+                diagnostic['local_observation_validation']='pass' if result.returncode==0 else 'fail'
+            except subprocess.SubprocessError:
+                diagnostic['local_observation_validation']='unavailable'
+        print('SSH fixture diagnostic: '+json.dumps(diagnostic),file=sys.stderr,flush=True)
+        raise
     finally:stop.set();listener.close();thread.join(timeout=6)
     print('SSH protocol fixture: 7 scenarios PASS')
 
