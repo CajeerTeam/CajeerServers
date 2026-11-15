@@ -37,6 +37,10 @@ final class CommandRunner
             }
             if ($command==='inventory:repair') return (new InventoryCommands($this->app))->run($command,$argv);
             // Read-only diagnostics remain available while a failed upgrade is offline.
+            if ($command==='release:check' && ($maintenance->active() || $maintenance->requiresUpgrade())) {
+                // Inspect the actual offline deployment before admitting traffic.
+                return $maintenance->drainExclusive(fn()=>$this->releaseCheck($argv),10);
+            }
             if ($command==='inventory:integrity' && ($maintenance->active() || $maintenance->requiresUpgrade())) {
                 return $maintenance->exclusive(fn()=>(new InventoryCommands($this->app))->run($command,$argv),10);
             }

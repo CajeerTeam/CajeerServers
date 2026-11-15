@@ -34,6 +34,11 @@ final class DeploymentVerifier
         $this->probe($checks, 'storage_isolation', static fn (): bool => $root !== false && $public !== false && $storage !== false
             && $storage !== $public && !str_starts_with($storage, rtrim($public, '/') . '/'),
             'Runtime storage must not be publicly served.');
+        $this->probe($checks, 'configured_storage_isolation', function (): bool {
+            if ($this->app->config()->get('storage.default') !== 'local') return true;
+            \Cajeer\Servers\Storage\LocalStoragePath::resolve($this->app->basePath(), (string)$this->app->config()->get('storage.local.root',''));
+            return true;
+        }, 'Configured local storage must be isolated from source code and the public web root.');
         $envPath = $this->app->basePath('.env');
         $this->probe($checks, 'environment_file', static function () use ($envPath, $strict): bool {
             if (!$strict && !file_exists($envPath)) return true;
@@ -64,8 +69,8 @@ final class DeploymentVerifier
             }, 'Remote Redis connections require TLS.');
             $this->probe($checks, 'production_mode', fn (): bool => $this->app->config()->get('app.env') === 'production'
                 && $this->app->config()->get('app.debug') === false, 'Strict deployment requires production and disabled debug.');
-            $this->probe($checks, 'installation_marker', fn (): bool => $this->app->container()->get(InstallState::class)->isInstalled(),
-                'Installer must have finished before deployment.');
+            $this->probe($checks, 'installation_marker', fn (): bool => ($this->app->container()->get(InstallState::class)->record()['version'] ?? null) === $result['version'],
+                'Installer marker must match the running release; apply the offline upgrade first.');
             $this->probe($checks, 'database_version', function (): bool {
                 $db = $this->app->container()->get(DatabaseManager::class);
                 if ($db->driver() !== 'pgsql') return false;
@@ -86,7 +91,7 @@ final class DeploymentVerifier
                 $migration = $this->app->container()->get(MigrationRunner::class);
                 $validation = $migration->validate();
                 $rows = $validation['rows'];
-                return $validation['valid'] && count($rows) >= 9 && count(array_filter(
+                return $validation['valid'] && count($rows) === 64 && count(array_filter(
                     $rows, static fn (array $row): bool => $row['status'] !== 'applied')) === 0;
             }, 'Every shipped PostgreSQL migration must be applied with valid checksum.');
             $this->probe($checks, 'workspace_integrity', function (): bool {

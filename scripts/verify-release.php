@@ -5,8 +5,23 @@ declare(strict_types=1);
 /** Executable release test runner. No fake pass from empty/missing tools. */
 $root = dirname(__DIR__);
 $strict = in_array('--strict', $argv, true);
+$deployment = null;
 foreach (array_slice($argv, 1) as $option) {
-    if ($option !== '--strict') { fwrite(STDERR, "Usage: php scripts/verify-release.php [--strict]\n"); exit(2); }
+    if ($option === '--strict') continue;
+    if ($strict && $deployment === null && str_starts_with($option, '--deployment-root=')) {
+        $requested = substr($option, strlen('--deployment-root='));
+        $deployment = str_starts_with($requested, '/') ? realpath($requested) : false;
+        $id = getenv('CAJEER_CANDIDATE_ID') ?: '';
+        if ($deployment === false || $deployment === $root || !is_file($deployment.'/bin/cajeer')
+            || !preg_match('/^[a-f0-9]{64}$/D', $id)
+            || !is_file($deployment.'/.release-candidate.json')
+            || !hash_equals($id, (string)hash_file('sha256', $deployment.'/.release-candidate.json'))
+            || trim((string)file_get_contents($deployment.'/VERSION')) !== trim((string)file_get_contents($root.'/VERSION'))) {
+            fwrite(STDERR, "FAIL: separate deployment must match the trusted candidate and version.\n"); exit(2);
+        }
+        continue;
+    }
+    fwrite(STDERR, "Usage: php scripts/verify-release.php [--strict [--deployment-root=/absolute/path]]\n"); exit(2);
 }
 require $root . '/core/autoload.php';
 $failures = 0;
@@ -50,10 +65,12 @@ $steps++;
 fwrite(STDOUT, sprintf("PHP lint: %d files, %d failures\n", count($phpFiles), $lintErrors));
 if ($lintErrors > 0 || $phpFiles === []) $failures++;
 
-foreach (['runtime', 'http', 'database', 'installer', 'upgrade', 'auth', 'security', 'security-hardening', 'infrastructure', 'runtime-reliability', 'performance', 'observability', 'admin', 'release', 'inventory-readiness', 'workspaces', 'inventory', 'ipam', 'topology', 'network-discovery', 'system-events', 'catalog', 'history', 'transfer', 'cmdb-integrity', 'data-integrity', 'import-dispatch', 'vault-crypto', 'vault-crud', 'vault-profiles', 'vault-access', 'vault-rotation', 'vault-bindings', 'vault-stable', 'proxmox-runtime', 'proxmox-profile', 'proxmox-cluster', 'proxmox-guests', 'proxmox-storage-network', 'proxmox-tasks', 'connector-runtime', 'connector-execution', 'connector-reconciliation', 'vmmanager-runtime', 'host-runtime', 'os-network-profile', 'linux-discovery', 'windows-discovery', 'snmp-health', 'snmp-discovery', 'connector-events', 'connector-actions', 'proxmox-snapshots', 'pbs-backup', 'connector-stability', 'collector-runtime', 'script-registry', 'script-execution', 'script-output', 'collection-plans', 'metrics', 'ingestion', 'data-exchange', 'collection-stability', 'network-configuration-backup', 'backup', 'production-operations'] as $suite) {
+foreach (['runtime', 'http', 'database', 'installer', 'upgrade', 'auth', 'security', 'security-hardening', 'infrastructure', 'runtime-reliability', 'performance', 'observability', 'admin', 'release', 'inventory-readiness', 'workspaces', 'inventory', 'ipam', 'topology', 'network-discovery', 'system-events', 'catalog', 'history', 'transfer', 'cmdb-integrity', 'data-integrity', 'import-dispatch', 'vault-crypto', 'vault-crud', 'vault-profiles', 'vault-access', 'vault-rotation', 'vault-bindings', 'vault-stable', 'proxmox-runtime', 'proxmox-profile', 'proxmox-cluster', 'proxmox-guests', 'proxmox-storage-network', 'proxmox-tasks', 'connector-runtime', 'connector-execution', 'connector-reconciliation', 'vmmanager-runtime', 'host-runtime', 'os-network-profile', 'linux-discovery', 'windows-discovery', 'snmp-health', 'snmp-discovery', 'connector-events', 'connector-actions', 'proxmox-snapshots', 'pbs-backup', 'connector-stability', 'collector-runtime', 'script-registry', 'script-execution', 'script-output', 'collection-plans', 'metrics', 'ingestion', 'data-exchange', 'collection-stability', 'network-configuration-backup', 'backup', 'production-operations', 'storage-isolation'] as $suite) {
     $run($suite . ' smoke', [PHP_BINARY, 'tests/' . $suite . '-smoke.php'], $root);
 }
 $run('Sealed candidate regressions', ['python3','tests/candidate-release-test.py'], $root);
+$run('Stable distribution signature and installation regressions', ['python3','tests/release-distribution-test.py'], $root);
+$run('Portable production output regressions', ['python3','tests/normalize-release-output-test.py'], $root);
 $run('Dependency lock validation regressions', ['node','--test','tests/dependency-locks.test.mjs'], $root);
 $run('Standalone Admin build smoke harness regressions', ['node','--test','tests/admin-build-smoke.test.mjs'], $root);
 $run('Python lock audit regressions', ['python3','tests/python-lock-audit-test.py'], $root);
@@ -121,7 +138,8 @@ if ($strict) {
         foreach (['database','auth','security','infrastructure','admin','inventory','workspaces','inventory-crud','ipam','topology','catalog','history','transfer','cmdb','vault','vault-crud','vault-access','vault-rotation','vault-bindings','proxmox-profile','connector-reconciliation','host-hardware','connector-health','connector-events','connector-actions','script-registry','script-execution','collection-plans','metrics','ingestion','backup'] as $name) {
             $run("PostgreSQL $name", [PHP_BINARY, 'tests/' . $name . '-postgres-integration.php'], $root);
         }
-        $run('PostgreSQL performance regression', [PHP_BINARY, 'scripts/benchmark-postgres.php'], $root, null, 600);
+        // Strict acceptance must exercise the declared capacity profile, not the tiny CI fixture.
+        $run('PostgreSQL capacity acceptance', [PHP_BINARY, 'scripts/benchmark-postgres.php', '--assets=100000', '--targets=1000', '--samples=1000000', '--events=100000', '--clients=50', '--iterations=100', '--p95-ms=500'], $root, null, 3600);
         $run('PostgreSQL install / upgrade / recovery', [PHP_BINARY, 'tests/upgrade-postgres-integration.php'], $root, null, 600);
         $run('Full platform HTTP / PostgreSQL / TLS / DR journey', ['python3','tests/platform-http-e2e.py'], $root, null, 900);
         $installerDb = getenv('CAJEER_INSTALL_PG_TEST_DATABASE') ?: '';
@@ -143,8 +161,15 @@ if ($strict) {
     $run('Composer lock consistency', ['composer','validate','--strict'], $root);
     $run('PHPUnit', [$root . '/vendor/bin/phpunit', '--configuration', 'phpunit.xml.dist'], $root);
     $run('Nuxt typecheck', ['npm', 'run', 'typecheck'], $root . '/admin', null, 900);
-    $run('Nuxt build', ['npm', 'run', 'build'], $root . '/admin', null, 1800);
-    $run('Production release gate', [PHP_BINARY, 'bin/cajeer', 'release:check', '--strict'], $root);
+    if ($deployment === null) {
+        $run('Nuxt build', ['npm', 'run', 'build'], $root . '/admin', null, 1800);
+        $run('Production release gate', [PHP_BINARY, 'bin/cajeer', 'release:check', '--strict'], $root);
+    } else {
+        // Use the real deployment's private .env, not the build/test process credentials.
+        $runtimeEnv = ['PATH' => getenv('PATH') ?: '/usr/bin:/bin', 'HOME' => getenv('HOME') ?: '/tmp', 'LANG' => 'C.UTF-8'];
+        $run('Sealed deployment release gate', [PHP_BINARY, 'bin/cajeer', 'release:check', '--strict'], $deployment, $runtimeEnv, 600);
+        $run('Sealed Nuxt SSR bundle', ['node', 'scripts/smoke-admin-build.mjs', $deployment.'/admin/.output'], $root, null, 120);
+    }
     if (!getenv('CAJEER_SMOKE_URL')) {
         fwrite(STDERR, "FAIL: strict verification requires CAJEER_SMOKE_URL to test a real HTTP deployment.\n"); $failures++;
     } else {

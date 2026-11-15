@@ -6,6 +6,10 @@ on:
         description: 'HTTPS URL of an installed DISPOSABLE staging Nuxt + PHP application'
         type: string
         required: true
+      candidate_id:
+        description: 'Trusted SHA-256 of the sealed release manifest'
+        type: string
+        required: true
       connector_fixture_host:
         description: 'DNS/IP of the supplied isolated TLS PVE/PBS/VMmanager/RouterOS fixture (PBS, VMmanager and RouterOS CA trusted by staging PHP), reachable from staging PHP'
         type: string
@@ -33,6 +37,7 @@ jobs:
     env:
       CI: 'true'
       E2E_BASE_URL: ${{ inputs.base_url }}
+      CAJEER_CANDIDATE_ID: ${{ inputs.candidate_id }}
       E2E_ADMIN_EMAIL: ${{ secrets.E2E_ADMIN_EMAIL }}
       E2E_ADMIN_PASSWORD: ${{ secrets.E2E_ADMIN_PASSWORD }}
       E2E_ADMIN_TOTP_SECRET: ${{ secrets.E2E_ADMIN_TOTP_SECRET }}

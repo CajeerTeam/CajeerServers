@@ -15,7 +15,7 @@ $check = static function (bool $condition, string $label) use (&$count): void {
 };
 $report = (new ReleaseVerifier($root))->verify();
 $check($report['ok'], 'metadata and source match release version');
-$check($report['version'] === '0.9.9', 'current version');
+$check($report['version'] === '1.0.0', 'current version');
 $check(count($report['checks']) >= 10, 'independent release checks');
 $strict = (new ReleaseVerifier($root))->verify(true);
 $check(count($strict['checks']) > count($report['checks']), 'deployment checks add installation and build verification');
@@ -23,7 +23,7 @@ foreach (['semver', 'release_version', 'admin_version', 'sdk_version', 'openapi_
     $found = array_values(array_filter($report['checks'], static fn(array $x): bool => $x['name'] === $name));
     $check(count($found) === 1 && $found[0]['ok'], 'source identity: ' . $name);
 }
-foreach (['composer_lock', 'npm_lock', 'sdk_lock', 'sdk_installed', 'composer_installed', 'admin_built'] as $name) {
+foreach (['composer_lock', 'npm_lock', 'sdk_lock', 'sdk_built', 'composer_installed', 'admin_built'] as $name) {
     $found = array_values(array_filter($strict['checks'], static fn(array $x): bool => $x['name'] === $name));
     $check(count($found) === 1, 'strict check exists: ' . $name);
 }
@@ -40,14 +40,24 @@ try {
     $request = new \Cajeer\Servers\Runtime\HttpRequest('GET','/api/v1/system');
     $body = fn()=>json_decode($controller->index($request)->body,true);
     $check(!isset($body()['candidate_id']), 'unsealed release exposes no candidate identity');
-    $manifest = ['format'=>1,'version'=>'0.9.9','commit'=>str_repeat('a',40),'sbom_sha256'=>str_repeat('b',64),'files'=>['VERSION'=>['sha256'=>str_repeat('c',64)]]];
+    $manifest = ['format'=>1,'version'=>'1.0.0','commit'=>str_repeat('a',40),'sbom_sha256'=>str_repeat('b',64),'files'=>['VERSION'=>['sha256'=>str_repeat('c',64)]]];
     $raw = json_encode($manifest,JSON_THROW_ON_ERROR);
     file_put_contents($tmp.'/.release-candidate.json',$raw);
     $check(($body()['candidate_id']??null)===hash('sha256',$raw), 'sealed identity is exact manifest digest');
     $check(!isset($body()['files'])&&!isset($body()['commit']), 'manifest internals not exposed');
-    $manifest['version']='0.9.8';file_put_contents($tmp.'/.release-candidate.json',json_encode($manifest));
+    $manifest['version']='0.9.9';file_put_contents($tmp.'/.release-candidate.json',json_encode($manifest));
     $check(!isset($body()['candidate_id']), 'wrong version marker rejected');
     unlink($tmp.'/.release-candidate.json');
+    // Production artifacts intentionally omit SDK node_modules. Check compiled files, not a dev compiler.
+    $sdkCheck = static fn() => array_values(array_filter((new ReleaseVerifier($tmp))->verify(true)['checks'], static fn(array $x): bool => $x['name'] === 'sdk_built'))[0]['ok'];
+    $check(!$sdkCheck(), 'missing SDK build refused');
+    mkdir($tmp.'/packages/ts-sdk/dist',0700,true);
+    file_put_contents($tmp.'/packages/ts-sdk/dist/index.js','export {};');
+    $check(!$sdkCheck(), 'missing SDK declarations refused');
+    file_put_contents($tmp.'/packages/ts-sdk/dist/index.d.ts','export {};');
+    $check($sdkCheck(), 'compiled SDK accepted without development compiler');
+    unlink($tmp.'/packages/ts-sdk/dist/index.js'); unlink($tmp.'/packages/ts-sdk/dist/index.d.ts');
+    rmdir($tmp.'/packages/ts-sdk/dist'); rmdir($tmp.'/packages/ts-sdk'); rmdir($tmp.'/packages');
     // A copied tree without code files must always fail.
     $check(!(new ReleaseVerifier($tmp))->verify()['ok'], 'missing executable files refused');
     $meta = json_decode((string)file_get_contents($tmp . '/release.json'), true);

@@ -31,8 +31,6 @@ jobs:
         run: npm install --global npm@10.9.9
       - name: Build input validation regression
         run: node --test tests/dependency-locks.test.mjs
-      - name: Native PHP + Admin static verification
-        run: php scripts/verify-release.php
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -43,6 +41,8 @@ jobs:
           echo "$RUNNER_TEMP/cajeer-agents/bin" >> "$GITHUB_PATH"
       - name: Native SNMP agent dependency
         run: sudo apt-get update -qq && sudo apt-get install -y snmpd
+      - name: Native PHP + Admin static verification
+        run: php scripts/verify-release.php
       - name: Connector HTTPS and host protocol integration
         run: |
           python3 tests/connector-stability-https-integration.py

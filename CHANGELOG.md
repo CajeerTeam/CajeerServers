@@ -1,3 +1,12 @@
+## [1.0.0] — 2026-11-15 — Stable Core Release
+
+- Reject local storage roots overlapping source code, web root or installation state, including aliases and not-yet-created paths; share the guard across runtime, backup, restore and deployment checks.
+- Drain new admissions before maintenance; allow offline release diagnostics; require exact 0.9.9 source marker and preserve all 64 SQL migrations.
+- Fix strict deployment verification of compiled SDK without development node_modules, installation version, full migration set and actual deployed runtime configuration. Normalize portable output symlinks before sealing.
+- Verify the exact deployed file tree and run sealed SSR, full capacity benchmark, strict integrations and 72-hour HTTP soak. Protect acceptance evidence against races and accidental overwrite.
+- Publish and install an immutable stable archive only with matching complete acceptance evidence and independently trusted signature; no automatic stable claim or GitHub publication.
+- Native and SDK checks executed; Composer/Admin locked build, real PostgreSQL/Redis/live/browser/soak and final signed approval remain release blockers. Source channel remains development.
+
 ## [0.9.9] — 2026-11-15 — Stable Core Release Candidate
 
 - Freeze features and preserve all 64 migrations. Require exact 0.9.8 installation marker for new offline upgrade.

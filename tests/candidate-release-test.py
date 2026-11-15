@@ -100,14 +100,31 @@ class CandidateTests(unittest.TestCase):
         with self.assertRaises(ValueError):c.soak(fail,180,60,lambda:now[0],sleep)
         with self.assertRaises(ValueError):c.soak(check,180,60,lambda:now[0],lambda n:sleep(n+100))
     def test_accept_removes_stale_report(self):
-        report=self.dest/'accept.json';self.dest.mkdir();report.write_text('old success')
+        report=self.dest/'accept.json';self.dest.mkdir();report.write_bytes(c.canonical({'scope':'strict_verification_and_http_soak','status':'passed'}))
         with self.assertRaises(OSError):c.accept(self.root,self.dest/c.MARKER,report,Path(self.temp.name)/'deployment')
         self.assertFalse(report.exists())
     def test_accept_rejects_changed_deployment_before_strict(self):
         self.seal();target=self.deploy();(target/'core/runtime.php').write_text('changed')
-        report=self.dest/'accept.json';report.write_text('old success')
+        report=self.dest/'accept.json';report.write_bytes(c.canonical({'scope':'strict_verification_and_http_soak','status':'passed'}))
         with self.assertRaisesRegex(ValueError,'Candidate file changed'):c.accept(self.root,self.dest/c.MARKER,report,target)
         self.assertFalse(report.exists())
+    def test_accept_refuses_unrelated_report(self):
+        report=self.dest/'accept.json';self.dest.mkdir();report.write_text('private file')
+        with self.assertRaises(ValueError):c.accept(self.root,self.dest/c.MARKER,report,Path(self.temp.name)/'deployment')
+        self.assertEqual(report.read_text(),'private file')
+    def test_accept_concurrent_report_lock(self):
+        import fcntl
+        self.dest.mkdir();report=self.dest/'accept.json'
+        with (self.dest/'accept.json.lock').open('w') as lock:
+            fcntl.flock(lock,fcntl.LOCK_EX)
+            with self.assertRaisesRegex(ValueError,'already running'):
+                c.accept(self.root,self.dest/c.MARKER,report,Path(self.temp.name)/'deployment')
+    def test_soak_includes_probe_time_in_gap(self):
+        now=[0]
+        def slow():now[0]+=25
+        def sleep(n):now[0]+=n+10
+        with self.assertRaisesRegex(ValueError,'gap'):
+            c.soak(slow,180,60,lambda:now[0],sleep)
     def test_real_http_probe(self):
         mode=['ok'];identity='a'*64
         class Handler(BaseHTTPRequestHandler):

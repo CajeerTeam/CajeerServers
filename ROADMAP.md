@@ -305,24 +305,16 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 
 ## 1.0.0 — Stable Core Release
 
-Цель: первый стабильный релиз для production self-hosted установки.
+Цель: первый стабильный релиз для production self-hosted установки. [Исполняемый процесс и условия выпуска](docs/Stable-Core-Release-1.0.0.md).
 
-- [ ] Stable installer.
-- [ ] Web installer.
-- [ ] CLI installer.
-- [ ] PostgreSQL production migration set.
-- [ ] Backup/restore CLI.
-- [ ] Audit-grade logging.
-- [ ] Health checks.
-- [ ] System report.
-- [ ] Queue/cache/storage diagnostics.
-- [ ] Prometheus endpoint.
-- [ ] OpenTelemetry traces.
-- [ ] OpenAPI contract tests.
-- [ ] Admin dashboard.
-- [ ] Release package.
-- [ ] GitHub Releases publishing.
-- [ ] Upgrade path from 0.x.
+- [x] Web/CLI installer, PostgreSQL migrations, backup/restore, audit, diagnostics, Dashboard и OpenAPI уже реализованы; 64 миграции сохранены.
+- [x] Исправления runtime storage isolation, maintenance drain, точный offline upgrade 0.9.9 → 1.0.0 и production deployment gate.
+- [x] Portable output, sealed archive, безопасная установка отдельного релиза, строгая приёмка и подписанная публикация stable distribution.
+- [ ] Разрешить и зафиксировать настоящие Composer/Admin lockfiles; выполнить полноценную сборку, audits и CI matrix PHP/PG/Windows.
+- [ ] Пройти PostgreSQL/Redis, весь browser E2E, live acceptance всех провайдеров, полный capacity benchmark, 24h workload и 72h HTTP soak на точном кандидате.
+- [ ] Подтвердить security review, DR drill, production alerting и compatibility; подписать фактическое approval, опубликовать неизменённый архив в stable distribution/GitHub Releases.
+
+Исходный канал `development` не является заявлением о пройденной production-сертификации. До закрытия обязательных пунктов стабильный артефакт не выпускается.
 
 ## 1.1.x — Automation
 

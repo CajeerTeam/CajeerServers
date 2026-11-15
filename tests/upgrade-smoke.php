@@ -46,6 +46,7 @@ try {
     $check($app->handle(new HttpRequest('GET','/api/v1/live'))->status===200,'liveness still responds');
     $runner=new CommandRunner($app);
     $check($runner->run(['cajeer','queue:work','--once'])===1,'CLI worker blocked before DB access');
+    $check($runner->run(['cajeer','release:check','--invalid'])===2,'offline release check reaches argument validation in maintenance');
     $check($runner->run(['cajeer','upgrade:apply','--previous=/old'])===1,'offline confirmation mandatory');
     $check($runner->run(['cajeer','upgrade:apply','--offline','--previous=/old','--archive=/a','--key-file=/k','--offline'])===1,'duplicate option refused');
     $gate->exclusive(fn()=>$gate->save(['phase'=>'migrate']));
@@ -68,8 +69,8 @@ try {
     $reject(fn()=>$state->record(),'invalid marker identity rejected');
     unlink($root.'/storage/app/installed.json');
     $state->finish('00000000-0000-0000-0000-000000000001','2026-11-15T00:00:00Z');
-    $check($state->record()['version']==='0.9.9','marker records installed code version');
-    $old=$state->record();$old['version']='0.9.8';file_put_contents($root.'/storage/app/installed.json',json_encode($old));
+    $check($state->record()['version']==='1.0.0','marker records installed code version');
+    $old=$state->record();$old['version']='0.9.9';file_put_contents($root.'/storage/app/installed.json',json_encode($old));
     $check($gate->requiresUpgrade(),'old marker detects code version drift');
     $check($app->handle(new HttpRequest('GET','/api/v1/health'))->status===503,'old marker cannot serve upgraded code');
     $state->finish($old['installation_id'],$old['installed_at']);
@@ -78,7 +79,7 @@ try {
     $oldDir=$root.'/source-096';mkdir($oldDir.'/migrations/pgsql',0700,true);
     foreach(glob($source.'/migrations/pgsql/*.sql') as $file)copy($file,$oldDir.'/migrations/pgsql/'.basename($file));
     $method=new ReflectionMethod(UpgradeService::class,'sourceFiles');$service=new UpgradeService($app);
-    $check(count($method->invoke($service,$oldDir))===64,'0.9.8 source migration set accepted');
+    $check(count($method->invoke($service,$oldDir))===64,'0.9.9 source migration set accepted');
     unlink($oldDir.'/migrations/pgsql/0064_performance_scalability.sql');
     $reject(fn()=>$method->invoke($service,$oldDir),'missing source migration rejected');
     echo "Upgrade native smoke: $count PASS. PostgreSQL upgrade/recovery tested separately.\n";

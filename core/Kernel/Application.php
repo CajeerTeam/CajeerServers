@@ -13,6 +13,7 @@ use Cajeer\Servers\Queue\JobProcessor;
 use Cajeer\Servers\Scheduler\Scheduler;
 use Cajeer\Servers\Storage\StorageDiskInterface;
 use Cajeer\Servers\Storage\LocalDisk;
+use Cajeer\Servers\Storage\LocalStoragePath;
 use Cajeer\Servers\Storage\S3CompatibleDisk;
 use Cajeer\Servers\Auth\AuthenticationService;
 use Cajeer\Servers\Auth\AuthController;
@@ -109,11 +110,7 @@ final class Application
 
     private function localStorageRoot(string $configured): string
     {
-        if ($configured === '') return $this->basePath('storage/files');
-        if (!str_starts_with($configured, '/') || str_contains($configured, "\0")) {
-            throw new RuntimeException('STORAGE_LOCAL_ROOT must be an absolute filesystem path.');
-        }
-        return $configured;
+        return LocalStoragePath::resolve($this->root, $configured);
     }
 
     public function basePath(string $path = ''): string

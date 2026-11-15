@@ -126,6 +126,7 @@ def check_build(root, commit, version):
 
 def verify(root, marker):
     if marker.is_symlink(): raise ValueError('Unsafe candidate manifest')
+    if marker.stat().st_size > 16 * 1024 * 1024: raise ValueError('Candidate manifest too large')
     raw = marker.read_bytes()
     data = json.loads(raw)
     if data.get('format') != 1 or raw != canonical(data) or data.get('version') != (root/'VERSION').read_text().strip():
@@ -145,6 +146,40 @@ def verify(root, marker):
     if digest(safe_path(marker.parent, SBOM)) != data.get('sbom_sha256'):
         raise ValueError('Candidate SBOM changed')
     return hashlib.sha256(raw).hexdigest(), data
+
+
+def verify_deployment(root, expected_id=None):
+    """Verify a standalone installation, not a build tree with dev dependencies."""
+    identity, data = verify(root, root / MARKER)
+    if expected_id is not None and identity != expected_id:
+        raise ValueError('Deployment candidate identity mismatch')
+    allowed = set(data['files']) | {MARKER, SBOM, '.env'}
+    # Never traverse mutable state (backup, logs, uploads). Its shipped .gitkeep
+    # files are already authenticated by verify(). Everything else is immutable.
+    for directory, dirs, names in os.walk(root, followlinks=False):
+        base = Path(directory)
+        for name in list(dirs):
+            path = base / name
+            rel = path.relative_to(root).as_posix()
+            if path.is_symlink():
+                raise ValueError('Unexpected deployment symlink: ' + rel)
+            if rel == 'storage':
+                dirs.remove(name)
+        for name in names:
+            path = base / name
+            rel = path.relative_to(root).as_posix()
+            if path.is_symlink() or not path.is_file() or rel not in allowed:
+                raise ValueError('Unexpected deployment file: ' + rel)
+    return identity, data
+
+
+def deployment_check(root):
+    # Configuration is loaded from the real deployment's .env, not a test DB
+    # or APP_KEY exported by the acceptance build host.
+    env = {'PATH': os.environ.get('PATH', '/usr/bin:/bin'),
+           'HOME': os.environ.get('HOME', '/tmp'), 'LANG': 'C.UTF-8'}
+    subprocess.run(['php', 'bin/cajeer', 'release:check', '--strict'], cwd=root,
+                   env=env, timeout=600, check=True)
 
 
 def atomic_write(path, content):
@@ -189,10 +224,14 @@ def locked_sbom(root, version):
 
 def verify_archive(package, raw, data):
     seen=set()
+    allowed=set(data['files']) | {MARKER,SBOM}
     with tarfile.open(package,'r:gz') as tar:
         for member in tar:
             if not member.isfile() or member.name in seen:
                 raise ValueError('Invalid candidate archive member')
+            name=PurePosixPath(member.name)
+            if name.is_absolute() or str(name)!=member.name or not name.parts or '..' in name.parts or '\\' in member.name or member.name not in allowed:
+                raise ValueError('Unexpected or unsafe candidate archive member')
             seen.add(member.name)
             expected=hashlib.sha256(raw).hexdigest() if member.name==MARKER else data['sbom_sha256'] if member.name==SBOM else data['files'][member.name]['sha256']
             if member.name in data['files']:
@@ -202,7 +241,7 @@ def verify_archive(package, raw, data):
             with tar.extractfile(member) as stream:
                 if hashlib.file_digest(stream,'sha256').hexdigest()!=expected:
                     raise ValueError('Archive hash mismatch')
-    if seen != set(data['files']) | {MARKER,SBOM}:
+    if seen != allowed:
         raise ValueError('Candidate archive is incomplete')
 
 
@@ -227,6 +266,7 @@ def _seal(root, destination):
             'sbom_sha256':hashlib.sha256(bom).hexdigest(),
             'files':{n:entry(root,n) for n in names}}
     raw = canonical(data)
+    if len(raw) > 16 * 1024 * 1024: raise ValueError('Candidate manifest exceeds HTTP identity limit')
     destination.mkdir(parents=True, exist_ok=True)
     marker = destination / MARKER
     package = destination / 'release-candidate.tar.gz'
@@ -290,24 +330,47 @@ def probe(base, version, identity):
 
 
 def soak(check, seconds, interval, clock=time.monotonic, sleep=time.sleep):
-    start=clock(); last=start; count=0
+    start=clock(); last_start=start; count=0
     while True:
         now=clock()
-        if now-last>interval+30: raise ValueError('Soak monitoring gap exceeded')
+        if now-last_start>interval+30: raise ValueError('Soak monitoring gap exceeded')
+        last_start=now
         check(); count+=1
-        last=clock()
-        if last-now>30: raise ValueError('Soak probe exceeded time budget')
-        elapsed=last-start
+        end=clock()
+        if end-now>30: raise ValueError('Soak probe exceeded time budget')
+        elapsed=end-start
         if elapsed>=seconds: return count, elapsed
         sleep(min(interval,seconds-elapsed))
 
 
 def accept(root, marker, report, deployment_root):
+    # A separate lock covers the entire test/soak/publication lifetime.
+    report = report.absolute()
+    if report.is_symlink() or report == root or report == deployment_root or root in report.parents or deployment_root in report.parents:
+        raise ValueError('Unsafe acceptance report path')
+    if marker.parent == report.parent and report.name in (MARKER,SBOM,'release-candidate.tar.gz','release-candidate.sha256','.seal.lock'):
+        raise ValueError('Acceptance report must not replace a candidate artifact')
+    report.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(str(report)+'.lock', os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, 'rb+') as lock:
+        try: fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError: raise ValueError('Acceptance is already running') from None
+        return _accept(root, marker, report, deployment_root)
+
+
+def _accept(root, marker, report, deployment_root):
     # Never overwrite source, deployed files, or any candidate artifact with evidence.
     if root in report.parents or deployment_root in report.parents or marker.parent==report.parent and report.name in (MARKER,SBOM,'release-candidate.tar.gz','release-candidate.sha256'):
         raise ValueError('Acceptance report must be outside source, deployment and candidate artifacts')
-    # Remove stale evidence before validation. Only success creates a report.
-    report.unlink(missing_ok=True)
+    # Remove only previous acceptance evidence, never an unrelated file.
+    # Only success creates a new report.
+    if report.exists():
+        if not report.is_file() or report.is_symlink() or report.stat().st_size > 65536:
+            raise ValueError('Unsafe prior acceptance report')
+        old=json.loads(report.read_bytes())
+        if not isinstance(old,dict) or old.get('scope') not in ('strict_verification_and_http_soak','strict_verification_deployment_capacity_and_http_soak'):
+            raise ValueError('Refusing to overwrite an unrelated file')
+        report.unlink()
     identity,data=verify(root,marker)
     package=marker.parent/'release-candidate.tar.gz'
     package_hash=digest(package)
@@ -315,30 +378,32 @@ def accept(root, marker, report, deployment_root):
         raise ValueError('Candidate archive checksum mismatch')
     verify_archive(package,marker.read_bytes(),data)
     if clean_source(root)[0]!=data['commit']: raise ValueError('Acceptance checkout commit differs')
-    if deployment_root==root or verify(deployment_root,deployment_root/MARKER)[0]!=identity:
+    if deployment_root==root or verify_deployment(deployment_root,identity)[0]!=identity:
         raise ValueError('Staging deployment files differ from candidate')
     if os.environ.get('E2E_ISOLATED_STAGING')!='1': raise ValueError('Disposable staging confirmation required')
     base=origin(os.environ.get('E2E_BASE_URL',''))
     if origin(os.environ.get('CAJEER_SMOKE_URL',''))!=base: raise ValueError('HTTP and browser staging origins must match')
     check=lambda:probe(base,data['version'],identity)
     check()
+    deployment_check(deployment_root)
     env=dict(os.environ,CAJEER_CANDIDATE_ID=identity,PYTHONDONTWRITEBYTECODE="1")
     started=int(time.time())
-    subprocess.run(['php','scripts/verify-release.php','--strict'],cwd=root,env=env,check=True)
-    # Strict tests rebuild Nuxt in checkout; staging still must serve sealed identity.
+    subprocess.run(['php','scripts/verify-release.php','--strict','--deployment-root='+str(deployment_root)],cwd=root,env=env,check=True)
+    # Strict tests exercise the sealed Nuxt output and actual deployment.
     check()
     count,elapsed=soak(check,72*3600,60)
-    if clean_source(root)[0]!=data['commit'] or hashlib.sha256(marker.read_bytes()).hexdigest()!=identity or digest(package)!=package_hash:
+    if clean_source(root)[0]!=data['commit'] or verify(root,marker)[0]!=identity or digest(package)!=package_hash:
         raise ValueError('Candidate changed during acceptance')
-    if verify(deployment_root,deployment_root/MARKER)[0]!=identity:
+    deployment_check(deployment_root)
+    if verify_deployment(deployment_root,identity)[0]!=identity:
         raise ValueError('Staging deployment changed during acceptance')
-    atomic_write(report,canonical({'format':1,'status':'passed','scope':'strict_verification_and_http_soak','promotion_ready':False,'candidate_id':identity,'commit':data['commit'],
-                                  'version':data['version'],'archive_sha256':package_hash,'strict_exit':0,'soak_seconds':int(elapsed),'soak_checks':count,
+    atomic_write(report,canonical({'format':2,'status':'passed','scope':'strict_verification_deployment_capacity_and_http_soak','promotion_ready':False,'candidate_id':identity,'commit':data['commit'],
+                                  'version':data['version'],'archive_sha256':package_hash,'strict_exit':0,'deployment_exit':0,'capacity_profile':'100k-assets/1k-targets/1m-samples/100k-events/50-clients/p95-500ms','soak_seconds':int(elapsed),'soak_checks':count,
                                   'started_at':started,'finished_at':int(time.time())}))
 
 
 def main():
-    p=argparse.ArgumentParser();p.add_argument('command',choices=['seal','verify','accept']);p.add_argument('--root',type=Path,default=ROOT)
+    p=argparse.ArgumentParser();p.add_argument('command',choices=['seal','verify','verify-deployment','accept']);p.add_argument('--root',type=Path,default=ROOT)
     p.add_argument('--directory',type=Path);p.add_argument('--manifest',type=Path);p.add_argument('--report',type=Path)
     p.add_argument('--deployment-root',type=Path,help='Accessible separate staging release directory')
     p.add_argument('--expected-id',help='Trusted manifest SHA-256 for verify')
@@ -349,10 +414,13 @@ def main():
             identity=verify(root,a.manifest or root/MARKER)[0]
             if a.expected_id is not None and identity!=a.expected_id: raise ValueError('Candidate identity mismatch')
             print('Candidate ID:',identity)
+        elif a.command=='verify-deployment':
+            if not a.expected_id: raise ValueError('Trusted --expected-id required')
+            print('Candidate ID:',verify_deployment(root,a.expected_id)[0])
         else:
             if not a.manifest or not a.report or not a.deployment_root: raise ValueError('accept requires --manifest, --deployment-root and --report')
             if a.manifest.resolve()==a.report.resolve(): raise ValueError('Manifest and report must differ')
-            accept(root,a.manifest.resolve(),a.report.resolve(),a.deployment_root.resolve());print('Candidate acceptance passed')
+            accept(root,a.manifest.resolve(),a.report.parent.resolve()/a.report.name,a.deployment_root.resolve());print('Candidate acceptance passed')
     except (OSError,ValueError,KeyError,TypeError,subprocess.CalledProcessError) as error:
         print('Candidate verification failed:',type(error).__name__,str(error) if isinstance(error,ValueError) else '',file=sys.stderr);return 1
     return 0

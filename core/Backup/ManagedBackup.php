@@ -35,9 +35,7 @@ final class ManagedBackup
                     $offsite=$this->directory($offsite);
                     if ($this->overlap($directory,$offsite) || stat($directory)['dev']===stat($offsite)['dev']) throw new RuntimeException('Offsite must be a separate mounted filesystem, outside primary backup directory.');
                 }
-                $storage=(string)$this->app->config()->get('storage.local.root','');
-                $storage=$storage!==''?$storage:$this->app->basePath('storage/files');
-                $storage=realpath($storage)?:$storage;
+                $storage=\Cajeer\Servers\Storage\LocalStoragePath::resolve($root, (string)$this->app->config()->get('storage.local.root',''));
                 foreach (array_filter([$directory,$offsite]) as $dir) {
                     if ($this->overlap($dir,$root) || $this->overlap($dir,$storage) || $this->overlap($dir,$keyFile)) throw new RuntimeException('Managed backup directories must be outside application, storage and backup key path.');
                 }

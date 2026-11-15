@@ -6,6 +6,7 @@ namespace Cajeer\Servers\Backup;
 use Cajeer\Servers\Config\EnvironmentLoader;
 use Cajeer\Servers\Credentials\VaultMasterKey;
 use Cajeer\Servers\Kernel\Application;
+use Cajeer\Servers\Storage\LocalStoragePath;
 use FilesystemIterator;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
@@ -161,8 +162,7 @@ final class BackupService
             if ($this->inside($path, $this->app->basePath('public'))) {
                 throw new RuntimeException('Restore directories must not be under the public web root.');
             }
-            $liveStorage=(string)$this->app->config()->get('storage.local.root','') ?: $this->app->basePath('storage/files');
-            $liveStorage=realpath($liveStorage)?:$liveStorage;
+            $liveStorage=LocalStoragePath::resolve($this->app->basePath(), (string)$this->app->config()->get('storage.local.root',''));
             if ($this->inside($path,$liveStorage) || $this->inside($liveStorage,$path) || $this->inside($path,$this->app->basePath()) || $this->inside($this->app->basePath(),$path)) throw new RuntimeException('Restore target overlaps the running application or storage.');
             if ($path === $archive || $path === $keyFile || $this->inside($archive, $path) || $this->inside($keyFile, $path)) {
                 throw new RuntimeException('Restore target overlaps archive or decryption key.');
@@ -320,8 +320,7 @@ final class BackupService
             throw new RuntimeException('Full recovery supports local storage only; use --db-only and a separate verified S3 recovery plan.');
         }
         $configured = (string) $this->app->config()->get('storage.local.root', '');
-        $root = $configured !== '' ? $configured : $this->app->basePath('storage/files');
-        if ($root[0] !== '/' || is_link($root)) throw new RuntimeException('Storage root must be a non-symlink absolute directory.');
+        $root = LocalStoragePath::resolve($this->app->basePath(), $configured);
         if (!file_exists($root)) return null;
         $resolved = realpath($root);
         if ($resolved === false || !is_dir($resolved) || !is_readable($resolved)) throw new RuntimeException('Local storage root is unavailable.');

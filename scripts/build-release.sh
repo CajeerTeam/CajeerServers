@@ -44,6 +44,8 @@ npm ci --prefix packages/ts-sdk --include=dev --include=optional --no-audit --no
 npm run --prefix packages/ts-sdk build
 npm run --prefix admin typecheck
 npm run --prefix admin build
+# Materialize only safe in-bundle links; sealed artifacts are regular files.
+python3 scripts/normalize-release-output.py vendor admin/.output packages/ts-sdk/dist
 # Exercise the actual build output, not only source syntax.
 node scripts/smoke-admin-build.mjs
 bash tests/connector-sdk-integration.sh

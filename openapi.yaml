@@ -1,8 +1,8 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.9.9
-  description: 'CajeerServers 0.7.1: VMmanager connection profiles, PVE/PBS integration and infrastructure collection.'
+  version: 1.0.0
+  description: 'CajeerServers 1.0.0: infrastructure inventory, credentials, connectors, collection and operations.'
 servers:
 - url: /api/v1
 security: []
