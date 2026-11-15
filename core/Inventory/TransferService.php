@@ -153,7 +153,7 @@ SQL);
     }
 
     /** Queue worker only; never invoked via HTTP. Each completed row is checkpointed and retry safe. */
-    public function processBatch(string $id):array
+    public function processBatch(string $id, ?callable $checkpoint=null):array
     {
         $id=self::uuid($id);
         $pdo=$this->db->connection();
@@ -161,6 +161,7 @@ SQL);
         $advisory->execute(['key'=>'cajeer-import-'.$id]);
         if(!in_array($advisory->fetchColumn(),[true,1,'1','t'],true))throw new \RuntimeException('Import batch already running.');
         try{
+            if ($checkpoint!==null) $checkpoint();
             $fetch=$pdo->prepare('SELECT workspace_id::text,actor_id::text,rows_payload::text,processed_rows,status FROM inventory_import_batches WHERE id=:id');
             $fetch->execute(['id'=>$id]);$batch=$fetch->fetch(PDO::FETCH_ASSOC);
             if(!is_array($batch))throw new \RuntimeException('Import batch missing.');
@@ -175,7 +176,8 @@ SQL);
                 ->execute(['id'=>$id]);
             $from=(int)$batch['processed_rows'];
             for($i=$from;$i<count($rows);$i++){
-                $this->db->transaction(function(PDO $tx)use($id,$i,$rows,$batch,$principal):void{
+                if ($checkpoint!==null) $checkpoint();
+                $this->db->transaction(function(PDO $tx)use($id,$i,$rows,$batch,$principal,$checkpoint):void{
                     // Same lock order as normal inventory writes. Recheck permissions on each row.
                     $this->inventory->lockWorkspace($tx,$batch['workspace_id']);
                     $this->inventory->workspaceRole($tx,$batch['workspace_id'],$batch['actor_id'],true);
@@ -184,6 +186,7 @@ SQL);
                     $progress=$tx->prepare('SELECT processed_rows FROM inventory_import_batches WHERE id=:id FOR UPDATE');
                     $progress->execute(['id'=>$id]);
                     if ((int)$progress->fetchColumn()!==$i) throw new \RuntimeException('Import progress changed; retry from committed checkpoint.');
+                    if ($checkpoint!==null) $checkpoint();
                     $row=$rows[$i];$outcome='error';$assetId=null;$code=null;
                     try{
                         $result=$this->history->observe($batch['actor_id'],[
@@ -199,9 +202,11 @@ SQL);
                     $stmt->execute(['id'=>$id,'row'=>$i+1,'outcome'=>$outcome,'error'=>$code,'asset'=>$assetId]);
                     $tx->prepare('UPDATE inventory_import_batches SET processed_rows=:processed,updated_at=clock_timestamp() WHERE id=:id')
                         ->execute(['id'=>$id,'processed'=>$i+1]);
+                    if ($checkpoint!==null) $checkpoint();
                 },3);
             }
-            $final=$this->db->transaction(function(PDO $tx)use($id,$batch):array{
+            if ($checkpoint!==null) $checkpoint();
+            $final=$this->db->transaction(function(PDO $tx)use($id,$batch,$checkpoint):array{
                 $stmt=$tx->prepare('SELECT outcome,count(*)::int AS total FROM inventory_import_results WHERE batch_id=:id GROUP BY outcome');
                 $stmt->execute(['id'=>$id]);$counts=[];
                 foreach($stmt->fetchAll(PDO::FETCH_ASSOC) as $row)$counts[$row['outcome']]=(int)$row['total'];
@@ -209,6 +214,7 @@ SQL);
                 $tx->prepare('UPDATE inventory_import_batches SET status=:status,summary=CAST(:summary AS jsonb),finished_at=clock_timestamp(),updated_at=clock_timestamp() WHERE id=:id')
                     ->execute(['id'=>$id,'status'=>$status,'summary'=>json_encode($counts,JSON_THROW_ON_ERROR)]);
                 $this->audit->record($tx,$batch['actor_id'],'inventory.import.completed','success','inventory_import_batch',$id,['count'=>array_sum($counts)]);
+                if ($checkpoint!==null) $checkpoint();
                 return ['batch_id'=>$id,'status'=>$status,'summary'=>$counts];
             });
             return $final;

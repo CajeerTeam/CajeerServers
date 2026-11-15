@@ -269,6 +269,15 @@ SQL);
                     return $this->finish($p,$t,$id,'acknowledged',$r['node'],$r['remote_task'],'operator_acknowledged');
                 });
             }
+            if ($r['status']==='dispatching') {
+                if ($r['snapshot_name']!==null) $this->rbac->requirePermission($p,'connectors.snapshots.execute');
+                // Acquiring the target lock proves the original dispatch session no longer owns it.
+                // The POST may have succeeded before process death. Do not resend or unlock the guest.
+                return $this->db->transaction(function(PDO $pdo)use($p,$t,$id,$r):array {
+                    $this->inventory->lockWorkspace($pdo,$t['workspace_id']);$this->current($p,$t);
+                    return $this->finish($p,$t,$id,'unknown',$r['node'],$r['remote_task'],'action_unknown');
+                });
+            }
             if ($r['status']!=='submitted') return $r;
             if ($r['credential_id']!==$t['credential_id']||(int)$r['credential_version']!==$t['credential_version']||(int)$r['target_version']!==$t['version']) throw new HttpException(409,'Original action binding changed. Verify the task externally.','conflict');
             $d=$this->driver($t,$r['action']);$status=null;

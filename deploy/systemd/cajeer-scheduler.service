@@ -1,0 +1,17 @@
+[Unit]
+Description=CajeerServers scheduler and durable outbox dispatch
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=cajeer
+Group=cajeer
+WorkingDirectory=/opt/cajeer
+ExecStart=/usr/bin/php /opt/cajeer/bin/cajeer scheduler:run --batch=25
+TimeoutStartSec=180s
+TimeoutStopSec=15s
+KillMode=mixed
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes

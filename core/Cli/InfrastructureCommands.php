@@ -44,6 +44,7 @@ final class InfrastructureCommands
             'queue:prune' => $this->output(['deleted'=>$c->get(QueueDriverInterface::class)->prune($this->number($args,'days',7,1,3650),$args['queue']??'default',$this->number($args,'limit',500,1,2000))]),
             'scheduler:add' => $this->scheduleAdd($args),
             'scheduler:run' => $this->scheduleRun($args),
+            'scheduler:outbox' => $this->output(['pending'=>$c->get(Scheduler::class)->pendingDeliveries($this->number($args,'limit',50,1,200))]),
             'scheduler:list' => $this->output(['tasks'=>$c->get(Scheduler::class)->tasks()]),
             'scheduler:enable','scheduler:disable' => $this->output(['updated'=>$c->get(Scheduler::class)->setEnabled($this->required($args,'name'),$command==='scheduler:enable')]),
             'storage:check' => $this->storageCheck(),
@@ -82,9 +83,9 @@ final class InfrastructureCommands
         $worker=$this->app->container()->get(JobWorker::class);
         $queue=$args['queue']??'default';
         $lease=$this->number($args,'lease',60,5,3600);
-        if ($once) return $this->output(['job'=>$worker->once($queue,$lease)]);
+        if ($once) return $this->output(['job'=>$worker->once($queue,$lease,true)]);
         return $this->output($worker->run($queue,$this->number($args,'max-jobs',0,0,100000),
-            $this->number($args,'max-seconds',0,0,86400),$this->number($args,'sleep-ms',500,50,10000),$lease));
+            $this->number($args,'max-seconds',0,0,86400),$this->number($args,'sleep-ms',500,50,10000),$lease,true));
     }
 
     private function failed(array $args): int
@@ -100,7 +101,7 @@ final class InfrastructureCommands
         if ($this->app->config()->get('scheduler.enabled', true) !== true) throw new RuntimeException('Scheduler is disabled.');
         $result = $this->app->container()->get(Scheduler::class)->tick($this->number($args,'batch',25,1,200));
         $this->output($result);
-        return $result['dispatch_errors'] === 0 ? 0 : 1;
+        return $result['dispatch_errors'] === 0 && $result['schedule_errors'] === 0 ? 0 : 1;
     }
 
     private function scheduleAdd(array $args): int

@@ -61,7 +61,7 @@ final class CommandRunner
                 'migrate:validate', 'schema:check' => $this->migrationValidate(in_array('--json', $argv, true)),
                 'cache:check', 'cache:get', 'cache:put', 'cache:delete',
                 'queue:push', 'queue:work', 'queue:status', 'queue:failed', 'queue:retry', 'queue:prune',
-                'scheduler:add', 'scheduler:list', 'scheduler:run', 'scheduler:enable', 'scheduler:disable',
+                'scheduler:add', 'scheduler:list', 'scheduler:outbox', 'scheduler:run', 'scheduler:enable', 'scheduler:disable',
                 'storage:check', 'storage:put', 'storage:get', 'storage:exists', 'storage:delete' => (new InfrastructureCommands($this->app))->run($command, $argv),
                 'health', 'health:live', 'health:ready', 'doctor:deep', 'system:report', 'metrics:render', 'openapi:lint', 'queue:stats', 'scheduler:stats', 'security:prune' => (new OperationalCommands($this->app))->run($command, $argv),
                 'inventory:preflight', 'inventory:constraints', 'inventory:integrity' => (new InventoryCommands($this->app))->run($command, $argv),
@@ -193,6 +193,7 @@ CajeerServers CLI
   scheduler:add        --name=... --cron='*/5 * * * *' --type=runtime.diagnostics [--run-now]
   scheduler:list       Просмотреть задания PostgreSQL
   scheduler:run        Планировать due jobs и отправлять outbox в выбранную очередь
+  scheduler:outbox     Ожидающие доставки и retry [--limit=50]
   scheduler:enable     --name=...
   scheduler:disable    --name=...
   storage:check        Реальная проверка write/read/delete

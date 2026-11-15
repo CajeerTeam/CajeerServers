@@ -19,25 +19,27 @@ final class OperationalStats
     public function queue(string $queue): array
     {
         PostgresQueueDriver::validateQueue($queue);
-        $driver = (string)$this->config->get('queue.default', 'redis');
+        $driver = $queue==='connectors'?'pgsql':(string)$this->config->get('queue.default', 'redis');
         if ($driver === 'redis') {
             $prefix = (string)$this->config->get('queue.redis_prefix', 'cajeer:queue:');
             $ready = $prefix . 'ready:' . $queue;
-            $now = (string)time();
+            $now = (string)$this->redis->command('TIME')[0];
             return [
                 'driver' => 'redis', 'queue' => $queue,
                 'ready' => (int)$this->redis->command('ZCOUNT', $ready, '-inf', $now),
                 'delayed' => (int)$this->redis->command('ZCOUNT', $ready, '(' . $now, '+inf'),
                 'running' => (int)$this->redis->command('ZCARD', $prefix . 'processing:' . $queue),
+                'expired_leases' => (int)$this->redis->command('ZCOUNT', $prefix . 'processing:' . $queue,'-inf',$now),
                 'completed' => (int)$this->redis->command('ZCARD', $prefix . 'completed:' . $queue),
                 'failed' => (int)$this->redis->command('ZCARD', $prefix . 'failed:' . $queue),
             ];
         }
         if ($driver !== 'pgsql' || $this->db->driver() !== 'pgsql') throw new RuntimeException('Unsupported queue driver.');
-        $stmt = $this->db->connection()->prepare('SELECT status, COUNT(*) AS total FROM queue_jobs WHERE queue=:queue GROUP BY status');
+        $stmt = $this->db->connection()->prepare("SELECT status, COUNT(*) AS total, COUNT(*) FILTER (WHERE status='running' AND reserved_until<=clock_timestamp()) AS expired FROM queue_jobs WHERE queue=:queue GROUP BY status");
         $stmt->execute(['queue' => $queue]);
-        $summary = ['driver' => 'pgsql', 'queue' => $queue, 'queued' => 0, 'running' => 0, 'completed' => 0, 'failed' => 0];
+        $summary = ['driver' => 'pgsql', 'queue' => $queue, 'queued' => 0, 'running' => 0, 'completed' => 0, 'failed' => 0,'expired_leases'=>0];
         foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            if ($row['status']==='running') $summary['expired_leases']=(int)$row['expired'];
             if (array_key_exists((string)$row['status'], $summary)) $summary[(string)$row['status']] = (int)$row['total'];
         }
         return $summary;
@@ -47,8 +49,8 @@ final class OperationalStats
     {
         if ($this->db->driver() !== 'pgsql') throw new RuntimeException('Scheduler requires PostgreSQL.');
         $pdo = $this->db->connection();
-        $tasks = $pdo->query("SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE enabled) AS enabled, COUNT(*) FILTER (WHERE enabled AND next_run_at<=now()) AS due FROM scheduler_tasks")?->fetch(PDO::FETCH_ASSOC);
-        $outbox = $pdo->query("SELECT COUNT(*) FILTER (WHERE status='pending') AS pending, COUNT(*) FILTER (WHERE status='sent') AS sent FROM scheduler_outbox")?->fetch(PDO::FETCH_ASSOC);
+        $tasks = $pdo->query("SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE enabled) AS enabled, COUNT(*) FILTER (WHERE enabled AND next_run_at<=now()) AS due, COUNT(*) FILTER (WHERE last_error IS NOT NULL) AS invalid FROM scheduler_tasks")?->fetch(PDO::FETCH_ASSOC);
+        $outbox = $pdo->query("SELECT COUNT(*) FILTER (WHERE status='pending') AS pending, COUNT(*) FILTER (WHERE status='sent') AS sent, COUNT(*) FILTER (WHERE status='pending' AND dispatch_attempts>0) AS retrying, COUNT(*) FILTER (WHERE status='pending' AND next_attempt_at<=clock_timestamp()) AS due FROM scheduler_outbox")?->fetch(PDO::FETCH_ASSOC);
         if (!is_array($tasks) || !is_array($outbox)) throw new RuntimeException('Scheduler statistics unavailable.');
         return ['tasks' => array_map('intval', $tasks), 'outbox' => array_map('intval', $outbox)];
     }

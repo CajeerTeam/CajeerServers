@@ -18,22 +18,22 @@ final class JobProcessor
         return in_array($type, ['runtime.diagnostics','storage.probe','queue.prune','inventory.import'],true);
     }
 
-    public function process(QueuedJob $job): array
+    public function process(QueuedJob $job, ?callable $checkpoint = null): array
     {
         return match ($job->type) {
             'runtime.diagnostics' => $this->runtime(),
             'storage.probe' => $this->storageProbe(),
             'queue.prune' => $this->prune($job->payload),
-            'inventory.import' => $this->import($job->payload),
+            'inventory.import' => $this->import($job->payload,$checkpoint),
             default => throw new RuntimeException('No registered handler for job type.'),
         };
     }
 
-    private function import(array $payload): array
+    private function import(array $payload, ?callable $checkpoint): array
     {
         if ($this->transfer === null || array_keys($payload) !== ['batch_id'] || !is_string($payload['batch_id']))
             throw new RuntimeException('Invalid import queue job.');
-        return $this->transfer->processBatch($payload['batch_id']);
+        return $this->transfer->processBatch($payload['batch_id'],$checkpoint);
     }
 
     private function prune(array $payload): array

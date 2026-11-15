@@ -616,3 +616,11 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 - [x] Atomic migration batches, installer concurrency and identity checks, isolated recovery.
 - [x] Native maintenance and migration regressions; PostgreSQL 17/18 upgrade/recovery CI scenario.
 - [ ] Complete real PostgreSQL/Redis CI and deployment rehearsal on a retained 0.9.1 build. See `docs/Installation-Upgrade-Migration-0.9.2.md`.
+
+## 0.9.5 — Runtime Reliability & Recovery
+
+- [x] Fenced lease renewal, bounded recovery, CLI watchdog/drain, atomic import checkpoints.
+- [x] Independent outbox backoff, invalid schedule isolation, coalesced missed runs, diagnostics.
+- [x] Safe abandoned action recovery, connector contention retry, systemd service units.
+- [x] Native regression and real PostgreSQL/Redis integration scenarios in CI.
+- [ ] Run full PostgreSQL/Redis crash and upgrade acceptance, production build and live device acceptance before stable. See `docs/Runtime-Reliability-Recovery-0.9.5.md`.

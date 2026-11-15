@@ -98,6 +98,11 @@ try {
     $authorize();$reject(409,fn()=>$actions->submit($principal,$id,2,$body,'test-idempotency-0007'),'known VM fingerprint cannot be lost');
     $ok($driver->posts===3,'identity denial performs no POST');
 
+    // Simulate process death after durable dispatch intent, before recording remote response.
+    $pdo->prepare("UPDATE connector_actions SET status='dispatching',remote_task=NULL,error_code=NULL WHERE id=:id")->execute(['id'=>$row['id']]);
+    $before=$driver->posts;$recovered=$actions->refresh($principal,$id,$row['id'],2);
+    $ok($recovered['status']==='unknown'&&$driver->posts===$before,'abandoned dispatch becomes unknown without another POST');
+    $reject(409,fn()=>$actions->submit($principal,$id,2,$body,'test-idempotency-recovery'),'unknown action still blocks a second POST');
     $pdo->exec("DELETE FROM role_permissions WHERE permission_id IN (SELECT id FROM permissions WHERE scope='connectors.actions.execute')");
     $reject(403,fn()=>$actions->submit($principal,$id,2,$body,'test-idempotency-0003'),'action scope revoked');
     echo "PostgreSQL connector actions: $n PASS\n";

@@ -1,0 +1,11 @@
+[Unit]
+Description=Poll CajeerServers scheduled tasks and outbox
+
+[Timer]
+OnBootSec=10s
+OnUnitInactiveSec=5s
+AccuracySec=1s
+Unit=cajeer-scheduler.service
+
+[Install]
+WantedBy=timers.target

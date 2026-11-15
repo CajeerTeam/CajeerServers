@@ -68,7 +68,8 @@ final class DispatchQueue implements QueueDriverInterface
         return $job->id;
     }
     public function reserve(string $queue='default',int $leaseSeconds=60):?QueueReservation{return null;}
-    public function succeed(QueueReservation $reservation,array $result):void{}
+    public function renew(QueueReservation $r,int $leaseSeconds):void {}
+  public function succeed(QueueReservation $reservation,array $result):void{}
     public function release(QueueReservation $reservation,string $reason,int $delaySeconds):void{}
     public function find(string $id):?array{return null;}
     public function failed(int $limit=50):array{return [];}

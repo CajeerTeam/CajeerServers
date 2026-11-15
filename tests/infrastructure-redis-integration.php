@@ -29,11 +29,14 @@ try {
  $reserved=$queue->reserve('default',15);
  $ok($reserved!==null&&$reserved->attempt===1&&$reserved->job->id===$id,'atomic reserve');
  $ok($queue->reserve('default',15)===null,'lease prevents double delivery');
+ $queue->renew($reserved,60);
+ $ok($queue->reserve('default',15)===null,'renew protects active receipt');
  $queue->release($reserved,'Simulated failure',0);
  $ok($queue->find($id)['status']==='queued','retry requeued');
  $again=$queue->reserve('default',15);
  $ok($again!==null && $again->attempt===2,'retry increments attempt');
  $expectFail(fn()=> $queue->succeed($reserved,[]),'stale receipt denied');
+ $expectFail(fn()=> $queue->renew($reserved,60),'stale receipt cannot renew');
  $queue->release($again,'Simulated terminal failure',0);
  $ok($queue->find($id)['status']==='failed'&&count($queue->failedInQueue('default'))===1,'DLQ retains terminal failure');
  $ok($queue->retry($id),'retry failed job');
@@ -42,6 +45,21 @@ try {
  $ok($queue->find($id)['status']==='completed','job completed');
  $expectFail(fn()=>$queue->succeed($again,[]),'completed job rejects stale receipt');
  $ok($queue->failedInQueue('default')===[],'failed list excludes retried job');
+ $large=QueuedJob::create('runtime.diagnostics',['z'=>9007199254740993,'a'=>['list'=>[1,2]]],'default',2);$queue->push($large);
+ $ok($queue->push(new QueuedJob($large->id,$large->type,['a'=>['list'=>[1,2]],'z'=>9007199254740993],'default',2))===$large->id,'idempotent reorder and exact integer');
+ $redis->command('ZADD',$prefix.'queue:ready:default','0','missing-job');
+ $first=$queue->reserve('default',5);
+ $ok($first!==null&&$first->job->payload['z']===9007199254740993,'missing index entry skipped and integer preserved');
+ $queue->renew($first,6);
+ sleep(7);
+ $expectFail(fn()=>$queue->renew($first,60),'expired lease cannot be renewed');
+ $second=$queue->reserve('default',5);
+ $ok($second!==null&&$second->attempt===2&&$second->receipt!==$first->receipt,'lease expiry redelivery');
+ $expectFail(fn()=>$queue->succeed($first,[]),'old ACK cannot change replacement lease');
+ $queue->succeed($second,['number'=>9007199254740993]);
+ $ok($queue->find($large->id)['result']['number']===9007199254740993,'result retains exact integer');
+ $expectFail(fn()=>$queue->push(QueuedJob::create('connector.execute',[],'connectors')),'Redis denies connector queue');
+ $redis->command('DEL',$prefix.'queue:job:'.$large->id);
  // Explicit cleanup of every key from this private namespace only.
  $redis->command('DEL',$prefix.'cache:binary',$prefix.'cache:counter',$prefix.'queue:job:'.$id,
   $prefix.'queue:ready:default',$prefix.'queue:processing:default',$prefix.'queue:failed:default',$prefix.'queue:completed:default');

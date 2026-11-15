@@ -80,7 +80,8 @@ try{
     $reservation=$queue->reserve('default');$ok($reservation!==null&&$reservation->job->type==='inventory.import','real queue driver leased import job');
     $processor=new JobProcessor(new RuntimeDiagnostics($root,new ConfigRepository($root.'/config')),
         new LocalDisk($dir.'/storage'),$queue,$transfer);
-    $result=$processor->process($reservation->job);
+    $heartbeats=0;$result=$processor->process($reservation->job,function()use($queue,$reservation,&$heartbeats):void{$queue->renew($reservation,60);$heartbeats++;});
+    $ok($heartbeats>=7,'worker renews lease around row checkpoints and final commit');
     $queue->succeed($reservation,$result);
     $ok($result['status']==='completed'&&($result['summary']['created']??0)===2,'worker reconciled both assets');
     $batch=$transfer->batch($admin,$ws,$first['id']);

@@ -68,18 +68,18 @@ try {
     $reject(fn()=>$state->record(),'invalid marker identity rejected');
     unlink($root.'/storage/app/installed.json');
     $state->finish('00000000-0000-0000-0000-000000000001','2026-11-15T00:00:00Z');
-    $check($state->record()['version']==='0.9.4','marker records installed code version');
-    $old=$state->record();$old['version']='0.9.3';file_put_contents($root.'/storage/app/installed.json',json_encode($old));
+    $check($state->record()['version']==='0.9.5','marker records installed code version');
+    $old=$state->record();$old['version']='0.9.4';file_put_contents($root.'/storage/app/installed.json',json_encode($old));
     $check($gate->requiresUpgrade(),'old marker detects code version drift');
     $check($app->handle(new HttpRequest('GET','/api/v1/health'))->status===503,'old marker cannot serve upgraded code');
     $state->finish($old['installation_id'],$old['installed_at']);
     $check($runner->run(['cajeer','upgrade:apply','--previous=/old','--archive=/a','--key-file=/k','--offline'])===1,'upgrade refused without maintenance');
     // Validate the actual retained source migration set, not just release metadata.
-    $oldDir=$root.'/source-093';mkdir($oldDir.'/migrations/pgsql',0700,true);
-    foreach(glob($source.'/migrations/pgsql/*.sql') as $file)if(!str_starts_with(basename($file),'0062_'))copy($file,$oldDir.'/migrations/pgsql/'.basename($file));
+    $oldDir=$root.'/source-094';mkdir($oldDir.'/migrations/pgsql',0700,true);
+    foreach(glob($source.'/migrations/pgsql/*.sql') as $file)if(!str_starts_with(basename($file),'0063_'))copy($file,$oldDir.'/migrations/pgsql/'.basename($file));
     $method=new ReflectionMethod(UpgradeService::class,'sourceFiles');$service=new UpgradeService($app);
-    $check(count($method->invoke($service,$oldDir))===61,'0.9.3 source migration set accepted');
-    unlink($oldDir.'/migrations/pgsql/0061_security_grant_revocation.sql');
+    $check(count($method->invoke($service,$oldDir))===62,'0.9.4 source migration set accepted');
+    unlink($oldDir.'/migrations/pgsql/0062_database_data_integrity.sql');
     $reject(fn()=>$method->invoke($service,$oldDir),'missing source migration rejected');
     echo "Upgrade native smoke: $count PASS. PostgreSQL upgrade/recovery tested separately.\n";
 } finally { $app?->terminate(); $delete($root); }

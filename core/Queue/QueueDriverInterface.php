@@ -7,6 +7,7 @@ interface QueueDriverInterface
 {
     public function push(QueuedJob $job, int $delaySeconds = 0): string;
     public function reserve(string $queue = 'default', int $leaseSeconds = 60): ?QueueReservation;
+    public function renew(QueueReservation $reservation, int $leaseSeconds): void;
     public function succeed(QueueReservation $reservation, array $result): void;
     public function release(QueueReservation $reservation, string $reason, int $delaySeconds): void;
     public function find(string $id): ?array;

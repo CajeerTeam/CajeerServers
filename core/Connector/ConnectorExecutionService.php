@@ -388,7 +388,7 @@ final class ConnectorExecutionService
         $plan=$row['collector_name']===null?null:new CollectionPlan($row['collector_name'],$g['operation']);
         // Session advisory lock prevents overlapping remote operations per target, including lease recovery.
         $locked=$this->query($pdo,'SELECT pg_try_advisory_lock(hashtextextended(:id,4202))',['id'=>$g['target_id']])->fetchColumn();
-        if (!in_array($locked,[true,'t','1',1],true)) throw new \RuntimeException('Connector busy.');
+        if (!in_array($locked,[true,'t','1',1],true)) throw new HttpException(409,'Connector busy.','connector_busy');
         $slots=[];
         try {
             $this->vault->check();
@@ -453,7 +453,7 @@ WITH recover AS (
 UPDATE queue_jobs j SET status='completed',result=jsonb_build_object('run_id',r.id,'status',CASE WHEN r.cancelled_at IS NOT NULL THEN 'cancelled' WHEN r.result IS NOT NULL THEN 'succeeded' ELSE 'failed' END),lease_token=NULL,reserved_until=NULL,finished_at=clock_timestamp(),updated_at=clock_timestamp()
 FROM connector_runs r JOIN recover ON recover.id=r.id WHERE r.id=j.id
 SQL);
-        $pdo->exec("UPDATE connector_runs r SET finished_at=COALESCE(j.finished_at,clock_timestamp()),error_code='lease_exhausted' FROM queue_jobs j WHERE j.id=r.id AND j.queue='connectors' AND j.status IN ('failed','completed') AND r.finished_at IS NULL");
+        $pdo->exec("WITH exhausted AS (SELECT r.id,j.finished_at FROM connector_runs r JOIN queue_jobs j ON j.id=r.id WHERE j.queue='connectors' AND j.status IN ('failed','completed') AND r.finished_at IS NULL ORDER BY r.id LIMIT 100 FOR UPDATE OF r SKIP LOCKED) UPDATE connector_runs r SET finished_at=COALESCE(exhausted.finished_at,clock_timestamp()),error_code='lease_exhausted' FROM exhausted WHERE r.id=exhausted.id AND r.finished_at IS NULL");
     }
     /** Dedicated PG worker with bounded lease and retry. Terminal authorization failures are not retried. */
     public function once():?array
@@ -489,7 +489,7 @@ SQL);
                 return ['id'=>$r->job->id,'status'=>'lease_lost','acknowledged'=>false];
             }
             // Only release a live receipt. Lease loss is not a failure of the next reservation.
-            $released=$this->query($pdo,"UPDATE queue_jobs SET status='queued',available_at=clock_timestamp()+CAST(:delay AS integer)*interval '1 second',last_error=:error,lease_token=NULL,reserved_until=NULL,updated_at=clock_timestamp() WHERE id=:id AND queue='connectors' AND status='running' AND lease_token=:receipt AND reserved_until>clock_timestamp()",['id'=>$r->job->id,'receipt'=>$r->receipt,'delay'=>min(300,15*2**$r->attempt),'error'=>$remoteCode??'execution_failed']);
+            $released=$this->query($pdo,"UPDATE queue_jobs SET status='queued',available_at=clock_timestamp()+CAST(:delay AS integer)*interval '1 second',last_error=:error,lease_token=NULL,reserved_until=NULL,updated_at=clock_timestamp() WHERE id=:id AND queue='connectors' AND status='running' AND lease_token=:receipt AND reserved_until>clock_timestamp()",['id'=>$r->job->id,'receipt'=>$r->receipt,'delay'=>min(300,15*2**min(4,$r->attempt)+random_int(0,15)),'error'=>$remoteCode??'execution_failed']);
             return ['id'=>$r->job->id,'status'=>$released->rowCount()===1?'retry_scheduled':'lease_lost'];
         }
         return $this->acknowledge($r);

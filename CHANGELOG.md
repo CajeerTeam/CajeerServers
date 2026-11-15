@@ -1,3 +1,11 @@
+## [0.9.5] — 2026-11-15 — Runtime Reliability & Recovery
+
+- Renew PostgreSQL and Redis job leases with receipt fencing, bound expired-job sweeps, preserve JSON payload identity and reject connector work in the generic Redis queue.
+- Add CLI worker watchdogs and graceful drain; import workers renew around atomic row checkpoints and final commit. Lost ownership never retries a finished handler.
+- Persist per-message Scheduler outbox retries with capped exponential backoff and jitter, quarantine invalid schedules, coalesce missed occurrences, and expose pending deliveries and expired leases.
+- Bound connector recovery, classify contention and jitter retries; explicitly recover abandoned dispatch intents to unknown without another POST.
+- Add service units, worker/queue regressions, real PostgreSQL and Redis CI scenarios, and 0.9.4 → 0.9.5 offline upgrade through migration 0063.
+
 ## [0.9.4] — 2026-11-15 — Database & Data Integrity
 
 - Enforce workspace CIDR non-overlap with a PostgreSQL GiST exclusion constraint, even under concurrent transactions.

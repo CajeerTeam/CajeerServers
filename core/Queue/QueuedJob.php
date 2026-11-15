@@ -33,6 +33,16 @@ final class QueuedJob
         return new self(substr($s,0,8).'-'.substr($s,8,4).'-'.substr($s,12,4).'-'.substr($s,16,4).'-'.substr($s,20), $type, $payload, $queue, $maxAttempts);
     }
 
+    public static function samePayload(array $left, array $right): bool
+    {
+        $canonical = static function (array $value) use (&$canonical): array {
+            if (!array_is_list($value)) ksort($value, SORT_STRING);
+            foreach ($value as &$item) if (is_array($item)) $item = $canonical($item);
+            return $value;
+        };
+        return json_encode($canonical($left),JSON_THROW_ON_ERROR) === json_encode($canonical($right),JSON_THROW_ON_ERROR);
+    }
+
     public function data(): array
     {
         return ['id'=>$this->id,'type'=>$this->type,'payload'=>$this->payload,'queue'=>$this->queue,'max_attempts'=>$this->maxAttempts];

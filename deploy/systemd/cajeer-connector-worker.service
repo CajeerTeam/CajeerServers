@@ -1,0 +1,21 @@
+[Unit]
+Description=CajeerServers dedicated PostgreSQL connector worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=cajeer
+Group=cajeer
+WorkingDirectory=/opt/cajeer
+ExecStart=/usr/bin/php /opt/cajeer/bin/cajeer connector:work 20
+Restart=always
+RestartSec=3s
+TimeoutStopSec=250s
+KillMode=mixed
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

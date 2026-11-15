@@ -16,13 +16,13 @@ final class PostgresQueueDriver implements QueueDriverInterface
     public function push(QueuedJob $job, int $delaySeconds = 0): string
     {
         if ($delaySeconds < 0 || $delaySeconds > 2592000) throw new InvalidArgumentException('Invalid job delay.');
-        if ($job->queue==='connectors' && ($job->type!=='connector.execute' || $job->payload!==[])) throw new InvalidArgumentException('Reserved connector queue.');
-        $stmt = $this->pdo()->prepare("INSERT INTO queue_jobs (id,queue,type,payload,max_attempts,available_at) VALUES (:id,:queue,:type,CAST(:payload AS jsonb),:max_attempts,now()+(:delay * interval '1 second')) ON CONFLICT (id) DO NOTHING");
+        if (($job->queue==='connectors' || $job->type==='connector.execute') && ($job->queue!=='connectors' || $job->type!=='connector.execute' || $job->payload!==[])) throw new InvalidArgumentException('Reserved connector queue.');
+        $stmt = $this->pdo()->prepare("INSERT INTO queue_jobs (id,queue,type,payload,max_attempts,available_at) VALUES (:id,:queue,:type,CAST(:payload AS jsonb),:max_attempts,clock_timestamp()+(:delay * interval '1 second')) ON CONFLICT (id) DO NOTHING");
         $stmt->execute(['id'=>$job->id,'queue'=>$job->queue,'type'=>$job->type,'payload'=>json_encode($job->payload, JSON_THROW_ON_ERROR), 'max_attempts'=>$job->maxAttempts,'delay'=>$delaySeconds]);
         // An existing ID must not silently be used for a different job.
         if ($stmt->rowCount() === 0) {
             $existing = $this->find($job->id);
-            if ($existing === null || $existing['type'] !== $job->type || $existing['queue'] !== $job->queue || $existing['payload'] !== $job->payload || $existing['max_attempts'] !== $job->maxAttempts) {
+            if ($existing === null || $existing['type'] !== $job->type || $existing['queue'] !== $job->queue || !QueuedJob::samePayload($existing['payload'], $job->payload) || $existing['max_attempts'] !== $job->maxAttempts) {
                 throw new RuntimeException('Queue job ID conflicts with an existing different payload.');
             }
         }
@@ -35,17 +35,18 @@ final class PostgresQueueDriver implements QueueDriverInterface
         if ($leaseSeconds < 5 || $leaseSeconds > 3600) throw new InvalidArgumentException('Invalid lease duration.');
         $receipt = bin2hex(random_bytes(24));
         return $this->database->transaction(function (PDO $pdo) use ($queue,$leaseSeconds,$receipt): ?QueueReservation {
-            $pdo->exec("UPDATE queue_jobs SET status='failed',lease_token=NULL,reserved_until=NULL,finished_at=now(),updated_at=now(),last_error='Worker lease expired' WHERE queue=" . $pdo->quote($queue) . " AND status='running' AND reserved_until <= now() AND attempts >= max_attempts");
+            $expired=$pdo->prepare("WITH expired AS (SELECT id FROM queue_jobs WHERE queue=:queue AND status='running' AND reserved_until<=clock_timestamp() AND attempts>=max_attempts ORDER BY reserved_until,id LIMIT 100 FOR UPDATE SKIP LOCKED) UPDATE queue_jobs j SET status='failed',lease_token=NULL,reserved_until=NULL,finished_at=clock_timestamp(),updated_at=clock_timestamp(),last_error='Worker lease expired' FROM expired WHERE j.id=expired.id");
+            $expired->execute(['queue'=>$queue]);
             $sql = <<<'SQL'
 WITH candidate AS (
  SELECT id FROM queue_jobs
  WHERE queue=:queue AND attempts < max_attempts
- AND ((status='queued' AND available_at <= now()) OR (status='running' AND reserved_until <= now()))
+ AND ((status='queued' AND available_at <= clock_timestamp()) OR (status='running' AND reserved_until <= clock_timestamp()))
  ORDER BY available_at, created_at, id
  FOR UPDATE SKIP LOCKED LIMIT 1
 )
 UPDATE queue_jobs j SET status='running',attempts=j.attempts+1,
- lease_token=:receipt,reserved_until=now()+(:lease * interval '1 second'),updated_at=now()
+ lease_token=:receipt,reserved_until=clock_timestamp()+(:lease * interval '1 second'),updated_at=clock_timestamp()
 FROM candidate WHERE j.id=candidate.id
 RETURNING j.id,j.type,j.payload,j.queue,j.max_attempts,j.attempts
 SQL;
@@ -57,21 +58,29 @@ SQL;
         });
     }
 
+    public function renew(QueueReservation $reservation, int $leaseSeconds): void
+    {
+        if ($leaseSeconds < 5 || $leaseSeconds > 3600) throw new InvalidArgumentException('Invalid lease duration.');
+        $stmt=$this->pdo()->prepare("UPDATE queue_jobs SET reserved_until=GREATEST(reserved_until,clock_timestamp()+(:lease * interval '1 second')),updated_at=clock_timestamp() WHERE id=:id AND queue=:queue AND status='running' AND lease_token=:receipt AND reserved_until>clock_timestamp()");
+        $stmt->execute(['id'=>$reservation->job->id,'queue'=>$reservation->job->queue,'receipt'=>$reservation->receipt,'lease'=>$leaseSeconds]);
+        if ($stmt->rowCount()!==1) throw new LeaseLost('Stale queue receipt; renewal denied.');
+    }
+
     public function succeed(QueueReservation $reservation, array $result): void
     {
         $payload = json_encode($result, JSON_THROW_ON_ERROR);
         if (strlen($payload) > 65536) throw new InvalidArgumentException('Job result exceeds 64 KiB.');
-        $stmt = $this->pdo()->prepare("UPDATE queue_jobs SET status='completed', result=CAST(:result AS jsonb), lease_token=NULL,reserved_until=NULL,finished_at=now(),updated_at=now() WHERE id=:id AND status='running' AND lease_token=:receipt AND reserved_until>now()");
-        $stmt->execute(['id'=>$reservation->job->id,'receipt'=>$reservation->receipt,'result'=>$payload]);
-        if ($stmt->rowCount() !== 1) throw new RuntimeException('Stale queue job receipt; completion denied.');
+        $stmt = $this->pdo()->prepare("UPDATE queue_jobs SET status='completed', last_error=NULL,result=CAST(:result AS jsonb), lease_token=NULL,reserved_until=NULL,finished_at=clock_timestamp(),updated_at=clock_timestamp() WHERE id=:id AND queue=:queue AND status='running' AND lease_token=:receipt AND reserved_until>clock_timestamp()");
+        $stmt->execute(['id'=>$reservation->job->id,'receipt'=>$reservation->receipt,'queue'=>$reservation->job->queue,'result'=>$payload]);
+        if ($stmt->rowCount() !== 1) throw new LeaseLost('Stale queue job receipt; completion denied.');
     }
 
     public function release(QueueReservation $reservation, string $reason, int $delaySeconds): void
     {
         if ($delaySeconds < 0 || $delaySeconds > 2592000) throw new InvalidArgumentException('Invalid retry delay.');
-        $stmt = $this->pdo()->prepare("UPDATE queue_jobs SET status=CASE WHEN attempts>=max_attempts THEN 'failed' ELSE 'queued' END, available_at=now()+(:delay * interval '1 second'), last_error=:reason, lease_token=NULL,reserved_until=NULL, finished_at=CASE WHEN attempts>=max_attempts THEN now() ELSE NULL END, updated_at=now() WHERE id=:id AND status='running' AND lease_token=:receipt AND reserved_until>now()");
-        $stmt->execute(['delay'=>$delaySeconds,'reason'=>substr($reason,0,512),'id'=>$reservation->job->id,'receipt'=>$reservation->receipt]);
-        if ($stmt->rowCount() !== 1) throw new RuntimeException('Stale queue job receipt; release denied.');
+        $stmt = $this->pdo()->prepare("UPDATE queue_jobs SET status=CASE WHEN attempts>=max_attempts THEN 'failed' ELSE 'queued' END, available_at=clock_timestamp()+(:delay * interval '1 second'), last_error=:reason, lease_token=NULL,reserved_until=NULL, finished_at=CASE WHEN attempts>=max_attempts THEN clock_timestamp() ELSE NULL END, updated_at=clock_timestamp() WHERE id=:id AND queue=:queue AND status='running' AND lease_token=:receipt AND reserved_until>clock_timestamp()");
+        $stmt->execute(['delay'=>$delaySeconds,'reason'=>substr($reason,0,512),'id'=>$reservation->job->id,'receipt'=>$reservation->receipt,'queue'=>$reservation->job->queue]);
+        if ($stmt->rowCount() !== 1) throw new LeaseLost('Stale queue job receipt; release denied.');
     }
 
     public function find(string $id): ?array
@@ -97,7 +106,7 @@ SQL;
 
     public function retry(string $id): bool
     {
-        $stmt = $this->pdo()->prepare("UPDATE queue_jobs SET status='queued',attempts=0,available_at=now(),last_error=NULL,finished_at=NULL,lease_token=NULL,reserved_until=NULL,updated_at=now() WHERE id=:id AND status='failed' AND queue<>'connectors'");
+        $stmt = $this->pdo()->prepare("UPDATE queue_jobs SET status='queued',attempts=0,available_at=clock_timestamp(),last_error=NULL,finished_at=NULL,lease_token=NULL,reserved_until=NULL,updated_at=clock_timestamp() WHERE id=:id AND status='failed' AND queue<>'connectors'");
         $stmt->execute(['id'=>$id]);
         return $stmt->rowCount() === 1;
     }
@@ -110,7 +119,7 @@ SQL;
         $stmt = $this->pdo()->prepare(<<<'SQL'
 WITH expired AS (
  SELECT id FROM queue_jobs WHERE queue=:queue AND status IN ('failed','completed')
- AND finished_at < now()-(:days * interval '1 day') ORDER BY finished_at LIMIT :limit
+ AND finished_at < clock_timestamp()-(:days * interval '1 day') ORDER BY finished_at,id LIMIT :limit FOR UPDATE SKIP LOCKED
 )
 DELETE FROM queue_jobs j USING expired WHERE j.id=expired.id
 SQL);

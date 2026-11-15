@@ -78,9 +78,13 @@ final class ConnectorCommands
                 if (count($args)>1 || (isset($args[0]) && !preg_match('/^[1-9][0-9]{0,3}$/D',$args[0]))) throw new \InvalidArgumentException('Usage: connector:work [max-jobs]');
                 // A hung DNS/transport/DB call must not survive the queue lease. Process death permits lease recovery.
                 if (!function_exists('pcntl_alarm')) throw new \RuntimeException('Connector worker requires CLI pcntl.');
+                pcntl_async_signals(true);
                 pcntl_signal(SIGALRM,SIG_DFL);
+                $stopping=false;
+                pcntl_signal(SIGTERM,static function()use(&$stopping):void{$stopping=true;});
+                pcntl_signal(SIGINT,static function()use(&$stopping):void{$stopping=true;});
                 $jobs=[];
-                for ($i=0;$i<(int)($args[0]??1);$i++) {
+                for ($i=0;!$stopping && $i<(int)($args[0]??1);$i++) {
                     pcntl_alarm(240);
                     try {$job=$service->once();} finally {pcntl_alarm(0);}
                     if ($job===null) break; $jobs[]=$job;

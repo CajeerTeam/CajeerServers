@@ -102,6 +102,7 @@ try {
   public array $failures=[];
   public function push(QueuedJob $job,int $delaySeconds=0):string {return $job->id;}
   public function reserve(string $queue='default',int $leaseSeconds=60):?QueueReservation {$r=$this->next;$this->next=null;return $r;}
+  public function renew(QueueReservation $r,int $leaseSeconds):void {}
   public function succeed(QueueReservation $r,array $result):void {$this->completed=$result;}
   public function release(QueueReservation $r,string $reason,int $delaySeconds):void {$this->failures[]=[$reason,$delaySeconds];}
   public function find(string $id):?array {return null;}
