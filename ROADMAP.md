@@ -624,3 +624,10 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 - [x] Safe abandoned action recovery, connector contention retry, systemd service units.
 - [x] Native regression and real PostgreSQL/Redis integration scenarios in CI.
 - [ ] Run full PostgreSQL/Redis crash and upgrade acceptance, production build and live device acceptance before stable. See `docs/Runtime-Reliability-Recovery-0.9.5.md`.
+
+
+## 0.9.6 — Performance & Scalability
+
+- [x] Count-free Inventory pagination, Admin keyset, batch events, stable metric cutoffs and read indexes.
+- [x] Executable PostgreSQL and HTTP load harnesses; local liveness load and native regressions.
+- [ ] Run PostgreSQL 17/18 benchmarks, full authenticated HTTP load, 24-hour soak and production capacity acceptance. See `docs/Performance-Scalability-0.9.6.md`.

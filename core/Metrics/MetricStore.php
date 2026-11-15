@@ -38,8 +38,11 @@ final class MetricStore
         $scope=['ws'=>$ws,'target'=>$id,'asset'=>$asset,'version'=>$version];
         $defs=json_encode(array_values($series),JSON_THROW_ON_ERROR);$data=json_encode($batch,JSON_THROW_ON_ERROR);
         $missing=(int)self::q($pdo,"SELECT count(*) FROM jsonb_to_recordset(CAST(:defs AS jsonb)) AS d(key text) WHERE NOT EXISTS(SELECT 1 FROM metric_series s WHERE s.workspace_id=CAST(:ws AS uuid) AND s.target_id=CAST(:target AS uuid) AND s.asset_id=CAST(:asset AS uuid) AND s.target_version=:version AND s.identity=d.key)",['defs'=>$defs,...$scope])->fetchColumn();
-        $count=(int)self::q($pdo,'SELECT count(*) FROM metric_series WHERE workspace_id=CAST(:ws AS uuid)',['ws'=>$ws])->fetchColumn();
-        if($count+$missing>self::SERIES_LIMIT)throw new HttpException(422,'Workspace metric series quota exceeded.','metric_quota');
+        // No quota scan for steady-state ingestion: the workspace lock serializes new identities.
+        if($missing>0){
+            $count=(int)self::q($pdo,'SELECT count(*) FROM metric_series WHERE workspace_id=CAST(:ws AS uuid)',['ws'=>$ws])->fetchColumn();
+            if($count+$missing>self::SERIES_LIMIT)throw new HttpException(422,'Workspace metric series quota exceeded.','metric_quota');
+        }
         foreach(array_keys($months) as $month)self::q($pdo,'SELECT cajeer_metric_partition(CAST(:month AS date))',['month'=>$month.'-01']);
         self::q($pdo,"INSERT INTO metric_series(workspace_id,target_id,asset_id,target_version,identity,metric,resource_external_id,labels,kind,unit,ingestion_source_id)
             SELECT CAST(:ws AS uuid),CAST(:target AS uuid),CAST(:asset AS uuid),:version,d.key,d.metric,d.resource,d.labels,d.kind,d.unit,CAST(:source AS uuid) FROM jsonb_to_recordset(CAST(:defs AS jsonb)) AS d(key text,metric text,resource text,labels jsonb,kind text,unit text)
@@ -69,7 +72,7 @@ final class MetricStore
         if($aggregation==='rate'&&$meta['kind']!=='counter')throw new HttpException(422,'Rate requires a counter.','validation_failed');
         $args=['id'=>$id,'from'=>$from,'to'=>$to];
         // Bound query cost independently of requested output size. Read at most 200,001 input points.
-        $base="SELECT observed_at,value FROM metric_samples WHERE series_id=CAST(:id AS uuid) AND observed_at>=CAST(:from AS timestamptz) AND observed_at<CAST(:to AS timestamptz) AND observed_at>=clock_timestamp()-interval '30 days' ORDER BY observed_at LIMIT 200001";
+        $base="SELECT observed_at,value FROM metric_samples WHERE series_id=CAST(:id AS uuid) AND observed_at>=CAST(:from AS timestamptz) AND observed_at<CAST(:to AS timestamptz) AND observed_at>=statement_timestamp()-interval '30 days' ORDER BY observed_at LIMIT 200001";
         if($aggregation==='raw'){$rows=self::q($pdo,str_replace('LIMIT 200001','LIMIT 2001',$base),$args)->fetchAll(PDO::FETCH_ASSOC);if(count($rows)>2000)throw new HttpException(422,'Too many raw points; use aggregation.','metric_query_limit');foreach($rows as &$r){$r=['timestamp'=>(new \DateTimeImmutable($r['observed_at']))->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d\TH:i:s.u\Z'),'value'=>(string)$r['value']];}unset($r);return ['series'=>$meta,'aggregation'=>$aggregation,'points'=>$rows];}
         $bucket="date_bin(make_interval(secs=>CAST(:step AS double precision)),observed_at,TIMESTAMPTZ '1970-01-01 00:00:00+00')";$args['step']=$step;
         if($aggregation==='rate'){$sql="WITH samples AS MATERIALIZED ($base), deltas AS (SELECT *,lag(value) OVER(ORDER BY observed_at) AS previous,lag(observed_at) OVER(ORDER BY observed_at) AS previous_at FROM samples) SELECT $bucket AS timestamp,(SELECT count(*) FROM samples) AS input_count,(sum(CASE WHEN value>=previous THEN value-previous ELSE value END)/NULLIF(sum(extract(epoch FROM observed_at-previous_at)),0))::text AS value FROM deltas WHERE previous IS NOT NULL GROUP BY 1 ORDER BY 1 LIMIT 2001";}
@@ -81,11 +84,11 @@ final class MetricStore
     {
         if(!$pdo->inTransaction())throw new \LogicException('Retention requires transaction.');
         if($limit<1||$limit>100000)throw new \InvalidArgumentException('Retention batch limit.');
-        $q=self::q($pdo,"WITH expired AS (SELECT series_id,observed_at FROM metric_samples WHERE observed_at<clock_timestamp()-interval '30 days' ORDER BY observed_at LIMIT $limit FOR UPDATE SKIP LOCKED) DELETE FROM metric_samples m USING expired e WHERE m.series_id=e.series_id AND m.observed_at=e.observed_at");
+        $q=self::q($pdo,"WITH expired AS (SELECT series_id,observed_at FROM metric_samples WHERE observed_at<statement_timestamp()-interval '30 days' ORDER BY observed_at LIMIT $limit FOR UPDATE SKIP LOCKED) DELETE FROM metric_samples m USING expired e WHERE m.series_id=e.series_id AND m.observed_at=e.observed_at");
         $deleted=$q->rowCount();
         // Acquire the same workspace lock as ingestion before reclaiming unused series.
-        $workspaces=$pdo->query("SELECT w.id FROM workspaces w WHERE EXISTS(SELECT 1 FROM metric_series s WHERE s.workspace_id=w.id AND s.last_seen_at<clock_timestamp()-interval '30 days' AND NOT EXISTS(SELECT 1 FROM metric_samples m WHERE m.series_id=s.id)) ORDER BY w.id LIMIT 10 FOR UPDATE SKIP LOCKED")->fetchAll(PDO::FETCH_COLUMN);
-        $removed=0;foreach($workspaces as $ws)$removed+=self::q($pdo,"DELETE FROM metric_series WHERE id IN (SELECT s.id FROM metric_series s WHERE s.workspace_id=CAST(:ws AS uuid) AND s.last_seen_at<clock_timestamp()-interval '30 days' AND NOT EXISTS(SELECT 1 FROM metric_samples m WHERE m.series_id=s.id) LIMIT 1000)",['ws'=>$ws])->rowCount();
+        $workspaces=$pdo->query("SELECT w.id FROM workspaces w WHERE EXISTS(SELECT 1 FROM metric_series s WHERE s.workspace_id=w.id AND s.last_seen_at<statement_timestamp()-interval '30 days' AND NOT EXISTS(SELECT 1 FROM metric_samples m WHERE m.series_id=s.id)) ORDER BY w.id LIMIT 10 FOR UPDATE SKIP LOCKED")->fetchAll(PDO::FETCH_COLUMN);
+        $removed=0;foreach($workspaces as $ws)$removed+=self::q($pdo,"DELETE FROM metric_series WHERE id IN (SELECT s.id FROM metric_series s WHERE s.workspace_id=CAST(:ws AS uuid) AND s.last_seen_at<statement_timestamp()-interval '30 days' AND NOT EXISTS(SELECT 1 FROM metric_samples m WHERE m.series_id=s.id) LIMIT 1000)",['ws'=>$ws])->rowCount();
         return ['deleted'=>$deleted,'series_deleted'=>$removed,'retention_days'=>self::RETENTION_DAYS];
     }
 }

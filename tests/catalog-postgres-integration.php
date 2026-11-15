@@ -96,6 +96,10 @@ try{
     $assert($paged['total']===2 && is_string($paged['next_cursor']),'keyset cursor issued');
     $page2=$assets->list($admin,$workspace,1,0,null,null,null,false,['cursor'=>$paged['next_cursor']]);
     $assert(count($page2['data'])===1 && $page2['data'][0]['id']!==$paged['data'][0]['id'],'keyset paging returns next asset');
+    $fast=$assets->list($admin,$workspace,1,0,null,null,null,false,[],false);
+    $assert($fast['total']===null&&$fast['pagination']['total']===null&&$fast['pagination']['has_more']&&$fast['data']===$paged['data'],'count-free API matches exact first page');
+    $fast2=$assets->list($admin,$workspace,1,0,null,null,null,false,['cursor'=>$fast['next_cursor']],false);
+    $assert(!$fast2['pagination']['has_more']&&$fast2['data']===$page2['data'],'count-free cursor last page');
     $assert($assets->list($admin,$workspace,10,0,null,null,null,false,['sort'=>'name_asc'])['data'][0]['name']==='API Worker','sort whitelist');
     $reject(422,fn()=>$assets->list($admin,$workspace,10,0,null,null,null,false,['sort'=>'a.name;DROP TABLE users']),'SQL order injection blocked');
     $reject(422,fn()=>$assets->list($admin,$workspace,10,0,null,null,null,false,['cursor'=>'bad']),'malformed cursor blocked');
@@ -111,6 +115,7 @@ try{
     $org=(string)$pdo->query("SELECT organization_id::text FROM workspaces WHERE id='".$workspace."'")->fetchColumn();
     $private=$workspaces->createWorkspace($admin,$org,'private-catalog','Private catalog');
     $reject(404,fn()=>$catalog->list($viewerId,$private['id'],'tags'),'workspace catalog not visible to nonmember');
+    $reject(404,fn()=>$assets->list($viewerId,$private['id'],1,0,null,null,null,false,[],false),'count-free list preserves workspace isolation');
     $privateAsset=$assets->create($admin,['workspace_id'=>$private['id'],'type'=>'server','name'=>'Private node']);
     $reject(404,fn()=>$catalog->groupMembership($admin,$workspace,$group['id'],$privateAsset['id'],2,true),'cross-workspace group member denied');
     $workspaces->transferAsset($admin,$workspace,$legacyId,$private['id']);

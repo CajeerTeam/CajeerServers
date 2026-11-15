@@ -53,7 +53,7 @@ SQL;
      * @param array<string,string> $filters
      * @return array<string,mixed>
      */
-    public function page(PDO $pdo,string $actor,string $workspace,int $limit,int $offset,?string $type=null,?string $status=null,?string $search=null,bool $includeDeleted=false,array $filters=[]):array
+    public function page(PDO $pdo,string $actor,string $workspace,int $limit,int $offset,?string $type=null,?string $status=null,?string $search=null,bool $includeDeleted=false,array $filters=[],bool $includeTotal=true):array
     {
         $where=' FROM inventory_assets a JOIN workspace_members wm ON wm.workspace_id=a.workspace_id AND wm.user_id=:actor JOIN users u ON u.id=wm.user_id AND u.is_active=true WHERE a.workspace_id=:workspace';
         $params=['actor'=>$actor,'workspace'=>$workspace];
@@ -77,13 +77,16 @@ SQL;
             $where.=" AND (to_tsvector('simple'::regconfig,coalesce(a.name,'') || ' ' || coalesce(a.external_id,'')) @@ websearch_to_tsquery('simple'::regconfig,:fts)"
                 ." OR a.name ILIKE :name_like ESCAPE '!' OR a.external_id ILIKE :external_like ESCAPE '!'"
                 ." OR a.ip_addresses::text ILIKE :legacy_ip_like ESCAPE '!'"
-                ." OR EXISTS (SELECT 1 FROM inventory_interfaces ni JOIN inventory_ip_addresses ip ON ip.interface_id=ni.id"
-                ." WHERE ni.asset_id=a.id AND ni.workspace_id=a.workspace_id AND ip.workspace_id=a.workspace_id AND ip.address::text ILIKE :ip_like ESCAPE '!'))";
-            $params+=['fts'=>$text,'name_like'=>$like,'external_like'=>$like,'legacy_ip_like'=>$like,'ip_like'=>$like];
+                ." OR a.id IN (SELECT ni.asset_id FROM inventory_interfaces ni JOIN inventory_ip_addresses ip ON ip.interface_id=ni.id AND ip.workspace_id=ni.workspace_id"
+                ." WHERE ni.workspace_id=:ip_workspace AND ip.address::text ILIKE :ip_like ESCAPE '!'))";
+            $params+=['fts'=>$text,'name_like'=>$like,'external_like'=>$like,'legacy_ip_like'=>$like,'ip_like'=>$like,'ip_workspace'=>$workspace];
         }
-        $count=$pdo->prepare('SELECT count(*)'.$where);
-        $count->execute($params);
-        $total=(int)$count->fetchColumn();
+        $total=null;
+        if($includeTotal){
+            $count=$pdo->prepare('SELECT count(*)'.$where);
+            $count->execute($params);
+            $total=(int)$count->fetchColumn();
+        }
         $sort=$filters['sort']??'created_desc';
         $order=match($sort){'name_asc'=>'a.name ASC,a.id ASC','updated_desc'=>'a.updated_at DESC,a.id DESC',default=>'a.created_at DESC,a.id DESC'};
         $cursor=$filters['cursor']??null;
@@ -106,7 +109,7 @@ SQL;
             $last=end($rows);
             $next=self::encodeCursor((string)$last['created_at'],(string)$last['id']);
         }
-        return ['data'=>array_map([self::class,'hydrate'],$rows),'total'=>$total,'next_cursor'=>$next];
+        return ['data'=>array_map([self::class,'hydrate'],$rows),'total'=>$total,'next_cursor'=>$next,'has_more'=>$more];
     }
     public static function encodeCursor(string $timestamp,string $id):string
     {

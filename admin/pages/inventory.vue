@@ -10,7 +10,7 @@ type Asset = {
   os_family: string|null; environment:string; ip_addresses: string[]; tags: string[]; attributes: Record<string,unknown>;
   owner_user_id: string|null; etag: string; version: number; deleted_at: string|null; updated_at: string
 }
-type Paged = { data: Asset[]; pagination: { total:number; limit:number; offset:number; next_cursor?: string|null } }
+type Paged = { data: Asset[]; pagination: { total:number|null; limit:number; offset:number; next_cursor?: string|null; has_more:boolean } }
 type CatalogEntry = { id:string; slug:string; name:string }
 const types = ['server','hypervisor_node','cluster','virtual_machine','container','router','workstation','other']
 const statuses = ['unknown','online','offline','maintenance','provisioning','decommissioned']
@@ -28,7 +28,12 @@ const typeFilter = ref('')
 const statusFilter=ref(''),osFilter=ref(''),sourceFilter=ref(''),envFilter=ref(''),tagFilter=ref(''),groupFilter=ref(''),ownerFilter=ref(''),sortFilter=ref('created_desc')
 const showDeleted = ref(false)
 const offset = ref(0)
-const total = ref(0)
+const cursors = ref<(string|null)[]>([null])
+const nextCursor = ref<string|null>(null)
+const hasMore = ref(false)
+const pageIndex = computed(()=>Math.floor(offset.value/limit))
+const canNext = computed(()=>hasMore.value && (sortFilter.value==='created_desc' ? !!nextCursor.value : offset.value+limit<=10000))
+let loadGeneration=0
 const limit = 25
 const form = reactive({ type: 'server', name:'', status:'unknown', os_family:'', owner_user_id:'', environment:'unassigned', ips:'', tags:'', attributes:'{}' })
 const activeWorkspace = computed(()=>spaces.value.find(w=>w.id===workspaceId.value))
@@ -64,18 +69,22 @@ async function loadCatalog(){
   }catch(e){error.value=apiError(e).message}
 }
 async function load() {
-  if (!workspaceId.value) {assets.value=[];total.value=0;return}
-  busy.value=true;error.value=''
+  const generation=++loadGeneration
+  if (!workspaceId.value) {assets.value=[];hasMore.value=false;nextCursor.value=null;return}
+  busy.value=true;error.value='';hasMore.value=false;nextCursor.value=null
   try {
-    const qs = new URLSearchParams({ workspace_id:workspaceId.value,limit:String(limit),offset:String(offset.value) })
+    const qs = new URLSearchParams({ workspace_id:workspaceId.value,limit:String(limit),offset:String(sortFilter.value==='created_desc'?0:offset.value),include_total:'0' })
+    const cursor=cursors.value[pageIndex.value]
+    if(sortFilter.value==='created_desc' && cursor) qs.set('cursor',cursor)
     if(search.value.trim()) qs.set('search',search.value.trim())
     if(typeFilter.value) qs.set('type',typeFilter.value)
     for(const [k,v] of Object.entries({status:statusFilter.value,os_family:osFilter.value,source:sourceFilter.value,
        environment:envFilter.value,tag:tagFilter.value,group_id:groupFilter.value,owner_user_id:ownerFilter.value,sort:sortFilter.value})) if(v)qs.set(k,v)
     if(showDeleted.value && writable.value) qs.set('include_deleted','1')
     const result=await api.get<Paged>(`/inventory/assets?${qs}`)
-    assets.value=result.data;total.value=result.pagination.total
-  } catch(e) {error.value=apiError(e).message} finally {busy.value=false}
+    if(generation!==loadGeneration)return
+    assets.value=result.data;hasMore.value=result.pagination.has_more;nextCursor.value=result.pagination.next_cursor??null
+  } catch(e) {if(generation===loadGeneration){assets.value=[];error.value=apiError(e).message}} finally {if(generation===loadGeneration)busy.value=false}
 }
 function parseForm() {
   const attributes=JSON.parse(form.attributes)
@@ -116,9 +125,14 @@ async function toggleDeleted(asset:Asset) {
   } catch(e) {error.value=apiError(e).status===412?'Конфликт версии. Обновите список.':apiError(e).message}
   finally {busy.value=false}
 }
-function switchWorkspace(){offset.value=0;toForm();void navigateTo(inventoryContextUrl('inventory',workspaceId.value),{replace:true});loadCatalog();load()}
-function applyFilters(){offset.value=0;load()}
-function page(dir:number){offset.value=Math.max(0,offset.value+dir*limit);load()}
+function resetPage(){offset.value=0;cursors.value=[null];nextCursor.value=null;hasMore.value=false}
+function switchWorkspace(){resetPage();toForm();void navigateTo(inventoryContextUrl('inventory',workspaceId.value),{replace:true});loadCatalog();load()}
+function applyFilters(){resetPage();load()}
+function page(dir:number){
+  if(busy.value || (dir>0&&!canNext.value) || (dir<0&&offset.value===0))return
+  if(dir>0&&sortFilter.value==='created_desc'){cursors.value=cursors.value.slice(0,pageIndex.value+1);cursors.value.push(nextCursor.value)}
+  offset.value=Math.max(0,offset.value+dir*limit);void load()
+}
 onMounted(init)
 </script>
 
@@ -149,7 +163,7 @@ onMounted(init)
         <div v-else class="table-wrap"><table class="table"><thead><tr><th>Имя</th><th>Тип / статус</th><th>Адреса</th><th>Версия</th><th>Действия</th></tr></thead><tbody>
           <tr v-for="a in assets" :key="a.id"><td><NuxtLink :to="inventoryAssetUrl(a.id,workspaceId)">{{ a.name }}</NuxtLink> <span v-if="a.deleted_at" class="tag bad">удалён</span><div class="muted small mono">{{ a.id }}</div></td><td>{{ a.type }} / {{ a.status }}</td><td>{{ a.ip_addresses.join(', ') || '—' }}</td><td>{{ a.version }}</td><td><div class="inline-actions"><NuxtLink class="btn" :to="inventoryAssetUrl(a.id,workspaceId)">Карточка</NuxtLink><button v-if="canUpdate && !a.deleted_at && a.source==='manual'" class="btn" :disabled="busy" @click="toForm(a)">Изменить</button><button v-if="canDelete && a.source==='manual'" class="btn" :disabled="busy" @click="toggleDeleted(a)">{{ a.deleted_at?'Восстановить':'Удалить' }}</button></div></td></tr>
         </tbody></table></div>
-        <div class="inline-actions"><span class="muted">Всего: {{ total }}</span><NuxtLink v-if="auth.can('inventory.network.read')" :to="inventoryContextUrl('ipam',workspaceId)" class="btn">IPAM</NuxtLink><NuxtLink v-if="auth.can('inventory.relationships.read')" :to="inventoryContextUrl('topology',workspaceId)" class="btn">Топология</NuxtLink><button class="btn" :disabled="busy || offset===0" @click="page(-1)">Назад</button><button class="btn" :disabled="busy || offset+limit>=total" @click="page(1)">Далее</button></div>
+        <div class="inline-actions"><span class="muted">Страница {{ pageIndex+1 }} · показано {{ assets.length }}</span><NuxtLink v-if="auth.can('inventory.network.read')" :to="inventoryContextUrl('ipam',workspaceId)" class="btn">IPAM</NuxtLink><NuxtLink v-if="auth.can('inventory.relationships.read')" :to="inventoryContextUrl('topology',workspaceId)" class="btn">Топология</NuxtLink><button class="btn" :disabled="busy || offset===0" @click="page(-1)">Назад</button><button class="btn" :disabled="busy || !canNext" @click="page(1)">Далее</button></div>
       </section>
       <section v-if="canCreate || (selected && canUpdate)" class="panel">
         <h2>{{ selected?'Редактировать объект':'Новый объект' }}</h2>

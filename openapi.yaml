@@ -1,7 +1,7 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.9.5
+  version: 0.9.6
   description: 'CajeerServers 0.7.1: VMmanager connection profiles, PVE/PBS integration and infrastructure collection.'
 servers:
 - url: /api/v1
@@ -2340,6 +2340,13 @@ paths:
           minimum: 0
           maximum: 10000
           default: 0
+      - name: include_total
+        in: query
+        description: 0 skips the exact count; total is null. Use next_cursor or has_more for pagination.
+        schema:
+          type: integer
+          enum: [0, 1]
+          default: 1
       - name: type
         in: query
         schema: &id029
@@ -13562,20 +13569,27 @@ components:
           items:
             $ref: '#/components/schemas/InventoryAsset'
         total:
-          type: integer
+          type: [integer, "null"]
+        next_cursor:
+          type: [string, "null"]
+        has_more:
+          type: boolean
         pagination:
           type: object
           required:
           - limit
           - offset
           - total
+          - has_more
           properties:
             limit:
               type: integer
             offset:
               type: integer
             total:
-              type: integer
+              type: [integer, "null"]
+            has_more:
+              type: boolean
             next_cursor:
               type: [string, "null"]
     CatalogEntry:

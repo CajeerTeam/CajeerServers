@@ -1,3 +1,10 @@
+## [0.9.6] — 2026-11-15 — Performance & Scalability
+
+- Add optional count-free inventory pages, Admin keyset navigation, scoped set-based IP search, and indexes for active asset sorts/filters, groups and event feeds.
+- Batch system event writes; avoid steady-state metric quota scans; use stable retention cutoffs.
+- Add disposable PostgreSQL benchmark and authorized read-only HTTP load driver, executable regression and CI coverage.
+- Offline upgrade 0.9.5 → 0.9.6 via migration 0064. PostgreSQL performance and full production capacity acceptance remain required.
+
 ## [0.9.5] — 2026-11-15 — Runtime Reliability & Recovery
 
 - Renew PostgreSQL and Redis job leases with receipt fencing, bound expired-job sweeps, preserve JSON payload identity and reject connector work in the generic Redis queue.

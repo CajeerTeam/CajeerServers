@@ -28,7 +28,7 @@ final class InventoryService
     }
 
     /** @return array<string,mixed> */
-    public function list(string $actor,string $workspace,int $limit,int $offset,?string $type,?string $status,?string $search,bool $includeDeleted,array $filters=[]):array
+    public function list(string $actor,string $workspace,int $limit,int $offset,?string $type,?string $status,?string $search,bool $includeDeleted,array $filters=[],bool $includeTotal=true):array
     {
         self::uuid($workspace);
         if ($limit<1 || $limit>100 || $offset<0 || $offset>10000 || ($type!==null && !in_array($type,InfrastructureAsset::TYPES,true))
@@ -51,8 +51,8 @@ final class InventoryService
         $pdo=$this->db->connection();
         $role=$this->repo->workspaceRole($pdo,$workspace,$actor);
         if ($includeDeleted && !in_array($role,['owner','manager'],true)) throw new HttpException(403,'Workspace role insufficient.','permission_denied');
-        $page=$this->repo->page($pdo,$actor,$workspace,$limit,$offset,$type,$status,$search,$includeDeleted,$filters);
-        return [...$page,'pagination'=>['limit'=>$limit,'offset'=>$offset,'total'=>$page['total'],'next_cursor'=>$page['next_cursor']??null]];
+        $page=$this->repo->page($pdo,$actor,$workspace,$limit,$offset,$type,$status,$search,$includeDeleted,$filters,$includeTotal);
+        return [...$page,'pagination'=>['limit'=>$limit,'offset'=>$offset,'total'=>$page['total'],'next_cursor'=>$page['next_cursor']??null,'has_more'=>$page['has_more']]];
     }
 
     /** @param array<string,mixed> $data @return array<string,mixed> */

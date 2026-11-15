@@ -139,3 +139,6 @@ export interface SystemEventPage {events:SystemEvent[];next_before:string|null}
 
 export interface NetworkConfigurationVersion {id:string;version:number;target_version:number;credential_version:number;identity_hash:string;sha256:string;byte_size:number;observed_at:string;created_at:string}
 export interface NetworkConfigurationDiff {from:NetworkConfigurationVersion;to:NetworkConfigurationVersion;diff:{added:number;removed:number;unchanged_prefix:number;unchanged_suffix:number;exact:boolean;lines:{op:'add'|'remove'|'context';old_line:number|null;new_line:number|null;text:string}[]}}
+
+export interface InventoryPageOptions { limit?:number; offset?:number; cursor?:string; includeTotal?:boolean; sort?:'created_desc'|'name_asc'|'updated_desc'; search?:string }
+export interface InventoryPage { data:InfrastructureAsset[]; total:number|null; next_cursor:string|null; has_more:boolean; pagination:{limit:number;offset:number;total:number|null;next_cursor:string|null;has_more:boolean} }

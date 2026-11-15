@@ -68,11 +68,13 @@ final class InventoryController
         $actor=$this->actor($r,'inventory.assets.read');
         $workspace=self::textParam($r,'workspace_id');
         if ($workspace===null || !InfrastructureAsset::isUuid($workspace)) throw new HttpException(422,'workspace_id is required.','validation_failed');
+        $includeTotal=$r->query['include_total']??'1';
+        if(!in_array($includeTotal,['0','1',0,1],true))throw new HttpException(422,'Invalid include_total parameter.','validation_failed');
         $result=$this->service->list($actor,$workspace,self::intParam($r,'limit',50),self::intParam($r,'offset',0),
             self::textParam($r,'type'),self::textParam($r,'status'),self::textParam($r,'search'),self::includeDeleted($r),
             array_filter(array_combine(['tag','group_id','owner_user_id','environment','source','os_family','sort','cursor'],
                 array_map(static fn(string $k):?string => self::textParam($r,$k),['tag','group_id','owner_user_id','environment','source','os_family','sort','cursor'])),
-                static fn($v):bool => $v!==null && $v!==''));
+                static fn($v):bool => $v!==null && $v!==''),(string)$includeTotal==='1');
         return HttpResponse::json($result);
     }
     public function show(HttpRequest $r):HttpResponse

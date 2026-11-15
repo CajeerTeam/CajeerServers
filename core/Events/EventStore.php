@@ -18,8 +18,26 @@ final class EventStore
         $q=$pdo->prepare("SELECT id FROM connector_targets WHERE id=:id AND workspace_id=:ws AND state='active' FOR UPDATE");$q->execute(['id'=>$target['id'],'ws'=>$target['workspace_id']]);if(!$q->fetchColumn())throw new EventRejected('Event target unavailable.');
         $q=$pdo->prepare('SELECT count(*) FROM system_events WHERE target_id=:id');$q->execute(['id'=>$target['id']]);$count=(int)$q->fetchColumn();
         if($count>100000)throw new EventRejected('Event target quota reached.');
-        $q=$pdo->prepare('INSERT INTO system_events(target_id,workspace_id,source,event_key,channel,event_at,severity,facility,hostname,application,message) VALUES(:id,:ws,:source,:key,:channel,:event_at,:severity,:facility,:hostname,:application,:message) ON CONFLICT(target_id,source,event_key) DO NOTHING');$added=0;
-        foreach($rows as $row){$row=SystemEvent::normalize($row);if($row['key']==='')throw new \InvalidArgumentException('Missing event identity.');$row['key']=hash('sha256',$row['key']);$q->execute($row+['id'=>$target['id'],'ws'=>$target['workspace_id'],'source'=>$source]);$added+=$q->rowCount();}if($count+$added>100000)throw new EventRejected('Event target quota reached.');return $added;
+        $batch=[];
+        foreach($rows as $row){
+            $row=SystemEvent::normalize($row);
+            if($row['key']==='')throw new \InvalidArgumentException('Missing event identity.');
+            $row['key']=hash('sha256',$row['key']);$batch[]=$row;
+        }
+        if($batch===[])return 0;
+        // Keep input order (IDs are the pagination cursor) and first occurrence on conflict.
+        $q=$pdo->prepare(<<<'SQL'
+INSERT INTO system_events(target_id,workspace_id,source,event_key,channel,event_at,severity,facility,hostname,application,message)
+SELECT CAST(:id AS uuid),CAST(:ws AS uuid),:source,r.key,r.channel,r.event_at,r.severity,r.facility,r.hostname,r.application,r.message
+FROM jsonb_array_elements(CAST(:batch AS jsonb)) WITH ORDINALITY AS b(item,ord)
+CROSS JOIN LATERAL jsonb_to_record(b.item) AS r(key text,channel text,event_at timestamptz,severity smallint,facility smallint,hostname text,application text,message text)
+ORDER BY b.ord
+ON CONFLICT(target_id,source,event_key) DO NOTHING
+SQL);
+        $q->execute(['id'=>$target['id'],'ws'=>$target['workspace_id'],'source'=>$source,'batch'=>json_encode($batch,JSON_THROW_ON_ERROR)]);
+        $added=$q->rowCount();
+        if($count+$added>100000)throw new EventRejected('Event target quota reached.');
+        return $added;
     }
     /** Resolve a locally authorized source at ingestion time, not just at socket acceptance. */
     public static function receive(PDO $pdo,array $source,array $events):int
@@ -52,6 +70,6 @@ final class EventStore
     public static function retain(PDO $pdo,int $days=30,int $limit=10000):int
     {
         if($days<1||$days>365||$limit<1||$limit>10000)throw new \InvalidArgumentException('Invalid retention.');
-        $q=$pdo->prepare('DELETE FROM system_events WHERE id IN (SELECT id FROM system_events WHERE received_at<clock_timestamp()-make_interval(days=>CAST(:days AS integer)) ORDER BY received_at,id LIMIT '.$limit.' FOR UPDATE SKIP LOCKED)');$q->execute(['days'=>$days]);return $q->rowCount();
+        $q=$pdo->prepare('DELETE FROM system_events WHERE id IN (SELECT id FROM system_events WHERE received_at<statement_timestamp()-make_interval(days=>CAST(:days AS integer)) ORDER BY received_at,id LIMIT '.$limit.' FOR UPDATE SKIP LOCKED)');$q->execute(['days'=>$days]);return $q->rowCount();
     }
 }
