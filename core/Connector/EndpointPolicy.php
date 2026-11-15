@@ -51,6 +51,14 @@ final class EndpointPolicy
     {
         $host=ConnectorBindingService::validateHost($host);
         if (filter_var($host,FILTER_VALIDATE_IP)) $addresses=[$host];
+        elseif ($host==='localhost' || str_ends_with($host,'.localhost')) {
+            // RFC 6761: localhost names are special-use loopback names, not DNS
+            // targets. Never ask an external resolver or accept its answer.
+            // Select only a loopback address explicitly permitted by the policy.
+            // Preserve IPv4 preference; IPv6-only deployments can use ::1.
+            $addresses=array_values(array_filter(['127.0.0.1','::1'],fn(string $ip):bool=>$this->permits($ip)));
+            if ($addresses===[]) throw new ConnectorTransportException('connector_trust_failed');
+        }
         elseif ($this->resolver!==null) $addresses=($this->resolver)($host);
         else {
             $addresses=@gethostbynamel($host)?:[];

@@ -38,11 +38,24 @@ WINDOWS_SECTIONS={
 }
 
 
-def execute(provider, port, credential, **kwargs):
+def execute(provider, port, credential, *, expected_error=None, **kwargs):
     request = {'provider': provider, 'host':'localhost','port':port,'type':'winrm' if provider=='winrm' else 'ssh_password', 'python':sys.executable,'credential':credential, 'networks':['127.0.0.0/8','::1/128'], **kwargs}
     proc = subprocess.run(['php', str(ROOT/'tests/host-transport-fixture.php')], input=json.dumps(request), capture_output=True, text=True, timeout=100)
-    assert proc.returncode==0, proc.stderr
-    return json.loads(proc.stdout)
+    label = f"{provider} {kwargs.get('collector', kwargs.get('operation', 'sync'))}"
+    assert proc.returncode == 0, f'{label}: PHP fixture exit {proc.returncode}'
+    try:
+        result = json.loads(proc.stdout)
+    except (ValueError, TypeError) as exc:
+        raise AssertionError(f'{label}: invalid fixture JSON') from exc
+    assert isinstance(result, dict), f'{label}: invalid fixture response'
+    # Reject unexpected errors before indexing success fields. Never print
+    # credentials or raw remote output. Expected rejections remain mandatory.
+    if expected_error is not None:
+        assert result.get('error') == expected_error, f'{label}: expected {expected_error}, got {result.get("error", "success")}'
+    else:
+        assert 'error' not in result, f'{label}: unexpected connector error {result.get("error")}'
+        assert set(result) == {'items','complete','metric_samples','connection'}, f'{label}: malformed success response'
+    return result
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -149,11 +162,11 @@ def https_test(tmp):
         out=execute('winrm',port,cred,ca=str(cert),profile=profile,require_profile=True,operation='health');assert out['connection']['profile_verified'] and out['connection']['identity_verified'],out
         out=execute('winrm',port,cred,ca=str(cert),profile=profile,collector='winrm.inventory',require_profile=True);assert out['complete'],out
         out=execute('winrm',port,cred,ca=str(cert),profile=profile,collector='winrm.metrics',operation='inspect',require_profile=True);assert len(out['metric_samples'])==7,out
-        n=len(server.requests);assert execute('winrm',port,cred,ca=str(cert),profile={**profile,'primary_pin':'0'*64})['error']=='connector_trust_failed';assert len(server.requests)==n
-        assert execute('winrm',port,cred,ca=str(cert),require_profile=True)['error']=='connector_trust_failed';assert len(server.requests)==n
-        assert execute('winrm',port,cred,ca=str(cert),profile={**profile,'identity_hash':'0'*64})['error']=='connector_trust_failed'
-        assert execute('winrm',port,cred,ca=str(cert),profile={**profile,'identity_hash':'0'*64},collector='winrm.metrics',operation='inspect')['error']=='connector_trust_failed'
-        assert execute('winrm',port,cred,profile=profile)['error']=='connector_trust_failed'
+        n=len(server.requests);assert execute('winrm',port,cred,ca=str(cert),profile={**profile,'primary_pin':'0'*64},expected_error='connector_trust_failed')['error']=='connector_trust_failed';assert len(server.requests)==n
+        assert execute('winrm',port,cred,ca=str(cert),require_profile=True,expected_error='connector_trust_failed')['error']=='connector_trust_failed';assert len(server.requests)==n
+        assert execute('winrm',port,cred,ca=str(cert),profile={**profile,'identity_hash':'0'*64},expected_error='connector_trust_failed')['error']=='connector_trust_failed'
+        assert execute('winrm',port,cred,ca=str(cert),profile={**profile,'identity_hash':'0'*64},collector='winrm.metrics',operation='inspect',expected_error='connector_trust_failed')['error']=='connector_trust_failed'
+        assert execute('winrm',port,cred,profile=profile,expected_error='connector_trust_failed')['error']=='connector_trust_failed'
         assert execute('winrm',port,cred,ca=str(cert),profile=profile,operation='validate_rotation')['connection']['identity_verified']
         print('WinRM profile: 9 scenarios PASS')
         for scope in WINDOWS_SECTIONS:
@@ -161,13 +174,13 @@ def https_test(tmp):
             snap=out['connection']['windows_discovery'];assert snap['scope']==scope and snap['sections']==WINDOWS_SECTIONS[scope] and snap['complete'],out
             assert out['items']==[] and not out['complete'] and 'identity' not in snap and server.actions[-1]==TRANSFER+'Delete'
         n=len(server.requests)
-        assert execute('winrm',port,cred,ca=str(cert),collector='winrm.system',operation='inspect')['error']=='collection_invalid'
-        assert execute('winrm',port,cred,ca=str(cert),profile=profile,collector='winrm.system',operation='sync')['error']=='collection_invalid'
-        assert execute('winrm',port,cred,ca=str(cert),profile={**profile,'primary_pin':'0'*64},collector='winrm.system',operation='inspect')['error']=='connector_trust_failed'
+        assert execute('winrm',port,cred,ca=str(cert),collector='winrm.system',operation='inspect',expected_error='collection_invalid')['error']=='collection_invalid'
+        assert execute('winrm',port,cred,ca=str(cert),profile=profile,collector='winrm.system',operation='sync',expected_error='collection_invalid')['error']=='collection_invalid'
+        assert execute('winrm',port,cred,ca=str(cert),profile={**profile,'primary_pin':'0'*64},collector='winrm.system',operation='inspect',expected_error='connector_trust_failed')['error']=='connector_trust_failed'
         assert len(server.requests)==n
         for mode,code in [('identity','connector_trust_failed'),('extra','connector_protocol_error'),('nonzero','connector_protocol_error')]:
             server.mode=mode
-            out=execute('winrm',port,cred,ca=str(cert),profile=profile,collector='winrm.system',operation='inspect')
+            out=execute('winrm',port,cred,ca=str(cert),profile=profile,collector='winrm.system',operation='inspect',expected_error=code)
             assert out['error']==code and 'fixture-secret' not in json.dumps(out),out
             assert server.actions[-1]==TRANSFER+'Delete'
         server.mode='large'
@@ -179,10 +192,10 @@ def https_test(tmp):
         out=execute('winrm',port,cred,ca=str(cert),profile=profile,collector='winrm.events',operation='inspect',previous=batch['cursor']);assert out['connection']['system_events']['events']==[],out
         for mode,code in [('identity','connector_trust_failed'),('extra','connector_protocol_error'),('nonzero','connector_protocol_error')]:
             server.mode=mode
-            out=execute('winrm',port,cred,ca=str(cert),profile=profile,collector='winrm.events',operation='inspect');assert out['error']==code,out
+            out=execute('winrm',port,cred,ca=str(cert),profile=profile,collector='winrm.events',operation='inspect',expected_error=code);assert out['error']==code,out
         server.mode='ok'
-        assert execute('winrm',port,cred,ca=str(cert),profile=profile,collector='winrm.events',operation='sync')['error']=='collection_invalid'
-        assert execute('winrm',port,cred,ca=str(cert),collector='winrm.events',operation='inspect')['error']=='collection_invalid'
+        assert execute('winrm',port,cred,ca=str(cert),profile=profile,collector='winrm.events',operation='sync',expected_error='collection_invalid')['error']=='collection_invalid'
+        assert execute('winrm',port,cred,ca=str(cert),collector='winrm.events',operation='inspect',expected_error='collection_invalid')['error']=='collection_invalid'
         print('Windows system events HTTPS: 7 scenarios PASS')
         if '--postgres' in sys.argv:
             profile_path=tmp/'windows-profile.json';profile_path.write_text(json.dumps(profile))
@@ -191,21 +204,21 @@ def https_test(tmp):
         out=execute('winrm',port,cred,ca=str(cert),collector='winrm.inventory');assert out['complete'] and out['items'][0]['fields']['attributes']['host_hardware']['cpu_count']==4, out
         out=execute('winrm',port,cred,ca=str(cert),collector='winrm.metrics',operation='inspect');assert len(out['metric_samples'])==7 and out['metric_samples'][5]['value']=='18446744073709551615',out
         out=execute('winrm',port,cred,ca=str(cert),operation='health');assert not out['complete'],out
-        assert execute('winrm',port,cred)['error']=='connector_trust_failed'
-        assert execute('winrm',port,cred,ca=str(cert),host='127.0.0.1')['error']=='connector_trust_failed'
-        assert execute('winrm',port,{**cred,'password':'wrong'},ca=str(cert))['error']=='connector_auth_failed'
-        assert execute('winrm',port,{**cred,'auth':'ntlm'},ca=str(cert))['error']=='connector_auth_failed'
+        assert execute('winrm',port,cred,expected_error='connector_trust_failed')['error']=='connector_trust_failed'
+        assert execute('winrm',port,cred,ca=str(cert),host='127.0.0.1',expected_error='connector_trust_failed')['error']=='connector_trust_failed'
+        assert execute('winrm',port,{**cred,'password':'wrong'},ca=str(cert),expected_error='connector_auth_failed')['error']=='connector_auth_failed'
+        assert execute('winrm',port,{**cred,'auth':'ntlm'},ca=str(cert),expected_error='connector_auth_failed')['error']=='connector_auth_failed'
         for mode in ('bad-output','nonzero','oversize','redirect'):
             server.mode=mode
-            out=execute('winrm',port,cred,ca=str(cert));assert out['error']=='connector_protocol_error',out
+            out=execute('winrm',port,cred,ca=str(cert),expected_error='connector_protocol_error');assert out['error']=='connector_protocol_error',out
             assert 'fixture-secret' not in json.dumps(out)
             if mode!='redirect':assert server.actions[-1]==TRANSFER+'Delete'
-        assert execute('winrm',port,cred,ca=str(cert),networks=['192.0.2.0/24'])['error']=='connector_trust_failed'
+        assert execute('winrm',port,cred,ca=str(cert),networks=['192.0.2.0/24'],expected_error='connector_trust_failed')['error']=='connector_trust_failed'
         server.mode='timeout-fault'
         assert execute('winrm',port,cred,ca=str(cert))['complete'] and server.receives==2
         for mode in ('foreign-fault','foreign-command'):
             server.mode=mode
-            out=execute('winrm',port,cred,ca=str(cert));assert out['error']=='connector_protocol_error',out
+            out=execute('winrm',port,cred,ca=str(cert),expected_error='connector_protocol_error');assert out['error']=='connector_protocol_error',out
             assert server.receives==1 and server.actions[-1]==TRANSFER+'Delete'
         print('WinRM correlated fault and command state: 3 scenarios PASS')
     finally:
@@ -279,18 +292,18 @@ def ssh_test(tmp):
         out=execute('ssh',port,{'username':'test','private_key':pem},type='ssh_private_key',known_hosts=str(known));assert out['complete'],out
         encrypted=client_key.private_bytes(serialization.Encoding.PEM,serialization.PrivateFormat.OpenSSH,serialization.BestAvailableEncryption(b'key-passphrase')).decode()
         out=execute('ssh',port,{'username':'test','private_key':encrypted,'passphrase':'key-passphrase'},type='ssh_private_key',known_hosts=str(known));assert out['complete'],out
-        n=len(auth_attempts);assert execute('ssh',port,cred,known_hosts=str(wrong))['error']=='connector_trust_failed';assert len(auth_attempts)==n
-        assert execute('ssh',port,{**cred,'password':'wrong'},known_hosts=str(known))['error']=='connector_auth_failed'
+        n=len(auth_attempts);assert execute('ssh',port,cred,known_hosts=str(wrong),expected_error='connector_trust_failed')['error']=='connector_trust_failed';assert len(auth_attempts)==n
+        assert execute('ssh',port,{**cred,'password':'wrong'},known_hosts=str(known),expected_error='connector_auth_failed')['error']=='connector_auth_failed'
         assert len(commands)==5
         identity=(pathlib.Path('/etc/machine-id').read_text().strip().lower().replace('-',''))
         profile={'primary_pin':hashlib.sha256(server_key.asbytes()).hexdigest(),'identity_hash':hashlib.sha256(('ssh:'+identity).encode()).hexdigest(),'key_type':'ssh-rsa'}
         out=execute('ssh',port,cred,profile=profile,require_profile=True,operation='health');assert out['connection']['profile_verified'],out
         out=execute('ssh',port,cred,profile=profile,collector='ssh.inventory',require_profile=True);assert out['complete'],out
         out=execute('ssh',port,cred,profile=profile,collector='ssh.metrics',operation='inspect',require_profile=True);assert len(out['metric_samples'])>=5,out
-        n=len(auth_attempts);assert execute('ssh',port,cred,profile={**profile,'primary_pin':'0'*64})['error']=='connector_trust_failed';assert len(auth_attempts)==n
-        assert execute('ssh',port,cred,known_hosts=str(known),require_profile=True)['error']=='connector_trust_failed';assert len(auth_attempts)==n
-        assert execute('ssh',port,cred,profile={**profile,'identity_hash':'0'*64})['error']=='connector_trust_failed'
-        assert execute('ssh',port,cred,profile={**profile,'identity_hash':'0'*64},collector='ssh.metrics',operation='inspect')['error']=='connector_trust_failed'
+        n=len(auth_attempts);assert execute('ssh',port,cred,profile={**profile,'primary_pin':'0'*64},expected_error='connector_trust_failed')['error']=='connector_trust_failed';assert len(auth_attempts)==n
+        assert execute('ssh',port,cred,known_hosts=str(known),require_profile=True,expected_error='connector_trust_failed')['error']=='connector_trust_failed';assert len(auth_attempts)==n
+        assert execute('ssh',port,cred,profile={**profile,'identity_hash':'0'*64},expected_error='connector_trust_failed')['error']=='connector_trust_failed'
+        assert execute('ssh',port,cred,profile={**profile,'identity_hash':'0'*64},collector='ssh.metrics',operation='inspect',expected_error='connector_trust_failed')['error']=='connector_trust_failed'
         out=execute('ssh',port,{'username':'test','private_key':pem},type='ssh_private_key',profile=profile,operation='validate_rotation');assert out['connection']['identity_verified'],out
         print('SSH profile: 8 scenarios PASS')
         for scope in ('system','software','storage','network'):
@@ -298,15 +311,15 @@ def ssh_test(tmp):
             assert out['connection']['linux_discovery']['scope']==scope and out['connection']['linux_discovery']['complete'],out
             assert out['items']==[] and 'identity' not in out['connection']['linux_discovery'],out
         n=len(auth_attempts)
-        assert execute('ssh',port,cred,known_hosts=str(known),collector='ssh.system',operation='inspect')['error']=='collection_invalid'
-        assert execute('ssh',port,cred,profile=profile,collector='ssh.software',operation='sync')['error']=='collection_invalid'
-        assert execute('ssh',port,cred,profile={**profile,'primary_pin':'0'*64},collector='ssh.system',operation='inspect')['error']=='connector_trust_failed'
+        assert execute('ssh',port,cred,known_hosts=str(known),collector='ssh.system',operation='inspect',expected_error='collection_invalid')['error']=='collection_invalid'
+        assert execute('ssh',port,cred,profile=profile,collector='ssh.software',operation='sync',expected_error='collection_invalid')['error']=='collection_invalid'
+        assert execute('ssh',port,cred,profile={**profile,'primary_pin':'0'*64},collector='ssh.system',operation='inspect',expected_error='connector_trust_failed')['error']=='connector_trust_failed'
         assert len(auth_attempts)==n
-        assert execute('ssh',port,cred,profile={**profile,'identity_hash':'0'*64},collector='ssh.software',operation='inspect')['error']=='connector_trust_failed'
+        assert execute('ssh',port,cred,profile={**profile,'identity_hash':'0'*64},collector='ssh.software',operation='inspect',expected_error='connector_trust_failed')['error']=='connector_trust_failed'
         # The integration host may be a container without a systemd manager.
         # Verify the success path on real systemd hosts and fail closed otherwise.
         has_systemd=subprocess.run(['systemctl','list-units','--type=service','--no-pager'],capture_output=True,timeout=10).returncode==0
-        out=execute('ssh',port,cred,profile=profile,collector='ssh.services',operation='inspect')
+        out=execute('ssh',port,cred,profile=profile,collector='ssh.services',operation='inspect',expected_error=None if has_systemd else 'connector_protocol_error')
         if has_systemd:
             assert out['connection']['linux_discovery']['scope']=='services',out
         else:
@@ -314,12 +327,12 @@ def ssh_test(tmp):
         print('Linux discovery SSH: 9 scenarios PASS')
         # The production probe runs on the SSH fixture host; a container may have no visible journal.
         local=subprocess.run([sys.executable,str(ROOT/'core/Connector/agents/linux_events.py'),'{}'],capture_output=True,timeout=35)
-        out=execute('ssh',port,cred,profile=profile,collector='ssh.events',operation='inspect')
+        out=execute('ssh',port,cred,profile=profile,collector='ssh.events',operation='inspect',expected_error=None if local.returncode==0 else 'connector_protocol_error')
         if local.returncode==0:
             assert 'system_events' in out['connection'],out
         else:
             assert out['error']=='connector_protocol_error',out
-        assert execute('ssh',port,cred,profile=profile,collector='ssh.events',operation='sync')['error']=='collection_invalid'
+        assert execute('ssh',port,cred,profile=profile,collector='ssh.events',operation='sync',expected_error='collection_invalid')['error']=='collection_invalid'
         print('Linux events SSH: 2 scenarios PASS')
         if '--postgres' in sys.argv:
             profile_path=tmp/'linux-profile.json'

@@ -24,5 +24,14 @@ $driver->changed=true;$before=$driver->calls;$reject(fn()=>$r->execute($ctx,'ins
 $ok($driver->calls===$before&&$r->manifests()['custom']->supports('sync'),'manifest cannot drift');
 $reject(fn()=>(new EndpointPolicy(['10.0.0.0/8'],static fn()=>[]))->resolve('test.internal'),'connector_transport_failed');
 $reject(fn()=>(new EndpointPolicy(['10.0.0.0/8'],static fn()=>['192.0.2.1']))->resolve('test.internal'),'connector_trust_failed');
+// Localhost is reserved: an unavailable or hostile DNS resolver must never
+// participate in loopback resolution, including in integration runners.
+$dnsCalls=0;$dns=static function(string $host)use(&$dnsCalls):array{$dnsCalls++;return ['192.0.2.1'];};
+$ok((new EndpointPolicy(['127.0.0.1/32'],$dns,true))->resolve('LOCALHOST')==='127.0.0.1','IPv4 localhost without DNS');
+$ok((new EndpointPolicy(['::1/128'],$dns,true))->resolve('localhost')==='::1','IPv6-only localhost without DNS');
+$ok((new EndpointPolicy(['127.0.0.1/32','::1/128'],$dns,true))->resolve('fixture.localhost')==='127.0.0.1','reserved localhost suffix and stable preference');
+$reject(fn()=>(new EndpointPolicy(['10.0.0.0/8'],$dns,true))->resolve('localhost'),'connector_trust_failed');
+$reject(fn()=>(new EndpointPolicy([],$dns))->resolve('localhost'),'connector_trust_failed');
+$ok($dnsCalls===0,'no external resolver for localhost');
 $ok(ConnectorHealthMonitor::outcome('connector_failed',2)['status']==='degraded','unclassified remote failure recorded');
 echo "Connector stability smoke: $n PASS\n";
