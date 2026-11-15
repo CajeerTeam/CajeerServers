@@ -324,6 +324,8 @@ return static function (Router $router, ServiceContainer $container): void {
                     'endpoint_host'=>['type'=>'string','minLength'=>1,'maxLength'=>253],
                     'endpoint_port'=>['type'=>'integer'],
                     'proxmox_profile'=>['type'=>'object'],
+                    'vmmanager_profile'=>['type'=>'object'],
+                    'os_network_profile'=>['type'=>'object'],
                     'asset_id'=>['type'=>'string','format'=>'uuid'],
                 ],'additionalProperties'=>false,
             ];
@@ -377,6 +379,8 @@ return static function (Router $router, ServiceContainer $container): void {
                     'endpoint_host'=>['type'=>'string','maxLength'=>253],
                     'endpoint_port'=>['type'=>'integer'],
                     'proxmox_profile'=>['type'=>'object'],
+                    'vmmanager_profile'=>['type'=>'object'],
+                    'os_network_profile'=>['type'=>'object'],
                     'state'=>['type'=>'string','enum'=>['active','disabled']],
                     'asset_id'=>[]], 'additionalProperties'=>false,
             ]);

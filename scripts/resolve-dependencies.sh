@@ -21,6 +21,7 @@ done
   composer audit --locked --abandoned=fail
   for dir in admin packages/ts-sdk; do
     npm install --prefix "$dir" --package-lock-only --ignore-scripts --include=dev --include=optional --no-audit --no-fund
+    npm ci --prefix "$dir" --ignore-scripts --include=dev --include=optional --no-audit --no-fund --dry-run
     npm audit --prefix "$dir" --package-lock-only --audit-level=high
   done
 )

@@ -110,8 +110,8 @@ try{
     $addr=$ipam->create($owner,'address',$default,['network_id'=>$network['id'],'address'=>'192.0.2.2']);
     $ipam->assign($owner,$default,$addr['id'],1,$port['id']);
     $graph=$topology->graph($viewer,$default,100);
-    $ok(count($graph['nodes'])>=9,'graph includes assets and IPAM nodes');
-    $ok(count($graph['edges'])>=8,'graph has persisted and derived edges');
+    $ok(count($graph['nodes'])===8 && !in_array($foreign['id'],array_column($graph['nodes'],'entity_id'),true),'graph includes assets and IPAM nodes');
+    $ok(count($graph['edges'])===8,'graph has persisted and derived edges');
     $ok(in_array('within_network',array_column($graph['edges'],'kind'),true),'network containment is graph edge');
     $ok(in_array('address_on_interface',array_column($graph['edges'],'kind'),true),'IP on interface is graph edge');
     $reject(404,fn()=>$topology->graph($stranger,$default),'topology cannot leak cross-workspace');

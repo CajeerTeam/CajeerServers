@@ -18,6 +18,11 @@ final class SecretBox
         $raw = $this->initialKey ?? EnvironmentLoader::getString('APP_KEY');
         if (str_starts_with($raw, 'base64:')) $raw = base64_decode(substr($raw, 7), true) ?: '';
         if (strlen($raw) < 32 || strlen(count_chars($raw, 3)) < 8) throw new RuntimeException('APP_KEY is not configured securely.');
+        // BLAKE2b accepts at most 64 key bytes; preserve existing derivation for
+        // valid legacy keys and safely reduce longer operator-supplied keys.
+        if (strlen($raw) > SODIUM_CRYPTO_GENERICHASH_KEYBYTES_MAX) {
+            $raw = sodium_crypto_generichash($raw, '', 32);
+        }
         return $this->key = sodium_crypto_generichash('cajeerservers:security:v1', $raw, 32);
     }
     public function seal(string $plaintext, string $context): string

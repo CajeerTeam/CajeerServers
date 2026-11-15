@@ -81,7 +81,9 @@ try {
     $router=$inventory->read($actor,$uuid);$ok($router['attributes']['network_device']['interfaces'][0]['name']==='eth0','network metadata persisted');
     $authorize();$runtime->run($principal,$id,2,true);$q->execute(['id'=>$id]);$ok($count()===$before+1&&$q->fetchColumn()===$uuid,'stable identity');
     $attrs=$router['attributes'];$attrs['network_device']['description']='manual description';$attrs['operator_note']='keep';
-    $inventory->update($actor,$uuid,$inventory->read($actor,$uuid)['version'],['attributes'=>$attrs]);
+    $reject(403,fn()=>$inventory->update($actor,$uuid,$inventory->read($actor,$uuid)['version'],['attributes'=>$attrs]),'external asset manual edit denied');
+    // Model pre-existing operator metadata from an earlier import. Only the server owns provider fields.
+    $pdo->prepare('UPDATE inventory_assets SET attributes=CAST(:attrs AS jsonb) WHERE id=:id')->execute(['attrs'=>json_encode($attrs,JSON_THROW_ON_ERROR),'id'=>$uuid]);
     $authorize();$runtime->run($principal,$id,2,true);$ok($inventory->read($actor,$uuid)['attributes']==$attrs,'manual metadata preserved');
     // Named collection jobs execute the real SNMP adapter over the deterministic session fixture.
     $authorize();$readGrant=$execution->issue($principal,$id,2,'inspect',3600);

@@ -109,7 +109,7 @@ onMounted(start)
         <form v-if="canManage&&auth.can('inventory.assets.read')" class="inline-actions" @submit.prevent="membership(assetId,true)"><select v-model="assetId" aria-label="Объект для добавления" required><option value="">Выберите объект</option><option v-for="a in assets.filter(a=>!linked.some(l=>l.id===a.id))" :key="a.id" :value="a.id">{{a.name}} — {{a.type}}</option></select><button class="btn primary" :disabled="busy||!assetId">Добавить</button></form>
         <div v-if="!auth.can('inventory.assets.read')" class="alert">Для просмотра объектов требуется inventory.assets.read.</div>
         <div v-else-if="!linked.length" class="empty">В группе нет объектов.</div>
-        <div v-for="a in linked" :key="a.id" class="inline-actions"><NuxtLink :to="inventoryAssetUrl(a.id,workspace)">{{a.name}} ({{a.type}})</NuxtLink><span v-if="a.deleted_at"> — удалён</span></span><button v-if="canManage" type="button" class="btn" :disabled="busy" @click="membership(a.id,false)">Исключить</button></div>
+        <div v-for="a in linked" :key="a.id" class="inline-actions"><NuxtLink :to="inventoryAssetUrl(a.id,workspace)">{{a.name}} ({{a.type}})</NuxtLink><span v-if="a.deleted_at"> — удалён</span><button v-if="canManage" type="button" class="btn" :disabled="busy" @click="membership(a.id,false)">Исключить</button></div>
       </section>
     </template>
   </div>

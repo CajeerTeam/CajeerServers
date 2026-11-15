@@ -30,8 +30,16 @@ try {
     $pdo=$db->connection();$ok((int)$pdo->query("SELECT current_setting('server_version_num')")->fetchColumn()>=170000,'PostgreSQL 17+');
     $pdo->exec('CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public');
     $pdo->exec('CREATE SCHEMA "'.$schema.'"');$created=true;$pdo->exec('SET search_path TO "'.$schema.'", public');
-    foreach(glob($root.'/migrations/pgsql/*.sql')?:[] as $file)if(!str_starts_with(basename($file),'0047_')&&!str_starts_with(basename($file),'0048_')&&!str_starts_with(basename($file),'0049_')&&!str_starts_with(basename($file),'0050_')&&!str_starts_with(basename($file),'0051_')&&!str_starts_with(basename($file),'0052_'))copy($file,$dir.'/migrations/'.basename($file));
-    (new MigrationRunner($db,$dir.'/migrations'))->run();
+    foreach(glob($root.'/migrations/pgsql/*.sql')?:[] as $file)if((int)substr(basename($file),0,4)<=46)copy($file,$dir.'/migrations/'.basename($file));
+    $runner=new MigrationRunner($db,$dir.'/migrations');$runner->run();
+    // Historical migrations must be tested before invoking the current 1.0 runtime.
+    // Apply each remaining migration in order; do not run new services on old schemas.
+    foreach(glob($root.'/migrations/pgsql/*.sql') as $file){
+        if(is_file($dir.'/migrations'.'/'.basename($file)))continue;
+        copy($file,$dir.'/migrations'.'/'.basename($file));
+        $ok($runner->run()['applied']===[basename($file,'.sql')]&&$runner->run()['applied']===[],'upgrade and replay '.basename($file));
+    }
+    $ok($runner->validate()['valid'],'current migration journal valid');
     $password='fixture-only-password-123!';$q=$pdo->prepare('INSERT INTO users(email,name,password_hash,two_factor_enabled) VALUES(:email,:name,:hash,true) RETURNING id::text');
     $q->execute(['email'=>'vmm-test@example.invalid','name'=>'VMM integration','hash'=>password_hash($password,PASSWORD_ARGON2ID)]);$actor=(string)$q->fetchColumn();
     $pdo->prepare("INSERT INTO user_roles(user_id,role_id) SELECT :id,id FROM roles WHERE slug='administrator'")->execute(['id'=>$actor]);
@@ -114,8 +122,6 @@ try {
     $authorize();$verified=$runtime->health($principal,$id,3);
     $ok($verified['connection']['identity_verified']===true,'updated profile health verified through Vault');
     $ok($verified['connection']['authentication']['owner_id']===7&&$verified['connection']['authentication']['expires_at']===$expiry&&$verified['connection']['capabilities']['guests']==='available','rotation expiry and remote authorization diagnostics through Vault');
-    copy($root.'/migrations/pgsql/0047_vmmanager_cluster_discovery.sql',$dir.'/migrations/0047_vmmanager_cluster_discovery.sql');
-    $runner=new MigrationRunner($db,$dir.'/migrations');$ok(count($runner->run()['applied'])===1&&$runner->run()['applied']===[],'upgrade from 0.7.2 and migration idempotency');
     $ok($runtime->vmmanagerCluster($actor,$id)['state']==='not_collected','cluster current state initially absent');
     $authorize();$plan=$execution->createPlan($principal,$id,3,['name'=>'Cluster discovery','collector'=>'vmmanager.cluster','operation'=>'sync','ttl_seconds'=>3600,'interval_seconds'=>300]);
     $run=$execution->runPlan($actor,$id,$plan['id'],'cluster-sync');
@@ -131,8 +137,6 @@ try {
     $ok($execution->status($actor,$id,$run['id'])['result']['connection']['vmmanager_cluster_discovery']['counts']['nodes']===2,'run history retains full snapshot');
     $authorize();$runtime->run($principal,$id,3,true);$q->execute(['id'=>$id]);$mapped2=array_column($q->fetchAll(PDO::FETCH_ASSOC),null,'external_id');
     $ok($mapped2['cluster:1']['asset_id']===$mapped['cluster:1']['asset_id']&&$mapped2['cluster:1']['presence']==='seen'&&$mapped2['cluster:999']['presence']==='missing','legacy inventory keeps cluster identity');
-    copy($root.'/migrations/pgsql/0048_vmmanager_guest_discovery.sql',$dir.'/migrations/0048_vmmanager_guest_discovery.sql');
-    $ok(count($runner->run()['applied'])===1&&$runner->run()['applied']===[],'upgrade from 0.7.3 and migration idempotency');
     $ok($runtime->vmmanagerGuests($actor,$id)['state']==='not_collected','guest state initially absent');
     $authorize();$guestPlan=$execution->createPlan($principal,$id,3,['name'=>'Detailed guests','collector'=>'vmmanager.guests','operation'=>'sync','ttl_seconds'=>3600,'interval_seconds'=>300]);
     $guestRun=$execution->runPlan($actor,$id,$guestPlan['id'],'guest-sync');
@@ -142,8 +146,6 @@ try {
     $ok($guestMapped['host:21']['asset_id']===$mapped['host:21']['asset_id']&&$guestMapped['cluster:1']['presence']==='seen','guest identity and cluster isolation');
     $beforeGuestRepeat=$count();$execution->runPlan($actor,$id,$guestPlan['id'],'guest-repeat');$ok($execution->once()['status']==='succeeded'&&$count()===$beforeGuestRepeat,'repeat guest sync no duplicates');
     $ok($execution->status($actor,$id,$guestRun['id'])['result']['connection']['vmmanager_guest_discovery']['guests'][0]['disks'][0]['size_mib']==='9007199254740993','guest history retains precise disk data');
-    copy($root.'/migrations/pgsql/0049_vmmanager_network_discovery.sql',$dir.'/migrations/0049_vmmanager_network_discovery.sql');
-    $ok(count($runner->run()['applied'])===1&&$runner->run()['applied']===[],'upgrade from 0.7.4 and migration idempotency');
     $ok($runtime->vmmanagerNetwork($actor,$id)['state']==='not_collected','network state initially absent');
     $ipam=new \Cajeer\Servers\Inventory\IpamService($db,$repo,$audit);
     $manual=$ipam->create($actor,'network',$ws,['name'=>'Manual overlapping network','cidr'=>'192.0.2.0/25']);
@@ -174,8 +176,6 @@ try {
     $reject(403,fn()=>$execution->status($actor,$id,$networkRun['id']),'network history requires network permission');
     $reject(403,fn()=>$execution->runs($actor,$id,20,0,null,'vmmanager.network'),'network history filter requires network permission');
     $pdo->exec("INSERT INTO role_permissions(role_id,permission_id) SELECT r.id,p.id FROM roles r CROSS JOIN permissions p WHERE r.slug='administrator' AND p.scope='inventory.network.read'");
-    copy($root.'/migrations/pgsql/0050_vmmanager_storage_templates.sql',$dir.'/migrations/0050_vmmanager_storage_templates.sql');
-    $ok(count($runner->run()['applied'])===1&&$runner->run()['applied']===[],'upgrade from 0.7.5 and migration idempotency');
     $ok($runtime->vmmanagerStorage($actor,$id)['state']==='not_collected'&&$runtime->vmmanagerTemplates($actor,$id)['state']==='not_collected','catalog states initially absent');
     $beforeCatalog=$count();
     foreach(['storage','templates'] as $scope){
@@ -190,8 +190,6 @@ try {
     $ok($count()===$beforeCatalog&&(int)$pdo->query('SELECT count(*) FROM vmmanager_catalog_state')->fetchColumn()===2,'two independent states without CMDB mutations');
     $ok($runtime->vmmanagerStorage($actor,$id)['snapshot']['volumes'][0]['size_mib']==='9007199254740993','precise storage volume in PostgreSQL');
     $ok($runtime->vmmanagerTemplates($actor,$id)['snapshot']['os'][0]['id']===12,'OS catalog in PostgreSQL');
-    copy($root.'/migrations/pgsql/0051_vmmanager_task_history.sql',$dir.'/migrations/0051_vmmanager_task_history.sql');
-    $ok(count($runner->run()['applied'])===1&&$runner->run()['applied']===[],'upgrade from 0.7.6 and migration idempotency');
     $ok($runtime->vmmanagerTasks($actor,$id,'tasks',50,null,null)['state']==='not_collected','task state initially absent');
     $authorize();$taskPlan=$execution->createPlan($principal,$id,3,['name'=>'Task history','collector'=>'vmmanager.tasks','operation'=>'inspect','ttl_seconds'=>3600,'interval_seconds'=>60]);
     $taskRun=$execution->runPlan($actor,$id,$taskPlan['id'],'tasks-first');$ok($execution->once()['status']==='succeeded','task history worker');

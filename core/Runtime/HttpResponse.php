@@ -56,7 +56,7 @@ final readonly class HttpResponse
         }
         http_response_code($this->status);
         foreach ($this->headers as $name => $value) {
-            header($name . ': ' . $value, true);
+            header($name . ': ' . $value, true, $this->status);
         }
         if (!$head) {
             echo $body;

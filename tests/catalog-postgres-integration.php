@@ -50,13 +50,15 @@ try{
     $workspace=(string)$pdo->query("SELECT id::text FROM workspaces WHERE slug='default' LIMIT 1")->fetchColumn();
     $pdo->prepare("INSERT INTO workspace_members(workspace_id,user_id,role) VALUES(:ws,:id,'owner')")->execute(['ws'=>$workspace,'id'=>$admin]);
     $audit=new AuditLogger($db);$inventory=new InventoryRepository();$assets=new InventoryService($db,$inventory,$audit);
-    $legacy=$assets->create($admin,['workspace_id'=>$workspace,'type'=>'server','name'=>'Legacy Primary','tags'=>['prod','critical'],'ip_addresses'=>['192.0.2.10']]);
-    $legacyId=$legacy['id'];
-    $assert($legacy['version']===1,'legacy asset version before upgrade');
+    $seed=$pdo->prepare("INSERT INTO inventory_assets(workspace_id,type,source,name,tags,ip_addresses) VALUES(:ws,'server','manual','Legacy Primary','[\"prod\",\"critical\"]'::jsonb,'[\"192.0.2.10\"]'::jsonb) RETURNING id::text,version");
+    $seed->execute(['ws'=>$workspace]);$legacy=$seed->fetch(PDO::FETCH_ASSOC);$legacyId=$legacy['id'];
+    $assert((int)$legacy['version']===1,'legacy asset version before upgrade');
     copy($root.'/migrations/pgsql/0013_inventory_catalog_search.sql',$dir.'/migrations/0013_inventory_catalog_search.sql');
     $assert(count($runner->run()['applied'])===1,'catalog schema upgrade applied');
     $assert($runner->run()['applied']===[],'second migration run is idempotent');
     $assert($runner->validate()['valid'],'migration checksums valid');
+    foreach(glob($root.'/migrations/pgsql/*.sql') as $file)copy($file,$dir.'/migrations/'.basename($file));
+    $assert(count($runner->run()['applied'])===51,'remaining migrations applied before current runtime');
     $assert($assets->read($admin,$legacyId)['id']===$legacyId,'legacy UUID preserved');
     $catalog=new CatalogService($db,$inventory,$audit);
     $tags=$catalog->list($admin,$workspace,'tags');

@@ -10,7 +10,7 @@ $registry=new ConnectorRegistry(new RouterConnector(new SnmpTransport($policy,tr
 $v2=new ConnectorContext('snmp','127.0.0.1',$port,'snmp_v2c');$v3=new ConnectorContext('snmp','127.0.0.1',$port,'snmp_v3');
 $c2=json_encode(['community'=>'cajeer-test-community']);$c3=json_encode(['username'=>'cajeer-reader','auth_protocol'=>'sha256','auth_passphrase'=>'cajeer-test-auth','privacy_protocol'=>'aes128','privacy_passphrase'=>'cajeer-test-priv']);
 $n=0;$ok=static function(bool $b,string $label)use(&$n):void{if(!$b)throw new RuntimeException($label);$n++;};
-$reject=static function(callable $f)use($ok):void{try{$f();}catch(HttpException){$ok(true,'expected failure');return;}throw new RuntimeException('Expected SNMP failure');};
+$reject=static function(callable $f,string $label='expected failure')use($ok):void{try{$f();}catch(HttpException){$ok(true,$label);return;}throw new RuntimeException('Expected SNMP failure: '.$label);};
 if (($argv[2]??'')==='--offline') {$reject(fn()=>$registry->execute($v2,'health','snmp',$c2));echo "SNMP offline PASS\n";exit;}
 foreach ([[$v2,$c2],[$v3,$c3]] as [$ctx,$secret]) {
     $result=$registry->execute($ctx,'sync','snmp',$secret);$item=$result->items[0];
@@ -39,6 +39,13 @@ $reject(fn()=>$strict->execute($v3,'health','snmp',$c3));
 $reject(fn()=>$strict->execute(new ConnectorContext('snmp','127.0.0.1',$port,'snmp_v3',null,null,array_replace($profile,['engine_id'=>'800000000000'])),'health','snmp',$c3));
 $reject(fn()=>$strict->execute(new ConnectorContext('snmp','127.0.0.1',$port,'snmp_v2c',null,null,$profile),'health','snmp',$c2));
 $reject(fn()=>$registry->execute($v2,'health','snmp','{"community":"bad-community"}'));
-$reject(fn()=>$registry->execute($v3,'health','snmp',str_replace('cajeer-test-auth','bad-passphrase',$c3)));
+// Same engine ID and username, interleaved with successful sessions. Never let
+// Net-SNMP's process-wide USM cache mask a wrong password during rotation.
+foreach(['health','validate_rotation'] as $op) {
+    $ok($strict->execute($trusted,$op,'snmp',$c3)->connection['profile_verified'],'valid SNMPv3 before negative '.$op);
+    $reject(fn()=>$strict->execute($trusted,$op,'snmp',str_replace('cajeer-test-auth','bad-passphrase',$c3)), 'wrong authentication passphrase '.$op);
+    $reject(fn()=>$strict->execute($trusted,$op,'snmp',str_replace('cajeer-test-priv','bad-passphrase',$c3)), 'wrong privacy passphrase '.$op);
+    $ok($strict->execute($trusted,$op,'snmp',$c3)->connection['profile_verified'],'valid SNMPv3 after negative '.$op);
+}
 $reject(fn()=>(new ConnectorRegistry(new RouterConnector(new SnmpTransport($policy))))->execute($v2,'health','snmp',$c2));
 echo "Native SNMPv2c / SNMPv3 authPriv: $n PASS\n";

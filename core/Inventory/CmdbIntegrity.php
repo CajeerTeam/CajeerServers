@@ -65,7 +65,7 @@ SQL,
 SELECT count(*) FROM inventory_asset_tags at
  JOIN inventory_assets a ON a.id=at.asset_id AND a.workspace_id=at.workspace_id
  JOIN inventory_tags t ON t.id=at.tag_id AND t.workspace_id=at.workspace_id
- WHERE NOT (a.tags ? t.slug)
+ WHERE NOT jsonb_exists(a.tags, t.slug)
 SQL,
         'catalog.missing_tag_association' => <<<'SQL'
 SELECT count(*) FROM inventory_assets a CROSS JOIN LATERAL jsonb_array_elements_text(

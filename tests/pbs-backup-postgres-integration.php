@@ -34,6 +34,14 @@ try {
     $runner=new MigrationRunner($db,$dir.'/migrations');$runner->run();
     copy($root.'/migrations/pgsql/0044_pbs_backup_integration.sql',$dir.'/migrations/0044_pbs_backup_integration.sql');
     $ok($runner->run()['applied']===['0044_pbs_backup_integration']&&$runner->validate()['valid']&&$runner->run()['applied']===[],'0.6.7 upgrade and replay');
+    // Historical migrations must be tested before invoking the current 1.0 runtime.
+    // Apply each remaining migration in order; do not run new services on old schemas.
+    foreach(glob($root.'/migrations/pgsql/*.sql') as $file){
+        if(is_file($dir.'/migrations'.'/'.basename($file)))continue;
+        copy($file,$dir.'/migrations'.'/'.basename($file));
+        $ok($runner->run()['applied']===[basename($file,'.sql')]&&$runner->run()['applied']===[],'upgrade and replay '.basename($file));
+    }
+    $ok($runner->validate()['valid'],'current migration journal valid');
     $password='fixture-only-password-123!';$q=$pdo->prepare('INSERT INTO users(email,name,password_hash,two_factor_enabled) VALUES(:email,:name,:hash,true) RETURNING id::text');
     $q->execute(['email'=>'health-test@example.invalid','name'=>'Health integration','hash'=>password_hash($password,PASSWORD_ARGON2ID)]);$actor=(string)$q->fetchColumn();
     $pdo->prepare("INSERT INTO user_roles(user_id,role_id) SELECT :id,id FROM roles WHERE slug='administrator'")->execute(['id'=>$actor]);

@@ -34,6 +34,14 @@ try{
     $q=$pdo->prepare("INSERT INTO connector_targets(workspace_id,provider,name,endpoint_host,endpoint_port,created_by) VALUES(:ws,'proxmox','Legacy PVE','pve-a.test',8006,:actor) RETURNING id::text");$q->execute(['ws'=>$ws,'actor'=>$actor]);$legacy=(string)$q->fetchColumn();
     copy($root.'/migrations/pgsql/0037_proxmox_profiles.sql',$dir.'/0037_proxmox_profiles.sql');
     $ok($runner->run()['applied']===['0037_proxmox_profiles']&&$runner->validate()['valid']&&$runner->run()['applied']===[],'0.6.0 upgrade and replay');
+    // Historical migrations must be tested before invoking the current 1.0 runtime.
+    // Apply each remaining migration in order; do not run new services on old schemas.
+    foreach(glob($root.'/migrations/pgsql/*.sql') as $file){
+        if(is_file($dir.'/'.basename($file)))continue;
+        copy($file,$dir.'/'.basename($file));
+        $ok($runner->run()['applied']===[basename($file,'.sql')]&&$runner->run()['applied']===[],'upgrade and replay '.basename($file));
+    }
+    $ok($runner->validate()['valid'],'current migration journal valid');
     $audit=new AuditLogger($db);$repo=new InventoryRepository();$inventory=new InventoryService($db,$repo,$audit);$rbac=new Rbac($db,$audit);
     $key=new VaultMasterKey('base64:'.base64_encode(random_bytes(32)));$crypto=new VaultCrypto($key);$vault=new CredentialsVault($db,$crypto,$key);$vault->initialize();$store=new CredentialStore($db,$repo,$vault,$crypto,$audit);
     $calls=0;$clusterMode='ok';$guestMode='ok';$taskMode='running';$taskStart=time()-10;$taskUpid=sprintf('UPID:pve-a:00000001:00000002:%08X:qmstart:100:svc@pve!read:',$taskStart);$driver=new ProxmoxConnector(static function(string $url,string $auth,?string $ca)use(&$calls,&$clusterMode,&$guestMode,&$taskMode,$taskStart,$taskUpid):string{
@@ -65,8 +73,6 @@ try{
     $authorize();$health=$runtime->health($principal,$id,2);$ok($health['connection']['version']==='9.0.3'&&$health['connection']['root_privileges']===['Sys.Audit']&&$calls===4,'MFA Vault health runtime');
     $authorize();$grant=$exec->issue($principal,$id,2,'inspect',3600);$run=$exec->enqueue($actor,$id,$grant['id'],'pve-profile-run','proxmox.inventory');
     $ok($exec->once()['status']==='succeeded','worker actual profiled read');$result=$exec->status($actor,$id,$run['id']);$ok($result['result']['connection']['cluster']==='prod'&&$result['result']['collection']['complete']===false,'saved profiled collection');
-    copy($root.'/migrations/pgsql/0038_proxmox_cluster_discovery.sql',$dir.'/0038_proxmox_cluster_discovery.sql');
-    $ok($runner->run()['applied']===['0038_proxmox_cluster_discovery']&&$runner->validate()['valid']&&$runner->run()['applied']===[],'0.6.1 upgrade and migration replay');
     $ok($runtime->proxmoxCluster($actor,$id)['state']==='not_collected','initial current state');
     $authorize();$syncGrant=$exec->issue($principal,$id,2,'sync',3600);
     $guestRun=$exec->enqueue($actor,$id,$syncGrant['id'],'pve-existing-guest','proxmox.inventory');
@@ -91,8 +97,6 @@ try{
     $pdo->prepare("INSERT INTO user_roles(user_id,role_id) SELECT :id,id FROM roles WHERE slug='administrator'")->execute(['id'=>$other]);
     $reject(404,fn()=>$runtime->proxmoxCluster($other,$id));
     $exec->setPlanEnabled($actor,$id,$plan['id'],false);
-    copy($root.'/migrations/pgsql/0039_proxmox_guest_discovery.sql',$dir.'/0039_proxmox_guest_discovery.sql');
-    $ok($runner->run()['applied']===['0039_proxmox_guest_discovery']&&$runner->validate()['valid']&&$runner->run()['applied']===[],'0.6.2 upgrade and replay');
     $ok($runtime->proxmoxGuests($actor,$id)['state']==='not_collected','initial guest state');
     $clusterMode='ok';$authorize();$guestPlan=$exec->createPlan($principal,$id,2,['name'=>'Guest detail','collector'=>'proxmox.guests','operation'=>'sync','ttl_seconds'=>3600,'interval_seconds'=>60]);
     $job=$exec->runPlan($actor,$id,$guestPlan['id'],'pve-guest-details-1');
@@ -109,8 +113,6 @@ try{
     $ok(!str_contains(json_encode($exec->status($actor,$id,$job['id'])),'must-not-leak'),'historical config sanitized');
     $reject(404,fn()=>$runtime->proxmoxGuests($other,$id));
     $exec->setPlanEnabled($actor,$id,$guestPlan['id'],false);
-    copy($root.'/migrations/pgsql/0040_proxmox_storage_network_discovery.sql',$dir.'/0040_proxmox_storage_network_discovery.sql');
-    $ok($runner->run()['applied']===['0040_proxmox_storage_network_discovery']&&$runner->validate()['valid']&&$runner->run()['applied']===[],'0.6.3 upgrade and replay');
     $ok($runtime->proxmoxStorageNetwork($actor,$id)['state']==='not_collected','initial storage state');
     $guestMode='ok';$authorize();$storagePlan=$exec->createPlan($principal,$id,2,['name'=>'Storage and network','collector'=>'proxmox.storage-network','operation'=>'sync','ttl_seconds'=>3600,'interval_seconds'=>60]);
     $storageJob=$exec->runPlan($actor,$id,$storagePlan['id'],'pve-storage-network-1');
@@ -124,15 +126,9 @@ try{
     $guestMode='denied';$partialStorage=$exec->runPlan($actor,$id,$storagePlan['id'],'pve-storage-network-2');$ok($exec->once()['status']==='succeeded','partial storage run succeeds');
     $ok($runtime->proxmoxStorageNetwork($actor,$id)['snapshot']['guests'][0]['state']==='permission_denied'&&$exec->status($actor,$id,$storageJob['id'])['result']['connection']['storage_network_discovery']==$storageSnapshot,'partial state and immutable history');
     $exec->setPlanEnabled($actor,$id,$storagePlan['id'],false);
-    copy($root.'/migrations/pgsql/0041_proxmox_task_history.sql',$dir.'/0041_proxmox_task_history.sql');
-    $ok($runner->run()['applied']===['0041_proxmox_task_history']&&$runner->validate()['valid']&&$runner->run()['applied']===[],'0.6.4 upgrade and replay');
     // Model a 0.6.5 accepted action already waiting for its UPID before migration.
     $actionInsert=$pdo->prepare("INSERT INTO connector_actions(target_id,workspace_id,actor_id,credential_id,credential_version,target_version,action,external_id,idempotency_key,status,node,remote_task) VALUES(:t,:w,:a,:c,1,2,'vm.start','qemu:100','pve-existing-action','submitted','pve-a',:task) RETURNING id::text");
     $actionInsert->execute(['t'=>$id,'w'=>$ws,'a'=>$actor,'c'=>$cid,'task'=>$taskUpid]);$actionId=$actionInsert->fetchColumn();
-    copy($root.'/migrations/pgsql/0042_proxmox_safe_actions.sql',$dir.'/0042_proxmox_safe_actions.sql');
-    $ok($runner->run()['applied']===['0042_proxmox_safe_actions']&&$runner->validate()['valid']&&$runner->run()['applied']===[],'0.6.5 upgrade and replay');
-    copy($root.'/migrations/pgsql/0043_proxmox_snapshots.sql',$dir.'/0043_proxmox_snapshots.sql');
-    $ok($runner->run()['applied']===['0043_proxmox_snapshots']&&$runner->validate()['valid']&&$runner->run()['applied']===[],'0.6.6 snapshot upgrade and replay');
     $actionStatus=static function()use($pdo,$actionId):array{$q=$pdo->prepare('SELECT status,task_checked_at FROM connector_actions WHERE id=:id');$q->execute(['id'=>$actionId]);return $q->fetch(PDO::FETCH_ASSOC);};
     $ok($actionStatus()['status']==='submitted','migration preserves accepted action');
     $pending=\Cajeer\Servers\Connector\ProxmoxTaskStore::previous($pdo,['id'=>$id,'workspace_id'=>$ws,'version'=>2,'credential_id'=>$cid,'credential_version'=>1]);
@@ -153,9 +149,6 @@ try{
     $ok($exec->status($actor,$id,$taskJob['id'])['result']['connection']['task_discovery']['new_tasks']===1,'immutable run summary');
     $reject(404,fn()=>$runtime->proxmoxTasks($other,$id,'tasks',50,null,null));
     // Upgrade an existing 0.6.9 installation, preserving the task cursor and events.
-    copy($root.'/migrations/pgsql/0044_pbs_backup_integration.sql',$dir.'/0044_pbs_backup_integration.sql');$runner->run();
-    copy($root.'/migrations/pgsql/0045_proxmox_task_recovery.sql',$dir.'/0045_proxmox_task_recovery.sql');
-    $ok($runner->run()['applied']===['0045_proxmox_task_recovery']&&$runner->validate()['valid']&&$runner->run()['applied']===[],'0.6.9 upgrade and replay');
     $scope=['id'=>$id,'workspace_id'=>$ws,'version'=>2,'credential_id'=>$cid,'credential_version'=>1];
     $persist=static function(array $task)use($db,$scope,$audit,$actor):int {
         return $db->transaction(function(PDO $p)use($task,$scope,$audit,$actor):int {

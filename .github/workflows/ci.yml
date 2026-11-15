@@ -106,14 +106,14 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd 'pg_isready -U cajeer -d cajeer_test_ci'
+          --health-cmd "pg_isready -U cajeer -d cajeer_test_ci"
           --health-interval 5s --health-timeout 5s --health-retries 15
       redis:
         image: redis:7
         ports:
           - 6379:6379
         options: >-
-          --health-cmd 'redis-cli ping'
+          --health-cmd "redis-cli ping"
           --health-interval 5s --health-timeout 5s --health-retries 15
     env:
       CAJEER_PG_TEST: '1'
@@ -142,65 +142,66 @@ jobs:
         run: sudo apt-get update -qq && sudo apt-get install -y snmpd
       - name: PostgreSQL workspace, Inventory CRUD, IPAM and Topology integration
         run: |
-          php tests/database-postgres-integration.php
-          php tests/auth-postgres-integration.php
-          php tests/security-postgres-integration.php
-          php tests/infrastructure-postgres-integration.php
-          php tests/admin-postgres-integration.php
-          php tests/inventory-postgres-integration.php
-          php tests/workspaces-postgres-integration.php
-          php tests/inventory-crud-postgres-integration.php
-          php tests/ipam-postgres-integration.php
-          php tests/topology-postgres-integration.php
-          php tests/catalog-postgres-integration.php
-          php tests/history-postgres-integration.php
-          php tests/transfer-postgres-integration.php
-          php tests/cmdb-postgres-integration.php
-          php tests/vault-postgres-integration.php
-          php tests/vault-crud-postgres-integration.php
-          php tests/vault-access-postgres-integration.php
-          php tests/vault-rotation-postgres-integration.php
-          php tests/vault-bindings-postgres-integration.php
-          php tests/proxmox-profile-postgres-integration.php
-          php tests/connector-reconciliation-postgres-integration.php
-          php tests/host-hardware-postgres-integration.php
-          bash tests/snmp-protocol-integration.sh --postgres
-          python3 tests/routeros-https-integration.py --postgres
-          python3 tests/host-transport-integration.py --ssh --postgres
-          php tests/connector-health-postgres-integration.php
-          php tests/collection-plans-postgres-integration.php
-          php tests/metrics-postgres-integration.php
-          php scripts/benchmark-postgres.php
-          php tests/ingestion-postgres-integration.php
-          php tests/connector-events-postgres-integration.php
-          php tests/connector-actions-postgres-integration.php
-          php tests/script-registry-postgres-integration.php
-          php tests/script-execution-postgres-integration.php
-          python3 tests/connector-actions-https-integration.py
-          python3 tests/vmmanager-https-integration.py --postgres
-          python3 tests/vmmanager-power-https-integration.py --postgres
-          python3 tests/pbs-backup-https-integration.py --postgres
+          export CAJEER_CI_ISOLATE_PG=1
+          source scripts/ci-test-results.sh
+          ci_test php tests/database-postgres-integration.php
+          ci_test php tests/auth-postgres-integration.php
+          ci_test php tests/security-postgres-integration.php
+          ci_test php tests/infrastructure-postgres-integration.php
+          ci_test php tests/admin-postgres-integration.php
+          ci_test php tests/inventory-postgres-integration.php
+          ci_test php tests/workspaces-postgres-integration.php
+          ci_test php tests/inventory-crud-postgres-integration.php
+          ci_test php tests/ipam-postgres-integration.php
+          ci_test php tests/topology-postgres-integration.php
+          ci_test php tests/catalog-postgres-integration.php
+          ci_test php tests/history-postgres-integration.php
+          ci_test php tests/transfer-postgres-integration.php
+          ci_test php tests/cmdb-postgres-integration.php
+          ci_test php tests/vault-postgres-integration.php
+          ci_test php tests/vault-crud-postgres-integration.php
+          ci_test php tests/vault-access-postgres-integration.php
+          ci_test php tests/vault-rotation-postgres-integration.php
+          ci_test php tests/vault-bindings-postgres-integration.php
+          ci_test php tests/proxmox-profile-postgres-integration.php
+          ci_test php tests/connector-reconciliation-postgres-integration.php
+          ci_test php tests/host-hardware-postgres-integration.php
+          ci_test bash tests/snmp-protocol-integration.sh --postgres
+          ci_test python3 tests/routeros-https-integration.py --postgres
+          ci_test python3 tests/host-transport-integration.py --ssh --postgres
+          ci_test php tests/connector-health-postgres-integration.php
+          ci_test php tests/collection-plans-postgres-integration.php
+          ci_test php tests/metrics-postgres-integration.php
+          ci_test php scripts/benchmark-postgres.php
+          ci_test php tests/ingestion-postgres-integration.php
+          ci_test php tests/connector-events-postgres-integration.php
+          ci_test php tests/connector-actions-postgres-integration.php
+          ci_test php tests/script-registry-postgres-integration.php
+          ci_test php tests/script-execution-postgres-integration.php
+          ci_test python3 tests/connector-actions-https-integration.py
+          ci_test python3 tests/vmmanager-https-integration.py --postgres
+          ci_test python3 tests/vmmanager-power-https-integration.py --postgres
+          ci_test python3 tests/pbs-backup-https-integration.py --postgres
+          ci_finish
       - name: Redis integration
+        if: ${{ !cancelled() }}
         env:
           CAJEER_REDIS_TEST: '1'
         run: php tests/infrastructure-redis-integration.php
       - name: PostgreSQL client version for encrypted backup/restore
-        run: |
-          # Match the PostgreSQL service. A missing client must fail the integration job.
-          sudo install -d -m 0755 /etc/apt/keyrings
-          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /etc/apt/keyrings/postgresql.gpg
-          . /etc/os-release
-          echo "deb [signed-by=/etc/apt/keyrings/postgresql.gpg] https://apt.postgresql.org/pub/repos/apt ${VERSION_CODENAME}-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
-          sudo apt-get update -qq
-          sudo apt-get install -y postgresql-client-${{ matrix.pg }}
-      - name: Encrypted disaster recovery real PostgreSQL roundtrip
+        if: ${{ !cancelled() }}
         env:
-          PG_DUMP_BINARY: /usr/lib/postgresql/${{ matrix.pg }}/bin/pg_dump
-          PG_RESTORE_BINARY: /usr/lib/postgresql/${{ matrix.pg }}/bin/pg_restore
+          PG_CONTAINER: ${{ job.services.postgres.id }}
+        run: bash scripts/ci-postgres-clients.sh
+      - name: Encrypted disaster recovery real PostgreSQL roundtrip
+        if: ${{ !cancelled() }}
         run: |
-          php tests/backup-postgres-integration.php
-          php tests/upgrade-postgres-integration.php
-          python3 tests/platform-http-e2e.py
+          export CAJEER_CI_ISOLATE_PG=1
+          source scripts/ci-test-results.sh
+          ci_test php tests/backup-postgres-integration.php
+          ci_test php tests/upgrade-postgres-integration.php
+          ci_test python3 tests/platform-http-e2e.py
+          ci_finish
   windows-native-agents:
     name: Windows Server / native PowerShell CIM and Event Log
     runs-on: windows-2025

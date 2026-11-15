@@ -58,6 +58,8 @@ try {
     $assert($runner->validate()['valid'],'checksums valid');
     $default=(string)$pdo->query("SELECT w.id::text FROM workspaces w JOIN organizations o ON o.id=w.organization_id WHERE o.slug='default' AND w.slug='default'")->fetchColumn();
     $assert($default!=='' && (string)$pdo->query("SELECT id::text FROM inventory_assets WHERE external_id='legacy-node'")->fetchColumn()===$oldId,'legacy UUID preserved');
+    foreach (glob($root.'/migrations/pgsql/*.sql') as $file) copy($file,$dir.'/migrations/'.basename($file));
+    $assert(count($runner->run()['applied'])===54,'remaining migrations applied before current runtime');
     $audit=new AuditLogger($db);$repo=new InventoryRepository();$svc=new InventoryService($db,$repo,$audit);
     $ws=new WorkspaceService($db,$audit);$rbac=new Rbac($db,$audit);
     $adminPrincipal=['mode'=>'session','user'=>['id'=>$admin]];
@@ -78,7 +80,7 @@ try {
     $assert($created['source']==='manual' && $created['version']===1 && $created['name']==='Node 01','persisted create');
     $assert($created['attributes']['rack']==='B4' && $created['ip_addresses']===['192.0.2.11'],'JSONB roundtrip');
     $assert(count($svc->list($admin,$default,10,0,null,null,null,false)['data'])===2,'legacy and new visible');
-    $assert($svc->list($admin,$default,10,0,'server','online','Node',false)['total']===1,'combined filters');
+    $assert($svc->list($admin,$default,10,0,'server','online','Node 01',false)['total']===1,'combined filters');
     $assert($svc->read($viewer,$id)['id']===$id,'viewer may read own workspace');
     $reject(403,fn()=>$svc->create($viewer,['workspace_id'=>$default,'type'=>'router','name'=>'Unauthorized']),'viewer cannot create');
     $reject(404,fn()=>$svc->read($stranger,$id),'non-member cannot enumerate UUID');

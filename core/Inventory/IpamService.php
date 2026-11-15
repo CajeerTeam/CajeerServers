@@ -74,7 +74,7 @@ final class IpamService
     private static function failDatabase(PDOException $e):never
     {
         $state=(string)($e->errorInfo[0]??$e->getCode());
-        if (in_array($state,['23505','23503','23514','23P01'],true)) throw new HttpException(409,'IPAM conflict or related resources prevent this operation.','conflict');
+        if (in_array($state,['23505','23503','23514','23P01','23001'],true)) throw new HttpException(409,'IPAM conflict or related resources prevent this operation.','conflict');
         throw $e;
     }
     private static function hydrate(string $kind,array $row):array

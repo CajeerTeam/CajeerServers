@@ -19,8 +19,11 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.55.0",
+    "cac": "6.7.14",
+    "commander": "15.1.0",
     "typescript": "^5.8.3",
-    "vue-tsc": "^2.2.12"
+    "vue-tsc": "^2.2.12",
+    "@types/node": "^22.0.0"
   },
   "engines": {
     "node": ">=22.12 <23"

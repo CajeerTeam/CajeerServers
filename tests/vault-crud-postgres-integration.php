@@ -150,15 +150,15 @@ try{
         $profileId=$record['id'];
         $ok($record['type']===$type && $record['version']===1,'persisted profile '.$type);
         $encoded=CredentialProfile::encode($type,$secretPayload);
-        $q=$pdo->prepare("SELECT encrypted_payload FROM credentials WHERE id=CAST(:id AS uuid)");
-        $q->execute(['id'=>$profileId]);$persisted=$q->fetchColumn();
+        $q=$pdo->prepare("SELECT encode(encrypted_payload,'hex') FROM credentials WHERE id=CAST(:id AS uuid)");
+        $q->execute(['id'=>$profileId]);$persisted=hex2bin((string)$q->fetchColumn());
         $ok(is_string($persisted) && $crypto->open($persisted,$profileId,$workspace,$type)===$encoded,
             'PostgreSQL encrypted payload roundtrip '.$type);
         $ok(!str_contains(json_encode($store->show($admin,$profileId),JSON_THROW_ON_ERROR),$encoded),
             'metadata does not expose secret for '.$type);
         $after=$store->replaceSecret($admin,$profileId,1,$secretPayload);
         $ok($after['version']===2 && !isset($after['secret']),'structured replacement '.$type);
-        $q->execute(['id'=>$profileId]);$replacement=$q->fetchColumn();
+        $q->execute(['id'=>$profileId]);$replacement=hex2bin((string)$q->fetchColumn());
         $ok(is_string($replacement) && $replacement!==$persisted &&
             $crypto->open($replacement,$profileId,$workspace,$type)===$encoded,
             'unique envelope on replacement '.$type);
