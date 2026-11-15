@@ -52,7 +52,7 @@ final class UpgradeService
             if ($old === false || $old === realpath($this->app->basePath()) || !is_dir($old)) throw new RuntimeException('A separate retained source release directory is required.');
             $from = trim((string) file_get_contents($old . '/VERSION'));
             $to = $this->app->version();
-            if ($from !== '0.9.7' || $to !== '0.9.8') throw new RuntimeException('Supported upgrade is 0.9.7 to 0.9.8.');
+            if ($from !== '0.9.8' || $to !== '0.9.9') throw new RuntimeException('Supported upgrade is 0.9.8 to 0.9.9.');
             if (!str_starts_with($archive,'/') || !str_starts_with($key,'/')) throw new RuntimeException('Backup and key paths must be absolute.');
             $db = $this->app->container()->get(DatabaseManager::class);
             if ($db->driver() !== 'pgsql') throw new RuntimeException('Upgrade requires PostgreSQL.');
@@ -81,7 +81,7 @@ final class UpgradeService
                 if ($journal === null) {
                     if (!$this->maintenance->requiresUpgrade()) throw new RuntimeException('Installation is already at the running release version.');
                     $markerVersion=$this->installation->record()['version'] ?? '';
-                    if (!preg_match('/^[0-9]+\.[0-9]+\.[0-9]+$/D',$markerVersion) || version_compare($markerVersion,$from,'>')) throw new RuntimeException('Installation marker is not compatible with the source release.');
+                    if ($markerVersion !== $from) throw new RuntimeException('Installation marker is not compatible with the source release.');
                     if (file_exists($archive) || is_link($archive)) throw new RuntimeException('New upgrade backup path must not exist.');
                     foreach ($rows as $version=>$row) if ($row['status']==='applied' && !isset($oldFiles[$version])) throw new RuntimeException('Database is ahead of the source release.');
                     $journal = $expected + ['phase'=>'backup','upgrade_id'=>bin2hex(random_bytes(16)),'started_at'=>gmdate(DATE_ATOM)];

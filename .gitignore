@@ -31,3 +31,12 @@ __pycache__/
 /storage/app/maintenance.json
 /storage/app/upgrade.json
 /storage/app/.upgrade-*
+
+/.release-candidate.json
+/release-candidate.cdx.json
+
+# Instance state and backup status are never build inputs.
+/storage/app/*
+!/storage/app/.gitkeep
+/storage/archives/*
+!/storage/archives/.gitkeep

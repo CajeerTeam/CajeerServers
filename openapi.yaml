@@ -1,7 +1,7 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.9.8
+  version: 0.9.9
   description: 'CajeerServers 0.7.1: VMmanager connection profiles, PVE/PBS integration and infrastructure collection.'
 servers:
 - url: /api/v1
@@ -13228,6 +13228,10 @@ components:
         type:
           type: string
           const: api-first web control shell
+        candidate_id:
+          type: string
+          pattern: "^[a-f0-9]{64}$"
+          description: SHA-256 of the sealed release manifest, when deployed from a release candidate.
     Problem:
       type: object
       additionalProperties: true

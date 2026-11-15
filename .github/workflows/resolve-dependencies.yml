@@ -23,6 +23,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Pin npm build tool
+        run: npm install --global npm@10.9.9
       - name: Resolve and audit candidate locks
         run: bash scripts/resolve-dependencies.sh
       - name: Preserve candidate lockfiles for human review

@@ -12,6 +12,7 @@ for file in "${inputs[@]}"; do
   [[ -s "$file" && ! -L "$file" ]] || { echo "Missing reviewed build input: $file (run maintainer resolution first)" >&2; exit 2; }
 done
 source scripts/build-toolchain.sh
+export PYTHONDONTWRITEBYTECODE=1
 node scripts/verify-dependency-locks.mjs
 composer validate --strict
 before=$(sha256sum "${inputs[@]}")
@@ -68,7 +69,7 @@ report=$(mktemp storage/tmp/release-build.XXXXXX)
   printf '%s\n' "$before"
   printf '%s  storage/tmp/release-build.tar.gz\n' "$(sha256sum "$archive" | cut -d' ' -f1)"
   printf 'dependency_inventory=lockfiles_above\n'
-  find admin/.output packages/ts-sdk/dist -type f -print0 | sort -z | xargs -0 -r sha256sum
+  find vendor admin/.output packages/ts-sdk/dist -type f -print0 | sort -z | xargs -0 -r sha256sum
 } > "$report"
 mv "$archive" storage/tmp/release-build.tar.gz
 mv "$report" storage/tmp/release-build.sha256

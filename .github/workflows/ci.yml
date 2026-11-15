@@ -27,6 +27,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
+      - name: Pin npm build tool
+        run: npm install --global npm@10.9.9
       - name: Build input validation regression
         run: node --test tests/dependency-locks.test.mjs
       - name: Native PHP + Admin static verification
@@ -71,6 +73,8 @@ jobs:
           bash tests/connector-sdk-integration.sh
       - name: Build from reviewed lockfiles
         run: bash scripts/build-release.sh
+      - name: Seal release candidate
+        run: python3 scripts/candidate-release.py seal
       - name: Upload verified build evidence
         uses: actions/upload-artifact@v4
         with:
@@ -78,6 +82,11 @@ jobs:
           path: |
             storage/tmp/release-build.sha256
             storage/tmp/release-build.tar.gz
+            storage/tmp/candidate/release-candidate.tar.gz
+            storage/tmp/candidate/release-candidate.sha256
+            storage/tmp/candidate/release-candidate.cdx.json
+            storage/tmp/candidate/.release-candidate.json
+          include-hidden-files: true
           if-no-files-found: error
           retention-days: 14
   postgres-integration:

@@ -642,3 +642,11 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 - [x] Session CSRF concurrency fix and strict complete browser report gate.
 - [x] Executable full HTTP/PostgreSQL/TLS/DR integration journey and staging preflight.
 - [ ] Run full PostgreSQL/Redis CI, all browser suites and physical-device acceptance.
+
+
+## 0.9.9 — Stable Core Release Candidate
+
+- [x] Feature freeze, sealed candidate archive, build/file hashes and locked dependency SBOM.
+- [x] Candidate identity in staging checks, executable strict acceptance and 72-hour availability soak.
+- [ ] Resolve Composer/Admin locks, complete full build, CI matrix, live acceptance, performance/DR and soak on the same candidate.
+- [ ] Review security and compatibility findings before 1.0.0 stable promotion.

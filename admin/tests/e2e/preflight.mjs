@@ -41,6 +41,8 @@ try {
   }
   const system=await (await get('/api/v1/system','application/json')).json()
   if(system.version!==version||system.api_version!=='v1')throw new Error('Staging API version differs from checkout')
+  const candidate=process.env.CAJEER_CANDIDATE_ID
+  if(candidate&&(!/^[a-f0-9]{64}$/.test(candidate)||system.candidate_id!==candidate))throw new Error('Staging candidate identity differs from sealed build')
   const ready=await (await get('/api/v1/ready','application/json')).json()
   if(ready.status!=='ready')throw new Error('Staging API is not ready')
   const login=await (await get('/login','text/html')).text()

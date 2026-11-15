@@ -1,3 +1,9 @@
+## [0.9.9] — 2026-11-15 — Stable Core Release Candidate
+
+- Freeze features and preserve all 64 migrations. Require exact 0.9.8 installation marker for new offline upgrade.
+- Seal committed source, vendor and compiled outputs with SHA-256, deterministic archive metadata and CycloneDX locked dependency inventory. Verify deployed files and require matching candidate ID in staging probes.
+- Run strict acceptance plus a fail-closed 72-hour availability soak; emit success evidence only on completion. Full acceptance and missing Composer/Admin locks remain blockers.
+
 ## [0.9.8] — 2026-11-15 — Full Platform Integration & E2E
 
 - Fix cross-tab CSRF races with session-bound, domain-separated HMAC and legacy hash migration.
