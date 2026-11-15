@@ -1,0 +1,17 @@
+[Unit]
+Description=CajeerServers verified encrypted full backup
+After=network-online.target
+Wants=network-online.target
+# Opt-in: configure BACKUP_DIRECTORY, BACKUP_KEY_FILE and optional mounted offsite in .env.
+
+[Service]
+Type=oneshot
+User=cajeer
+Group=cajeer
+WorkingDirectory=/opt/cajeer
+ExecStart=/usr/bin/php /opt/cajeer/bin/cajeer backup:scheduled --offline
+TimeoutStartSec=2h
+KillMode=control-group
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes

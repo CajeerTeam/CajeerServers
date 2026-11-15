@@ -15,3 +15,68 @@ groups:
           severity: warning
         annotations:
           summary: 'CajeerServers dependency not ready: {{ $labels.dependency }}'
+      - alert: CajeerServersQueueUnavailable
+        expr: cajeer_ops_queue_up{job="cajeerservers"} == 0
+        for: 5m
+        labels: {severity: critical}
+        annotations: {summary: 'Queue unavailable: {{ $labels.queue }}'}
+      - alert: CajeerServersExpiredLeases
+        expr: cajeer_ops_queue_expired_leases{job="cajeerservers"} > 0
+        for: 10m
+        labels: {severity: warning}
+        annotations: {summary: 'Expired worker leases: {{ $labels.queue }}'}
+      - alert: CajeerServersQueueBacklog
+        expr: cajeer_ops_queue_pending{job="cajeerservers"} > 1000
+        for: 15m
+        labels: {severity: warning}
+        annotations: {summary: 'Queue backlog: {{ $labels.queue }}'}
+      - alert: CajeerServersFailedJobs
+        expr: cajeer_ops_queue_failed{job="cajeerservers"} > 0
+        for: 10m
+        labels: {severity: warning}
+        annotations: {summary: 'Failed jobs require inspection: {{ $labels.queue }}'}
+      - alert: CajeerServersSchedulerLag
+        expr: cajeer_ops_scheduler_lag_seconds{job="cajeerservers"} > 300
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: 'Scheduler overdue for more than five minutes'}
+      - alert: CajeerServersOutboxRetrying
+        expr: cajeer_ops_scheduler_outbox_retrying{job="cajeerservers"} > 0
+        for: 10m
+        labels: {severity: warning}
+        annotations: {summary: 'Scheduler outbox has retrying deliveries'}
+      - alert: CajeerServersDiskLow
+        expr: cajeer_ops_disk_free_ratio{job="cajeerservers"} < 0.10
+        for: 5m
+        labels: {severity: critical}
+        annotations: {summary: 'Local storage less than 10 percent free'}
+      - alert: CajeerServersBackupFailed
+        expr: cajeer_ops_backup_failed{job="cajeerservers"} == 1
+        for: 5m
+        labels: {severity: critical}
+        annotations: {summary: 'Last managed backup failed; inspect backup service journal'}
+      - alert: CajeerServersBackupStale
+        expr: (time() - cajeer_ops_backup_last_success_timestamp_seconds{job="cajeerservers"} > 93600) and on(job,instance) (cajeer_ops_backup_expected{job="cajeerservers"} == 1)
+        for: 5m
+        labels: {severity: critical}
+        annotations: {summary: 'No verified managed backup in the last 26 hours'}
+      - alert: CajeerServersOffsiteStale
+        expr: (time() - cajeer_ops_backup_last_offsite_timestamp_seconds{job="cajeerservers"} > 93600) and on(job,instance) (cajeer_ops_offsite_expected{job="cajeerservers"} == 1)
+        for: 5m
+        labels: {severity: critical}
+        annotations: {summary: 'No verified off-site copy in the last 26 hours'}
+      - alert: CajeerServersBackupStateUnavailable
+        expr: cajeer_ops_backup_status_up{job="cajeerservers"} == 0
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: 'Backup status file unavailable or invalid'}
+      - alert: CajeerServersBackupStuck
+        expr: (time() - cajeer_ops_backup_started_timestamp_seconds{job="cajeerservers"} > 7200) and on(job,instance) (cajeer_ops_backup_running{job="cajeerservers"} == 1)
+        for: 5m
+        labels: {severity: critical}
+        annotations: {summary: 'Managed backup has not completed within two hours'}
+      - alert: CajeerServersConnectorCircuitOpen
+        expr: cajeer_connector_circuit_open{job="cajeerservers"} > 0
+        for: 10m
+        labels: {severity: warning}
+        annotations: {summary: 'Connector circuits open: {{ $labels.provider }}'}

@@ -80,6 +80,7 @@ use Cajeer\Servers\Runtime\HttpResponse;
 use Cajeer\Servers\Runtime\RuntimeDiagnostics;
 use Cajeer\Servers\Observability\Diagnostics;
 use Cajeer\Servers\Observability\OperationalStats;
+use Cajeer\Servers\Observability\ProductionOperations;
 use Cajeer\Servers\Observability\HealthCheck;
 use Cajeer\Servers\Observability\SystemReport;
 use Cajeer\Servers\Observability\PrometheusExporter;
@@ -244,6 +245,7 @@ final class Application
         $this->services->singleton(RuntimeDiagnostics::class, fn (ServiceContainer $container): RuntimeDiagnostics => new RuntimeDiagnostics($this->basePath(), $container->get(ConfigRepository::class)));
         $this->services->singleton(OperationalStats::class, fn (ServiceContainer $c): OperationalStats => new OperationalStats(
             $c->get(ConfigRepository::class), $c->get(DatabaseManager::class), $c->get(RedisClient::class)));
+        $this->services->singleton(ProductionOperations::class, fn (ServiceContainer $c): ProductionOperations => new ProductionOperations($c->get(OperationalStats::class),$c->get(ConfigRepository::class),$this->basePath()));
         $this->services->singleton(Diagnostics::class, fn (ServiceContainer $c): Diagnostics => new Diagnostics(
             $c->get(RuntimeDiagnostics::class), $c->get(ConfigRepository::class), $c, $c->get(InstallState::class)));
         $this->services->singleton(HealthCheck::class, fn (ServiceContainer $c): HealthCheck => new HealthCheck(
@@ -251,7 +253,7 @@ final class Application
         $this->services->singleton(SystemReport::class, fn (ServiceContainer $c): SystemReport => new SystemReport(
             $this, $c->get(ConfigRepository::class), $c->get(RuntimeDiagnostics::class), $c->get(Diagnostics::class)));
         $this->services->singleton(PrometheusExporter::class, fn (ServiceContainer $c): PrometheusExporter => new PrometheusExporter(
-            $this->basePath('storage/cache/observability-metrics.json'),$c->get(DatabaseManager::class)));
+            $this->basePath('storage/cache/observability-metrics.json'),$c->get(DatabaseManager::class),$c->get(ProductionOperations::class)));
         $this->services->singleton(OpenTelemetryTracer::class, function (ServiceContainer $c): OpenTelemetryTracer {
             $cfg = $c->get(ConfigRepository::class);
             return new OpenTelemetryTracer($cfg->get('observability.otel_enabled', false) === true,
@@ -265,7 +267,7 @@ final class Application
         $this->services->singleton(AdminController::class, fn (ServiceContainer $c): AdminController => new AdminController(
             $c->get(AuthenticationService::class), $c->get(Rbac::class), $c->get(DatabaseManager::class),
             $c->get(QueueDriverInterface::class), $c->get(JobProcessor::class), $c->get(OperationalStats::class),
-            $c->get(Scheduler::class), $c->get(Diagnostics::class), $c->get(AuditLogger::class), $c->get(CmdbIntegrity::class),
+            $c->get(Scheduler::class), $c->get(Diagnostics::class), $c->get(AuditLogger::class), $c->get(CmdbIntegrity::class),$c->get(ProductionOperations::class),
         ));
         $this->services->singleton(InventoryRepository::class, fn (ServiceContainer $c): InventoryRepository => new InventoryRepository());
         $this->services->singleton(InventoryService::class, fn (ServiceContainer $c): InventoryService => new InventoryService(

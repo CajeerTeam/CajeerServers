@@ -10,6 +10,7 @@ use Cajeer\Servers\Http\Exception\HttpException;
 use Cajeer\Servers\Inventory\CmdbIntegrity;
 use Cajeer\Servers\Observability\Diagnostics;
 use Cajeer\Servers\Observability\OperationalStats;
+use Cajeer\Servers\Observability\ProductionOperations;
 use Cajeer\Servers\Queue\JobProcessor;
 use Cajeer\Servers\Queue\QueuedJob;
 use Cajeer\Servers\Queue\QueueDriverInterface;
@@ -34,6 +35,7 @@ final class AdminController
         private readonly Diagnostics $diagnostics,
         private readonly AuditLogger $audit,
         private readonly CmdbIntegrity $cmdbIntegrity,
+        private readonly ?ProductionOperations $operations=null,
     ) {}
 
     /** @return array<string,mixed> */
@@ -67,6 +69,7 @@ final class AdminController
         return HttpResponse::json([
             'checked_at' => $checks['checked_at'], 'ready' => $checks['ok'],
             'checks' => $checks['checks'], 'queue' => $queue, 'scheduler' => $scheduler,
+            'operations' => $this->operations?->snapshot($queue,$scheduler),
         ]);
     }
 

@@ -40,7 +40,7 @@ final class CommandRunner
             if ($command==='inventory:integrity' && ($maintenance->active() || $maintenance->requiresUpgrade())) {
                 return $maintenance->exclusive(fn()=>(new InventoryCommands($this->app))->run($command,$argv),10);
             }
-            if (!in_array($command, ['help','version','--version','-V','health:live','install:status','backup:key:generate','backup:verify'], true)) $lease = $maintenance->shared();
+            if (!in_array($command, ['help','version','--version','-V','health:live','install:status','backup:key:generate','backup:verify','backup:scheduled','backup:restore','backup:drill'], true)) $lease = $maintenance->shared();
             return match ($command) {
                 'help' => $this->help(),
                 'version', '--version', '-V' => $this->version(),
@@ -66,7 +66,7 @@ final class CommandRunner
                 'health', 'health:live', 'health:ready', 'doctor:deep', 'system:report', 'metrics:render', 'openapi:lint', 'queue:stats', 'scheduler:stats', 'security:prune' => (new OperationalCommands($this->app))->run($command, $argv),
                 'inventory:preflight', 'inventory:constraints', 'inventory:integrity' => (new InventoryCommands($this->app))->run($command, $argv),
                 'vault:key:generate', 'vault:key:status', 'vault:key:rotate', 'vault:init', 'vault:check', 'vault:probe' => (new VaultCommands($this->app))->run($command, $argv),
-                'backup:key:generate', 'backup:create', 'backup:verify', 'backup:restore' => (new BackupCommands($this->app))->run($command, $argv),
+                'backup:key:generate', 'backup:create', 'backup:verify', 'backup:restore', 'backup:scheduled', 'backup:drill' => (new BackupCommands($this->app))->run($command, $argv),
                 'collection:doctor', 'scripts:retain', 'data-export:deliver', 'data-export:work', 'data-export:retain', 'ingestion:work', 'ingestion:retain', 'metrics:retain', 'collection:plans', 'collection:plan-run', 'collection:plan-redrive', 'collection:plan-pause', 'collection:plan-resume', 'collection:list', 'collection:run', 'collection:status', 'connector:doctor', 'connector:sync', 'connector:tick', 'connector:run', 'connector:status', 'connector:cancel', 'connector:work' => (new ConnectorCommands($this->app))->run($command,$argv),
                 'syslog:listen' => $this->syslog($argv[2]??''),
                 'system-events:retain' => $this->eventRetention($argv[2]??'30'),
@@ -166,6 +166,9 @@ CajeerServers CLI
   backup:key:generate --output=/private/backup.key  Создать автономный ключ шифрования 0600
   backup:create --output=/secure/backup.cjdr [--key-file=/private/backup.key] [--db-only]
                       Потоковый шифрованный pg_dump, файлы и секреты для полного DR
+  backup:drill --offline --archive=FILE --target-db=cajeer_drill_NAME --confirm-target=cajeer_drill_NAME
+      --storage-target=/new/storage --recovery-target=/new/secrets
+  backup:scheduled --offline [--directory=/secure/backups] [--offsite=/mnt/offsite] [--keep=7]
   backup:verify --archive=/secure/backup.cjdr [--key-file=/private/backup.key]
                       Проверить AEAD целиком и SHA-256 каждого объекта/дампа
   backup:restore --archive=/secure/backup.cjdr --target-db=NEW_EMPTY_DB

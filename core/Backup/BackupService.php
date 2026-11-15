@@ -17,7 +17,7 @@ final class BackupService
 {
     public function __construct(private readonly Application $app) {}
 
-    public function create(string $output, string $keyFile, bool $databaseOnly = false, ?string $sourceVersion = null, ?string $upgradeId = null): array
+    public function create(string $output, string $keyFile, bool $databaseOnly = false, ?string $sourceVersion = null, ?string $upgradeId = null, ?string $quiescedInstallation = null): array
     {
         $key = BackupKey::load($keyFile);
         try {
@@ -78,7 +78,8 @@ final class BackupService
                     'created_utc' => gmdate('Y-m-d\TH:i:s\Z'),
                     'database' => $database, 'app_version' => $sourceVersion ?? $this->app->version(),
                     'upgrade_id' => $upgradeId,
-                    'consistent_storage' => false, // DB and files require operator-enforced quiescence.
+                    'consistent_storage' => !$databaseOnly && $quiescedInstallation !== null,
+                    'installation_id' => $quiescedInstallation, // Caller holds exclusive admission; external writers must be stopped.
                 ]);
                 $count = 0; $storageBytes = 0;
                 foreach ($files as $relative => $path) {
@@ -110,6 +111,7 @@ final class BackupService
                     throw new RuntimeException('Cannot safely publish new encrypted backup without overwriting existing files.');
                 }
                 @unlink($temp);
+                self::syncDirectory($targetDir);
                 return ['created' => true, 'archive' => $output, 'mode' => $databaseOnly ? 'database' : 'full',
                     'database' => $database, 'summary' => $summary, 'key_id' => BackupKey::identifier($key)];
             } finally {
@@ -159,6 +161,9 @@ final class BackupService
             if ($this->inside($path, $this->app->basePath('public'))) {
                 throw new RuntimeException('Restore directories must not be under the public web root.');
             }
+            $liveStorage=(string)$this->app->config()->get('storage.local.root','') ?: $this->app->basePath('storage/files');
+            $liveStorage=realpath($liveStorage)?:$liveStorage;
+            if ($this->inside($path,$liveStorage) || $this->inside($liveStorage,$path) || $this->inside($path,$this->app->basePath()) || $this->inside($this->app->basePath(),$path)) throw new RuntimeException('Restore target overlaps the running application or storage.');
             if ($path === $archive || $path === $keyFile || $this->inside($archive, $path) || $this->inside($keyFile, $path)) {
                 throw new RuntimeException('Restore target overlaps archive or decryption key.');
             }
@@ -168,6 +173,7 @@ final class BackupService
             throw new RuntimeException('Restore storage and recovery directories must be separate.');
         }
         $db = new PostgresStream($this->app->config());
+        if ($targetDatabase === $db->sourceDatabase()) throw new RuntimeException('Restore target must differ from the configured source database.');
         $db->checkEmptyTarget($targetDatabase);
         $stages = []; $published = []; $active = null; $opened = false; $completed = false;
         $key = BackupKey::load($keyFile);
@@ -178,6 +184,9 @@ final class BackupService
                 $stages[$name] = $stage;
             }
             $callbacks = [
+                'header' => static function (array $header) use ($checked): void {
+                    if ($header !== $checked['header']) throw new RuntimeException('Backup header changed since verification.');
+                },
                 'file_start' => function (array $entry) use ($stages, &$active): void {
                     $name = $entry['path'];
                     $kind = str_starts_with($name, 'storage/') ? 'storage' : 'recovery';
@@ -215,7 +224,8 @@ final class BackupService
                     $db->writeRestore($chunk);
                 },
             ];
-            EncryptedArchive::scan($archive, $key, $callbacks);
+            $rescanned=EncryptedArchive::scan($archive, $key, $callbacks);
+            if ($rescanned['summary']!==$checked['summary']) throw new RuntimeException('Backup summary changed since verification.');
             if (!$opened) throw new RuntimeException('Backup has no database stream.');
             $db->finish();
             $completed = true;
@@ -337,6 +347,14 @@ final class BackupService
             throw new RuntimeException('Output parent must be an existing writable canonical directory without symlinks.');
         }
         return $parent;
+    }
+
+    public static function syncDirectory(string $path): void
+    {
+        if (PHP_OS_FAMILY !== 'Linux') return;
+        $handle = @fopen($path, 'r');
+        if (!is_resource($handle)) throw new RuntimeException('Cannot open backup directory for durability check.');
+        try { if (!fsync($handle)) throw new RuntimeException('Cannot sync backup directory.'); } finally { fclose($handle); }
     }
 
     private function inside(string $child, string $parent): bool

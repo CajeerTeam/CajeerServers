@@ -30,7 +30,9 @@ final class Maintenance
 
     public function shared(): mixed
     {
-        $lock = $this->lock(LOCK_SH, 0);
+        // Serialize admission with a draining backup; never keep the gate for the job lifetime.
+        $gate = $this->lock(LOCK_SH, 0, 'admission.lock');
+        try { $lock = $this->lock(LOCK_SH, 0); } finally { fclose($gate); }
         try {
             if ($this->active() || $this->requiresUpgrade()) throw new RuntimeException('Maintenance or release upgrade required.');
             return $lock;
@@ -43,9 +45,19 @@ final class Maintenance
         try { return $operation(); } finally { fclose($lock); }
     }
 
-    private function lock(int $mode, int $seconds): mixed
+    /** Stop new admissions before waiting for existing requests/workers to drain.
+     * The gate is an OS lock, so a crashed backup cannot leave a permanent drain marker.
+     */
+    public function drainExclusive(callable $operation, int $seconds): mixed
     {
-        $path = $this->directory . '/maintenance.lock';
+        if ($seconds < 0 || $seconds > 1800) throw new RuntimeException('Invalid drain timeout.');
+        $gate = $this->lock(LOCK_EX, 0, 'admission.lock');
+        try { return $this->exclusive($operation, $seconds); } finally { fclose($gate); }
+    }
+
+    private function lock(int $mode, int $seconds, string $name = 'maintenance.lock'): mixed
+    {
+        $path = $this->directory . '/' . $name;
         if (is_link($path)) throw new RuntimeException('Unsafe maintenance lock.');
         $mask = umask(0077);
         try { $handle = @fopen($path, 'c+b'); } finally { umask($mask); }

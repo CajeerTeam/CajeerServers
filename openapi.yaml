@@ -1,7 +1,7 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 0.9.6
+  version: 0.9.7
   description: 'CajeerServers 0.7.1: VMmanager connection profiles, PVE/PBS integration and infrastructure collection.'
 servers:
 - url: /api/v1
@@ -993,7 +993,7 @@ paths:
   /admin/overview:
     get:
       operationId: adminOverview
-      summary: Сводка реальной готовности зависимостей
+      summary: Сводка готовности зависимостей, очередей, Scheduler, диска и managed backup
       security:
       - sessionAuth: []
       responses:

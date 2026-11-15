@@ -11,7 +11,7 @@ final class PrometheusExporter
     private const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS', 'OTHER'];
     private const BUCKETS = [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0];
 
-    public function __construct(private readonly string $path,private readonly ?\Cajeer\Servers\Database\DatabaseManager $db=null) {}
+    public function __construct(private readonly string $path,private readonly ?\Cajeer\Servers\Database\DatabaseManager $db=null, private readonly ?ProductionOperations $operations=null) {}
 
     public function observe(string $method, int $status, float $seconds): void
     {
@@ -94,6 +94,7 @@ final class PrometheusExporter
             try {$result.=\Cajeer\Servers\Connector\ConnectorHealthMonitor::metrics($this->db->connection());}
             catch (\Throwable) { /* scrape remains available before installation or during DB outage */ }
         }
+        if ($this->operations!==null) $result.=ProductionOperations::metrics($this->operations->snapshot());
         return $result;
     }
 

@@ -55,7 +55,7 @@ final class PostgresStream
     /** @return list<string> */
     private function connectionArgs(array $cfg, string $database): array
     {
-        if ($database === '' || strlen($database) > 63 || str_contains($database, "\0")) {
+        if (!preg_match('/^[A-Za-z0-9_][A-Za-z0-9_.-]{0,62}$/D', $database)) {
             throw new RuntimeException('Invalid PostgreSQL database name.');
         }
         return [

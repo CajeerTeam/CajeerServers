@@ -19,7 +19,7 @@ final class BackupKey
         try { $out = @fopen($path, 'x+b'); } finally { umask($old); }
         if (!is_resource($out)) throw new RuntimeException('Cannot exclusively create backup key file.');
         try {
-            if (!@chmod($path, 0600) || fwrite($out, $content) !== strlen($content) || !fflush($out)) {
+            if (!@chmod($path, 0600) || fwrite($out, $content) !== strlen($content) || !fflush($out) || !fsync($out)) {
                 throw new RuntimeException('Cannot save backup key file.');
             }
         } catch (\Throwable $error) {
@@ -27,6 +27,7 @@ final class BackupKey
             throw $error;
         }
         fclose($out);
+        BackupService::syncDirectory($parent);
     }
 
     public static function load(string $path): string
@@ -35,7 +36,7 @@ final class BackupKey
         if (is_link($path) || !is_file($path)) throw new RuntimeException('Backup key must be a regular file, not a symlink.');
         clearstatcache(true, $path);
         $before = @stat($path);
-        if (!is_array($before) || ($before['mode'] & 0077) !== 0 || $before['size'] > 256 || $before['size'] < 43) {
+        if (!is_array($before) || ($before['mode'] & 0077) !== 0 || $before['nlink'] !== 1 || $before['size'] > 256 || $before['size'] < 43) {
             throw new RuntimeException('Backup key requires private permissions and 32-byte key material.');
         }
         if (function_exists('posix_geteuid') && $before['uid'] !== posix_geteuid()) {
@@ -45,7 +46,7 @@ final class BackupKey
         if (!is_resource($stream)) throw new RuntimeException('Backup key cannot be opened.');
         try {
             $opened = fstat($stream);
-            if (!is_array($opened) || $opened['ino'] !== $before['ino'] || $opened['dev'] !== $before['dev'] || ($opened['mode'] & 0077) !== 0) {
+            if (!is_array($opened) || $opened['ino'] !== $before['ino'] || $opened['dev'] !== $before['dev'] || ($opened['mode'] & 0077) !== 0 || $opened['nlink'] !== 1) {
                 throw new RuntimeException('Backup key changed while opening.');
             }
             $encoded = trim((string) stream_get_contents($stream, 257));
@@ -70,7 +71,7 @@ final class BackupKey
             throw new RuntimeException('An absolute file path is required.');
         }
         $parent = dirname($path);
-        if (is_link($parent) || ($resolved = realpath($parent)) === false || !is_dir($resolved) || ($mustBeWritable && !is_writable($resolved))) {
+        if (is_link($parent) || ($resolved = realpath($parent)) === false || $resolved !== $parent || !is_dir($resolved) || ($mustBeWritable && !is_writable($resolved))) {
             throw new RuntimeException('Private file parent must exist and be writable.');
         }
         return $resolved;

@@ -1,0 +1,22 @@
+[Unit]
+Description=CajeerServers Nuxt production SSR
+After=network.target
+
+[Service]
+Type=simple
+User=cajeer
+Group=cajeer
+WorkingDirectory=/opt/cajeer/admin/.output
+Environment=NODE_ENV=production
+Environment=NITRO_HOST=127.0.0.1
+Environment=NITRO_PORT=3000
+ExecStart=/usr/bin/node /opt/cajeer/admin/.output/server/index.mjs
+Restart=on-failure
+RestartSec=3s
+TimeoutStopSec=30s
+NoNewPrivileges=yes
+PrivateTmp=yes
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

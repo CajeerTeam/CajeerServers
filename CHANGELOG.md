@@ -1,3 +1,10 @@
+## [0.9.7] — 2026-11-15 — Production Operations & Disaster Recovery
+
+- Add exclusive admission drain for managed full backups, verified encrypted off-site publication, authenticated retention and durable status.
+- Restore into a separate empty database, validate migration history, CMDB, recovered APP_KEY/MFA and Vault via a real recovery drill; refuse live storage and source DB overwrite.
+- Extend authenticated Admin overview and Prometheus with queue leases, scheduler lag, storage, backup and off-site status; add alert rules, backup timer, Nuxt SSR and dedicated PHP-FPM configuration.
+- Offline upgrade 0.9.6 → 0.9.7, no new migrations. PostgreSQL/Redis live recovery and deployment acceptance remain mandatory.
+
 ## [0.9.6] — 2026-11-15 — Performance & Scalability
 
 - Add optional count-free inventory pages, Admin keyset navigation, scoped set-based IP search, and indexes for active asset sorts/filters, groups and event feeds.
