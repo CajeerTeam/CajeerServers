@@ -1,3 +1,12 @@
+## [0.9.3] — 2026-11-15 — Security & Access Control Hardening
+
+- Synchronize 58 runtime/SQL RBAC permissions and retain denied RBAC audit events on transaction rollback.
+- Permanently invalidate Vault and service grants on account/role/workspace/MFA/password security changes; migration 0061 revokes legacy grants and pauses plans. Fresh MFA delegation is required.
+- Enforce sensitive collector permissions on admission, execution, commit, history, plans, direct discovery and full run exports; preserve workspace membership isolation.
+- Recheck live sessions for MFA and Vault operations, serialize step-up against membership changes, enforce actor-wide throttling, independent Vault key material and private key files.
+- Block IPv6 transition-address policy bypasses and redact credential text and arbitrary HTTP path parameters from application logs.
+- Support offline upgrade 0.9.2→0.9.3 and preserve prior completed upgrade journal. Add native and PostgreSQL regression coverage; full live/DB and build acceptance still required.
+
 ## [0.9.2] — 2026-11-15 — Installation, Upgrade & Migration Stability
 
 - Add single-host maintenance admission, version drift protection and offline resumable upgrade from 0.9.1 with authenticated full backup, atomic migrations and readiness gate.

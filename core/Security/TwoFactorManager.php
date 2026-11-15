@@ -64,12 +64,24 @@ final class TwoFactorManager
         if (!$ok) throw new HttpException(429, 'Too many security attempts.', 'rate_limited', ['Retry-After' => '900']);
     }
 
+    private function assertLiveSession(PDO $pdo,array $principal):void
+    {
+        if (($principal['mode']??null)!=='session' || !isset($principal['id'],$principal['user']['id'])) throw new HttpException(403,'Active browser session required.','session_required');
+        $user=$pdo->prepare('SELECT 1 FROM users WHERE id=:id AND is_active FOR UPDATE');
+        $user->execute(['id'=>$principal['user']['id']]);
+        if (!$user->fetchColumn()) throw new HttpException(403,'Active browser session required.','session_required');
+        $q=$pdo->prepare('SELECT 1 FROM auth_sessions s JOIN users u ON u.id=s.user_id WHERE s.id=:session AND s.user_id=:id AND s.revoked_at IS NULL AND s.expires_at>clock_timestamp() AND (NOT u.two_factor_enabled OR s.mfa_verified) FOR UPDATE OF s');
+        $q->execute(['session'=>$principal['id'],'id'=>$principal['user']['id']]);
+        if (!$q->fetchColumn()) throw new HttpException(403,'Active browser session required.','session_required');
+    }
+
     /** @param array<string,mixed> $principal @return array{secret:string,otpauth_url:string} */
     public function enroll(array $principal, string $password): array
     {
         $userId = $principal['user']['id'];
         $this->throttle('mfa.enroll', $userId, 5);
         return $this->db->transaction(function (PDO $pdo) use ($principal, $userId, $password): array {
+            $this->assertLiveSession($pdo,$principal);
             $user = $pdo->prepare('SELECT password_hash,two_factor_enabled,email FROM users WHERE id=:id AND is_active=true FOR UPDATE');
             $user->execute(['id' => $userId]);
             $row = $user->fetch(PDO::FETCH_ASSOC);
@@ -93,6 +105,7 @@ final class TwoFactorManager
         $id = $principal['user']['id'];
         $this->throttle('mfa.confirm', $id, 10);
         return $this->db->transaction(function (PDO $pdo) use ($principal, $id, $code): array {
+            $this->assertLiveSession($pdo,$principal);
             $stmt = $pdo->prepare('SELECT secret_ciphertext,enabled_at,last_counter FROM user_mfa WHERE user_id=:id FOR UPDATE');
             $stmt->execute(['id' => $id]);
             $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -125,7 +138,8 @@ final class TwoFactorManager
     {
         $id = $principal['user']['id'];
         $this->throttle('mfa.disable', $id, 10);
-        $this->db->transaction(function (PDO $pdo) use ($id, $password, $code): void {
+        $this->db->transaction(function (PDO $pdo) use ($principal, $id, $password, $code): void {
+            $this->assertLiveSession($pdo,$principal);
             $stmt = $pdo->prepare('SELECT password_hash,two_factor_enabled FROM users WHERE id=:id FOR UPDATE');
             $stmt->execute(['id' => $id]);
             $user = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -136,6 +150,7 @@ final class TwoFactorManager
             $pdo->prepare('UPDATE users SET two_factor_enabled=false WHERE id=:id')->execute(['id' => $id]);
             $pdo->prepare('UPDATE auth_sessions SET revoked_at=now() WHERE user_id=:id AND revoked_at IS NULL')->execute(['id' => $id]);
             $pdo->prepare('UPDATE api_tokens SET revoked_at=now() WHERE user_id=:id AND revoked_at IS NULL')->execute(['id' => $id]);
+            GrantRevocation::revoke($pdo, $id);
             $this->audit->record($pdo, $id, 'security.mfa.disabled', 'success', 'user', $id);
         });
     }

@@ -94,15 +94,19 @@ final class JsonLogger
 
     public static function sensitive(string $key): bool
     {
-        return preg_match('/(?:password|passwd|secret|token|api[_-]?key|app[_-]?key|private[_-]?key|signing[_-]?key|(?:^|[_-])key(?:$|[_-])|authorization|cookie|credential|dsn|vault|bearer)/i', $key) === 1;
+        return preg_match('/(?:password|passwd|secret|token|api[_-]?key|app[_-]?key|private[_-]?key|community|passphrase|recovery[_-]?code|(?:^|[_-])(?:otp|totp|csrf|pin)(?:$|[_-])|signing[_-]?key|(?:^|[_-])key(?:$|[_-])|authorization|cookie|credential|dsn|vault|bearer)/i', $key) === 1;
     }
 
     public static function redactString(string $value): string
     {
-        // Redact common token and DSN fragments even if they occur in messages.
-        $value = preg_replace('/(\b(?:password|passwd|secret|token|authorization|api_key|app_key|vault_key)\s*[=:]\s*)([^\s,;&]+)/i', '$1[REDACTED]', $value) ?? $value;
-        $value = preg_replace('/(\b(?:https?:\/\/)[^\s:@\/]+:)[^\s@\/]+@/i', '$1[REDACTED]@', $value) ?? $value;
-        $value = preg_replace('/\bBearer\s+[^\s,;]+/i', 'Bearer [REDACTED]', $value) ?? $value;
+        // Treat private key material and credential headers as opaque, not whitespace-separated words.
+        $value = preg_replace('~-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----.*?(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|\\z)~s', '[REDACTED PRIVATE KEY]', $value) ?? '[REDACTED]';
+        $value = preg_replace('~\\b(?:authorization|proxy-authorization|set-cookie|cookie)\\s*[:=][^\\r\\n]*~i', '[REDACTED HEADER]', $value) ?? '[REDACTED]';
+        $value = preg_replace('~\\b(?:cs1|at1)\\.[0-9a-f-]{36}\\.[A-Za-z0-9_-]{43}\\b~i', '[REDACTED TOKEN]', $value) ?? '[REDACTED]';
+        $value = preg_replace('~\\b(?:Bearer|Basic|PVEAPIToken)(?:\\s+|=)[^\\r\\n,;]+~i', '[REDACTED AUTHORIZATION]', $value) ?? '[REDACTED]';
+        $value = preg_replace('~(https?://)[^\\s/@]+@~i', '$1[REDACTED]@', $value) ?? '[REDACTED]';
+        // Match JSON/quoted assignments too. Redact the remainder of the line: values may contain spaces.
+        $value = preg_replace('~\\b(?:password|passwd|passphrase|secret|token|api[_-]?key|app[_-]?key|vault[_-]?key|private[_-]?key|community|recovery[_-]?code|totp|csrf)\\b["\']?\\s*[:=][^\\r\\n]*~i', '[REDACTED ASSIGNMENT]', $value) ?? '[REDACTED]';
         return $value;
     }
 }

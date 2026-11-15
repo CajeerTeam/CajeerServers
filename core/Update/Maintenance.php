@@ -87,6 +87,13 @@ final class Maintenance
         return $data;
     }
 
+    public function archiveCompleted(array $data): void
+    {
+        $id=$data['upgrade_id']??'';
+        if (($data['phase']??null)!=='complete' || !is_string($id) || !preg_match('/^[a-f0-9]{32}$/D',$id)) throw new RuntimeException('Invalid completed upgrade journal.');
+        $this->write('upgrade-'.$id.'.json',$data);
+    }
+
     public function save(array $data): void { $this->write('upgrade.json', $data); }
 
     private function write(string $name, array $data): void

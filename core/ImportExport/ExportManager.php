@@ -22,6 +22,9 @@ final class ExportManager
     private function access(PDO $p,string $actor,string $target,?string $kind=null):array
     {
         foreach(['inventory.transfer.read','inventory.assets.read','connectors.targets.read'] as $perm)$this->rbac->requireUserPermission($actor,$perm,$p);
+        // Run artifacts contain full snapshots, including sensitive collectors. Recheck on
+        // creation, worker execution and every download, including pre-upgrade artifacts.
+        if($kind==='runs')foreach(['inventory.network.read','system.events.read','network.configuration.read'] as $perm)$this->rbac->requireUserPermission($actor,$perm,$p);
         if(in_array($kind,['events','observations'],true))$this->rbac->requireUserPermission($actor,'ingestion.read',$p);
         return $this->bindings->show($actor,$target);
     }

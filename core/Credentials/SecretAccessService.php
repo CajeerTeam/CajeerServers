@@ -89,7 +89,7 @@ SQL . ($lock ? ' FOR SHARE OF c, a, b' : ''));
         $stmt=$pdo->prepare(<<<'SQL'
 SELECT 1 FROM auth_sessions s JOIN users u ON u.id=s.user_id
 WHERE s.id=CAST(:session AS uuid) AND s.user_id=CAST(:actor AS uuid)
- AND s.revoked_at IS NULL AND s.expires_at>now()
+ AND s.revoked_at IS NULL AND s.expires_at>clock_timestamp()
  AND s.mfa_verified=true AND u.two_factor_enabled=true AND u.is_active=true
 FOR SHARE OF s,u
 SQL);
@@ -118,11 +118,13 @@ SQL);
         }
         // Must be a separate committed transaction, including unsuccessful attempts.
         $withinLimit=$this->db->transaction(fn(PDO $pdo):bool => $this->limiter->hit(
-            $pdo, 'vault.stepup', $actor.':'.$session, 8, 900));
+            $pdo, 'vault.stepup', $actor, 8, 900));
         if (!$withinLimit) throw new HttpException(429,'Too many authorization attempts.','rate_limited', ['Retry-After'=>'900']);
         try {
             $this->vault->check();
             return $this->db->transaction(function(PDO $pdo) use ($principal,$actor,$session,$asset,$credential,$purpose,$password,$totp,$requestId):array {
+                $initial=$this->binding($pdo,$actor,$asset,$credential,$purpose,false);
+                $this->inventory->lockWorkspace($pdo,$initial['workspace']);
                 $this->liveSession($pdo,$principal);
                 $this->rbac->requirePermission($principal,'vault.credentials.use',$pdo);
                 $binding=$this->binding($pdo,$actor,$asset,$credential,$purpose,true);
@@ -215,6 +217,8 @@ SQL);
     /** Single-use claim shared by manual consumption and service delegation. */
     private function claimGrant(PDO $pdo,array $principal,string $actor,string $session,string $asset,string $credential,string $purpose):array
     {
+            $initial=$this->binding($pdo,$actor,$asset,$credential,$purpose,false);
+            $this->inventory->lockWorkspace($pdo,$initial['workspace']);
             $this->liveSession($pdo,$principal);
             $this->rbac->requirePermission($principal,'vault.credentials.use',$pdo);
             $binding=$this->binding($pdo,$actor,$asset,$credential,$purpose,true);

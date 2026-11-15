@@ -51,7 +51,7 @@ final class UpgradeService
             if ($old === false || $old === realpath($this->app->basePath()) || !is_dir($old)) throw new RuntimeException('A separate retained source release directory is required.');
             $from = trim((string) file_get_contents($old . '/VERSION'));
             $to = $this->app->version();
-            if ($from !== '0.9.1' || $to !== '0.9.2') throw new RuntimeException('Supported upgrade is 0.9.1 to 0.9.2.');
+            if ($from !== '0.9.2' || $to !== '0.9.3') throw new RuntimeException('Supported upgrade is 0.9.2 to 0.9.3.');
             if (!str_starts_with($archive,'/') || !str_starts_with($key,'/')) throw new RuntimeException('Backup and key paths must be absolute.');
             $db = $this->app->container()->get(DatabaseManager::class);
             if ($db->driver() !== 'pgsql') throw new RuntimeException('Upgrade requires PostgreSQL.');
@@ -71,6 +71,12 @@ final class UpgradeService
                 $fingerprint = hash('sha256',json_encode(array_column($validation['rows'],'checksum','version'),JSON_THROW_ON_ERROR));
                 $expected = ['from'=>$from,'to'=>$to,'installation_id'=>$identity['id'],'database'=>$identity['database'],'source'=>$old,'archive'=>$archive,'schema_sha256'=>$fingerprint];
                 $journal = $this->maintenance->journal();
+                $prior = null;
+                if ($journal !== null && $journal['phase']==='complete' && ($journal['to']??null)===$from
+                    && ($journal['installation_id']??null)===$identity['id'] && ($journal['database']??null)===$identity['database']
+                    && ($this->installation->record()['version']??null)===$from) {
+                    $prior=$journal; $journal=null;
+                }
                 if ($journal === null) {
                     if (!$this->maintenance->requiresUpgrade()) throw new RuntimeException('Installation is already at the running release version.');
                     $markerVersion=$this->installation->record()['version'] ?? '';
@@ -78,6 +84,7 @@ final class UpgradeService
                     if (file_exists($archive) || is_link($archive)) throw new RuntimeException('New upgrade backup path must not exist.');
                     foreach ($rows as $version=>$row) if ($row['status']==='applied' && !isset($oldFiles[$version])) throw new RuntimeException('Database is ahead of the source release.');
                     $journal = $expected + ['phase'=>'backup','upgrade_id'=>bin2hex(random_bytes(16)),'started_at'=>gmdate(DATE_ATOM)];
+                    if ($prior!==null) $this->maintenance->archiveCompleted($prior);
                     $this->maintenance->save($journal);
                 }
                 foreach ($expected as $field=>$value) if (($journal[$field] ?? null) !== $value) throw new RuntimeException('Upgrade inputs differ from the persisted journal: '.$field);

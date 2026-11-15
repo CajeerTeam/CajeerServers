@@ -17,6 +17,15 @@ final class DatabaseManager
     private array $connections = [];
     /** @var array<string, int> */
     private array $levels = [];
+    /** @var array<string,list<callable(PDO):void>> */
+    private array $after = [];
+
+    public function afterTransaction(callable $callback): void
+    {
+        $name=$this->connectionName();
+        if (($this->levels[$name]??0)>0) { $this->after[$name][]=$callback; return; }
+        $callback($this->connection());
+    }
 
     public function __construct(
         private readonly ConfigRepository $config,
@@ -101,6 +110,14 @@ final class DatabaseManager
                 throw $error;
             } finally {
                 $this->levels[$name] = $level;
+                if ($level===0) {
+                    $callbacks=$this->after[$name]??[];
+                    unset($this->after[$name]);
+                    foreach ($callbacks as $audit) {
+                        try { if (!$pdo->inTransaction()) $audit($pdo); }
+                        catch (Throwable) { error_log('Cajeer: post-transaction security audit failed.'); }
+                    }
+                }
             }
         }
         throw new RuntimeException('Transaction retry limit exceeded.');

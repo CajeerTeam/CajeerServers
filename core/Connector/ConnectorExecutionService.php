@@ -186,10 +186,7 @@ final class ConnectorExecutionService
     }
     private function networkPermission(PDO $pdo,string $actor,string $collector,string $operation):void
     {
-        if($collector==='routeros.configuration-backup')$this->rbac->requireUserPermission($actor,'network.configuration.backup',$pdo);
-        if($collector!=='vmmanager.network')return;
-        $this->rbac->requireUserPermission($actor,'inventory.network.read',$pdo);
-        if($operation==='sync')$this->rbac->requireUserPermission($actor,'inventory.network.manage',$pdo);
+        foreach(CollectorAccess::executePermissions($collector,$operation) as $permission) $this->rbac->requireUserPermission($actor,$permission,$pdo);
     }
     private function planAccess(PDO $pdo,string $actor,string $target,bool $write):array
     {
@@ -227,8 +224,8 @@ final class ConnectorExecutionService
     {
         $pdo=$this->db->connection();$this->planAccess($pdo,$actor,$target,false);
         if ($limit<1||$limit>100||$offset<0||$offset>10000) throw new HttpException(422,'Invalid pagination.','validation_failed');
-        $canNetwork=in_array('inventory.network.read',$this->rbac->permissionsFor(['mode'=>'session','user'=>['id'=>$actor]]),true);
-        $q=$pdo->prepare('SELECT p.id FROM collection_plans p JOIN connector_service_grants g ON g.id=p.grant_id WHERE g.target_id=:t'.($canNetwork?'':" AND p.collector_name IS DISTINCT FROM 'vmmanager.network'").' ORDER BY p.created_at DESC,p.id DESC LIMIT :lim OFFSET :off');
+        $permissions=$this->rbac->permissionsFor(['mode'=>'session','user'=>['id'=>$actor]]);
+        $q=$pdo->prepare('SELECT p.id FROM collection_plans p JOIN connector_service_grants g ON g.id=p.grant_id WHERE g.target_id=:t'.CollectorAccess::historyFilter($permissions,'p.collector_name').' ORDER BY p.created_at DESC,p.id DESC LIMIT :lim OFFSET :off');
         $q->bindValue('t',$target);$q->bindValue('lim',$limit,PDO::PARAM_INT);$q->bindValue('off',$offset,PDO::PARAM_INT);$q->execute();
         return array_map(fn($id)=>$this->planRow($pdo,$target,$id),$q->fetchAll(PDO::FETCH_COLUMN));
     }
@@ -237,6 +234,7 @@ final class ConnectorExecutionService
         $target=CredentialInput::uuid($target);$id=CredentialInput::uuid($id);
         return $this->db->transaction(function(PDO $pdo)use($actor,$target,$id,$enabled):array {
             $this->planAccess($pdo,$actor,$target,true);$p=$this->planRow($pdo,$target,$id,true);
+            if(($permission=CollectorAccess::readPermission($p['collector_name']))!==null)$this->rbac->requireUserPermission($actor,$permission,$pdo);
             if ($enabled) {
                 if ($p['actor_id']!==$actor) $this->deny();
                 $g=$this->grant($pdo,$p['grant_id'],true);$ctx=$this->context($pdo,$g);
@@ -256,6 +254,7 @@ final class ConnectorExecutionService
         $target=CredentialInput::uuid($target);$id=CredentialInput::uuid($id);
         return $this->db->transaction(function(PDO $pdo)use($actor,$target,$id,$key,$redrive):array {
             $this->planAccess($pdo,$actor,$target,true);$p=$this->planRow($pdo,$target,$id,true);
+            if(($permission=CollectorAccess::readPermission($p['collector_name']))!==null)$this->rbac->requireUserPermission($actor,$permission,$pdo);
             if ($p['actor_id']!==$actor) $this->deny();
             $g=$this->grant($pdo,$p['grant_id'],true);$ctx=$this->context($pdo,$g);
             $this->runtime->collectionRuntime()->validate(new CollectionPlan($p['collector_name'],$g['operation']),$ctx);
@@ -316,12 +315,12 @@ final class ConnectorExecutionService
         $this->bindings->show($actor,$target);
         if ($limit<1 || $limit>100 || $offset<0 || $offset>10000) throw new HttpException(422,'Invalid pagination.','validation_failed');
         $pdo=$this->db->connection();
-        if ($planId!==null) $this->planRow($pdo,$target,$planId);
+        if ($planId!==null) { $plan=$this->planRow($pdo,$target,$planId); if(($permission=CollectorAccess::readPermission($plan['collector_name']))!==null)$this->rbac->requireUserPermission($actor,$permission,$pdo); }
         if($collector!==null&&!preg_match('/^[a-z][a-z0-9_.-]{0,63}$/D',$collector))throw new HttpException(422,'Invalid collector filter.','validation_failed');
-        $canNetwork=in_array('inventory.network.read',$this->rbac->permissionsFor(['mode'=>'session','user'=>['id'=>$actor]]),true);
-        if(!$canNetwork&&$collector==='vmmanager.network')$this->rbac->requireUserPermission($actor,'inventory.network.read',$pdo);
+        $permissions=$this->rbac->permissionsFor(['mode'=>'session','user'=>['id'=>$actor]]);
+        if(($permission=CollectorAccess::readPermission($collector))!==null)$this->rbac->requireUserPermission($actor,$permission,$pdo);
         if($status!==null&&$status!=='succeeded')throw new HttpException(422,'Invalid run status filter.','validation_failed');
-        $q=$pdo->prepare('SELECT id FROM connector_runs WHERE target_id=:id'.($canNetwork?'':" AND collector_name IS DISTINCT FROM 'vmmanager.network'").($planId!==null?' AND collection_plan_id=:plan':'').($collector!==null?' AND collector_name=:collector':'').($status==='succeeded'?' AND cancelled_at IS NULL AND result IS NOT NULL ORDER BY finished_at DESC NULLS LAST,id DESC':' ORDER BY created_at DESC,id DESC').' LIMIT :lim OFFSET :off');
+        $q=$pdo->prepare('SELECT id FROM connector_runs WHERE target_id=:id'.CollectorAccess::historyFilter($permissions,'collector_name').($planId!==null?' AND collection_plan_id=:plan':'').($collector!==null?' AND collector_name=:collector':'').($status==='succeeded'?' AND cancelled_at IS NULL AND result IS NOT NULL ORDER BY finished_at DESC NULLS LAST,id DESC':' ORDER BY created_at DESC,id DESC').' LIMIT :lim OFFSET :off');
         if ($planId!==null) $q->bindValue('plan',$planId);
         if ($collector!==null) $q->bindValue('collector',$collector);
         $q->bindValue('id',$target); $q->bindValue('lim',$limit,PDO::PARAM_INT); $q->bindValue('off',$offset,PDO::PARAM_INT); $q->execute();
@@ -334,7 +333,7 @@ final class ConnectorExecutionService
         $target=CredentialInput::uuid($target);
         $this->bindings->show($actor,$target); $r=$this->runRow($this->db->connection(),$id);
         if ($r['target_id']!==$target) throw new HttpException(404,'Connector run not found.','not_found');
-        if($r['collector_name']==='vmmanager.network')$this->rbac->requireUserPermission($actor,'inventory.network.read');
+        if(($permission=CollectorAccess::readPermission($r['collector_name']))!==null)$this->rbac->requireUserPermission($actor,$permission);
         return $r;
     }
     public function cancel(string $actor,string $target,string $id):array
@@ -348,7 +347,7 @@ final class ConnectorExecutionService
             $row=$this->runRow($pdo,$id);
             if ($row['target_id']!==$target) throw new HttpException(404,'Connector run not found.','not_found');
             if ($row['collector_name']!==null) $this->rbac->requireUserPermission($actor,'inventory.assets.read',$pdo);
-            if($row['collector_name']==='vmmanager.network')$this->rbac->requireUserPermission($actor,'inventory.network.read',$pdo);
+            if(($permission=CollectorAccess::readPermission($row['collector_name']))!==null)$this->rbac->requireUserPermission($actor,$permission,$pdo);
             if (!in_array($row['status'],['queued','running'],true)) return $row;
             $changed=$this->query($pdo,'UPDATE connector_runs SET cancelled_at=clock_timestamp(),finished_at=clock_timestamp() WHERE id=:id AND finished_at IS NULL',['id'=>$id]);
             if ($changed->rowCount()===1) {
@@ -415,7 +414,7 @@ final class ConnectorExecutionService
                     try {$consumer($plain,$t['credential_type']);} finally {sodium_memzero($plain);}
                 },null,function(PDO $pdo)use($r,$g,$plan):void {
                     $this->fence($pdo,$r,$g);
-                    if ($plan!==null) $this->rbac->requireUserPermission($g['actor_id'],'inventory.assets.read',$pdo);
+                    if ($plan!==null) { $this->rbac->requireUserPermission($g['actor_id'],'inventory.assets.read',$pdo); $this->networkPermission($pdo,$g['actor_id'],$plan->collector,$plan->operation); }
                 },function(PDO $pdo,array $result)use($r,$g):void {
                     // Same transaction as Inventory writes; replays after a lost queue ACK return stored outcome.
                     $this->fence($pdo,$r,$g);

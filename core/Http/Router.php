@@ -78,6 +78,14 @@ final class Router
         return array_map(static fn (array $route): array => ['path' => $route['path'], 'methods' => $route['methods']], $this->routes);
     }
 
+    public function logRoute(HttpRequest $request): string
+    {
+        foreach ($this->routes as $route) {
+            if (preg_match($route['regex'], $request->path) === 1) return $route['path'];
+        }
+        return '[unmatched]';
+    }
+
     public function dispatch(HttpRequest $request): HttpResponse
     {
         $allowed = [];

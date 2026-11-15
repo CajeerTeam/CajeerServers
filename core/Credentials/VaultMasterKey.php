@@ -28,10 +28,6 @@ final class VaultMasterKey
             } else {
                 $encoded = $envKey;
             }
-            $appKey = EnvironmentLoader::getString('APP_KEY');
-            if ($appKey !== '' && hash_equals($appKey, $encoded)) {
-                throw new RuntimeException('Vault master key must be independent of APP_KEY.');
-            }
         }
         if (!str_starts_with($encoded, 'base64:')) {
             throw new RuntimeException('Vault key must use base64: encoding.');
@@ -39,6 +35,15 @@ final class VaultMasterKey
         $key = base64_decode(substr($encoded, 7), true);
         if (!is_string($key) || strlen($key) !== SODIUM_CRYPTO_AEAD_XCHACHA20POLY1305_IETF_KEYBYTES) {
             throw new RuntimeException('Vault master key must contain exactly 32 random bytes.');
+        }
+        // Compare actual key bytes for every source, including staged rotation keys.
+        $appKey = EnvironmentLoader::getString('APP_KEY');
+        $appMaterial = str_starts_with($appKey, 'base64:') ? base64_decode(substr($appKey, 7), true) : $appKey;
+        $same = is_string($appMaterial) && $appMaterial !== '' && hash_equals($appMaterial, $key);
+        if (is_string($appMaterial)) sodium_memzero($appMaterial);
+        if ($same) {
+            sodium_memzero($key);
+            throw new RuntimeException('Vault master key must be independent of APP_KEY.');
         }
         if (hash_equals(str_repeat("\0", 32), $key)) {
             sodium_memzero($key);
@@ -69,8 +74,8 @@ final class VaultMasterKey
             throw new RuntimeException('Vault key file must be an existing regular absolute path, not a symlink.');
         }
         clearstatcache(true, $path);
-        $stat = @stat($path);
-        if (!is_array($stat) || ($stat['mode'] & 0077) !== 0 || ($stat['size'] ?? 0) > 256) {
+        $stat = @lstat($path);
+        if (!is_array($stat) || ($stat['mode'] & 0170077) !== 0100000 || ($stat['size'] ?? 0) > 256) {
             throw new RuntimeException('Vault key file must have private permissions (0600) and valid size.');
         }
         if (function_exists('posix_geteuid') && (int) $stat['uid'] !== posix_geteuid()) {
@@ -80,7 +85,7 @@ final class VaultMasterKey
         if ($stream === false) throw new RuntimeException('Vault key file is not readable.');
         try {
             $opened = fstat($stream);
-            if (!is_array($opened) || $opened['dev'] !== $stat['dev'] || $opened['ino'] !== $stat['ino'] || ($opened['mode'] & 0077) !== 0) {
+            if (!is_array($opened) || $opened['dev'] !== $stat['dev'] || $opened['ino'] !== $stat['ino'] || ($opened['mode'] & 0170077) !== 0100000 || $opened['uid'] !== $stat['uid'] || $opened['nlink'] !== 1) {
                 throw new RuntimeException('Vault key file changed during opening.');
             }
             $value = stream_get_contents($stream, 257);

@@ -84,6 +84,20 @@ try {
     $ok((int)$pdo->query("SELECT count(*) FROM connector_runs WHERE collector_name='routeros.configuration-backup' AND result::text LIKE '%/ip firewall filter%'")->fetchColumn()===0,'no config plaintext in run results');
     $ok((int)$pdo->query("SELECT count(*) FROM network_configuration_backups WHERE position(convert_to('/ip firewall filter','UTF8') in encrypted_payload)>0")->fetchColumn()===0,'encrypted at rest');
     $reject(404,fn()=>$runtime->networkConfigurationBackups($actor,$id,1,0,'00000000-0000-4000-8000-000000000001'),'missing backup');
+    // Same-workspace read access must not disclose restricted collector results.
+    $q->execute(['email'=>'routeros-reader@example.invalid','name'=>'Limited reader','hash'=>password_hash($password,PASSWORD_ARGON2ID)]);$reader=(string)$q->fetchColumn();
+    $pdo->prepare("INSERT INTO workspace_members(workspace_id,user_id,role) VALUES(:ws,:id,'viewer')")->execute(['ws'=>$ws,'id'=>$reader]);
+    $role=$rbac->createRole($principal,'routeros-reader','Limited reader',['inventory.assets.read','connectors.targets.read','connectors.credentials.read','inventory.transfer.read']);
+    $rbac->membership($principal,$reader,$role['slug'],true);
+    $backupRun=(string)$pdo->query("SELECT id::text FROM connector_runs WHERE collector_name='routeros.configuration-backup' LIMIT 1")->fetchColumn();
+    $ok($execution->runs($reader,$id)===[],'limited reader cannot enumerate backup runs');
+    $reject(403,fn()=>$execution->status($reader,$id,$backupRun),'limited reader cannot read backup run by UUID');
+    $reject(403,fn()=>$runtime->networkConfigurationBackups($reader,$id,1,0,$backups[0]['id']),'limited reader cannot download backup');
+    $reject(403,fn()=>$runtime->routerosDiscovery($reader,$id,'routing'),'limited reader cannot read routing data');
+    $q->execute(['email'=>'routeros-outsider@example.invalid','name'=>'Outside workspace','hash'=>password_hash($password,PASSWORD_ARGON2ID)]);$outsider=(string)$q->fetchColumn();
+    $pdo->prepare("INSERT INTO user_roles(user_id,role_id) SELECT :id,id FROM roles WHERE slug='administrator'")->execute(['id'=>$outsider]);
+    $reject(404,fn()=>$runtime->networkConfigurationBackups($outsider,$id,1,0,$backups[0]['id']),'global admin outside workspace cannot read backup');
+
     $before=(int)$pdo->query('SELECT count(*) FROM inventory_assets')->fetchColumn();
     foreach(['inventory','network','routing'] as $scope){
         $ok($runtime->routerosDiscovery($actor,$id,$scope)['state']==='not_collected','initial '.$scope);

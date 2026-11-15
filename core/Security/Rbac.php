@@ -15,7 +15,7 @@ final class Rbac
         'security.roles.read', 'security.roles.manage', 'security.roles.grant_administrator',
         'security.audit.read', 'security.webhooks.manage',
         'admin.dashboard.read', 'admin.jobs.read', 'admin.jobs.execute', 'admin.scheduler.read',
-        'organizations.manage', 'workspaces.read', 'workspaces.manage', 'workspaces.members.manage', 'inventory.ownership.manage', 'inventory.assets.read', 'inventory.assets.create', 'inventory.assets.update', 'inventory.assets.delete', 'inventory.network.read', 'inventory.network.manage', 'inventory.relationships.read', 'inventory.relationships.manage', 'inventory.catalog.read', 'inventory.catalog.manage', 'inventory.history.read', 'inventory.reconcile.manage', 'inventory.history.restore', 'inventory.transfer.read', 'inventory.transfer.manage', 'inventory.credentials.read', 'inventory.credentials.manage', 'inventory.credentials.scope', 'vault.credentials.read', 'vault.credentials.create', 'vault.credentials.update', 'vault.credentials.delete', 'vault.credentials.use', 'connectors.targets.read', 'connectors.targets.manage', 'connectors.credentials.read', 'connectors.credentials.manage', 'connectors.actions.read', 'connectors.actions.execute', 'connectors.snapshots.execute', 'connectors.console.open', 'scripts.read', 'scripts.manage', 'scripts.approve', 'scripts.execute', 'ingestion.read', 'ingestion.manage', 'ingestion.write',
+        'organizations.manage', 'workspaces.read', 'workspaces.manage', 'workspaces.members.manage', 'inventory.ownership.manage', 'inventory.assets.read', 'inventory.assets.create', 'inventory.assets.update', 'inventory.assets.delete', 'inventory.network.read', 'inventory.network.manage', 'inventory.relationships.read', 'inventory.relationships.manage', 'inventory.catalog.read', 'inventory.catalog.manage', 'inventory.history.read', 'inventory.reconcile.manage', 'inventory.history.restore', 'inventory.transfer.read', 'inventory.transfer.manage', 'inventory.credentials.read', 'inventory.credentials.manage', 'inventory.credentials.scope', 'vault.credentials.read', 'vault.credentials.create', 'vault.credentials.update', 'vault.credentials.delete', 'vault.credentials.use', 'connectors.targets.read', 'connectors.targets.manage', 'connectors.credentials.read', 'connectors.credentials.manage', 'connectors.actions.read', 'connectors.actions.execute', 'connectors.snapshots.execute', 'connectors.console.open', 'scripts.read', 'scripts.manage', 'scripts.approve', 'scripts.execute', 'ingestion.read', 'ingestion.manage', 'ingestion.write', 'connectors.vmmanager.actions.execute', 'system.events.read', 'network.configuration.read', 'network.configuration.backup',
     ];
 
     public function __construct(private readonly DatabaseManager $database, private readonly AuditLogger $audit) {}
@@ -47,7 +47,7 @@ SQL);
         $query->execute(['user' => $user, 'permission' => $permission]);
         $allowed = $query->fetchColumn();
         if (!in_array($allowed, [true, 't', '1', 1], true)) {
-            $this->audit->record($pdo, $user, 'security.permission.denied', 'denied', 'user', $user, ['permission' => $permission]);
+            $this->database->afterTransaction(fn(PDO $auditPdo) => $this->audit->record($auditPdo, $user, 'security.permission.denied', 'denied', 'user', $user, ['permission' => $permission]));
             throw new HttpException(403, 'Insufficient permission.', 'permission_denied');
         }
     }
@@ -176,6 +176,7 @@ SQL);
             $stmt->execute();
             if (!$stmt->fetchColumn()) throw new HttpException(404, 'User not found.', 'not_found');
             if (!$active) {
+                GrantRevocation::revoke($pdo, $userId);
                 $pdo->prepare('UPDATE auth_sessions SET revoked_at=now() WHERE user_id=:id AND revoked_at IS NULL')->execute(['id' => $userId]);
                 $pdo->prepare('UPDATE api_tokens SET revoked_at=now() WHERE user_id=:id AND revoked_at IS NULL')->execute(['id' => $userId]);
             }
@@ -231,7 +232,8 @@ SQL);
             $privileges->execute(['role' => $roleId]);
             foreach ($privileges->fetchAll(PDO::FETCH_COLUMN) as $scope) {
                 // A role manager cannot delegate a permission they do not possess.
-                if (in_array($scope, self::PERMISSIONS, true)) $this->requirePermission($principal, $scope, $pdo);
+                if (!in_array($scope, self::PERMISSIONS, true)) throw new HttpException(403, 'Role contains an unsupported permission.', 'permission_denied');
+                $this->requirePermission($principal, $scope, $pdo);
             }
             $findUser = $pdo->prepare('SELECT id::text FROM users WHERE id=:user FOR UPDATE');
             $findUser->execute(['user' => $userId]);
@@ -263,6 +265,7 @@ SQL);
             }
             $write->execute(['user' => $userId, 'role' => $roleId]);
             if ($write->rowCount() === 0) throw new HttpException(409, 'Membership already in requested state.', 'conflict');
+            if (!$grant) GrantRevocation::revoke($pdo, $userId);
             $this->audit->record($pdo, $principal['user']['id'], $grant ? 'security.role.granted' : 'security.role.revoked', 'success', 'user', $userId, ['role' => $slug]);
         });
     }

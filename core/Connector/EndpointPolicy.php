@@ -33,8 +33,9 @@ final class EndpointPolicy
         // Reject IPv4-mapped IPv6 to prevent bypass of IPv4 network rules.
         if (strlen($packed)===16 && substr($packed,0,12)===str_repeat("\0",10)."\xff\xff") return false;
         // Cloud metadata/link-local, unspecified and multicast cannot be enabled.
-        foreach (['169.254.0.0/16','0.0.0.0/8','224.0.0.0/3','fe80::/10','ff00::/8','::/128','fd00:ec2::254/128','100.100.100.200/32'] as $cidr) {
+        foreach (['169.254.0.0/16','0.0.0.0/8','224.0.0.0/3','::/96','64:ff9b::/96','64:ff9b:1::/48','2002::/16','2001::/32','fe80::/10','ff00::/8','::/128','fd00:ec2::254/128','100.100.100.200/32'] as $cidr) {
             [$net,$bits]=explode('/',$cidr);
+            if ($cidr==='::/96' && $packed===inet_pton('::1')) continue;
             if (self::matches($packed,inet_pton($net),(int)$bits)) return false;
         }
         if ($this->networks!==[]) {

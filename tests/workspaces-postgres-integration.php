@@ -54,6 +54,8 @@ try {
     $default=(string)$pdo->query("SELECT w.id::text FROM workspaces w JOIN organizations o ON o.id=w.organization_id WHERE o.slug='default' AND w.slug='default'")->fetchColumn();
     $assert($default!=='','default workspace migrated');
     $assert((string)$pdo->query("SELECT workspace_id::text FROM inventory_assets WHERE id='".$asset."'")->fetchColumn()===$default,'asset UUID and metadata preserved');
+    foreach(glob($root.'/migrations/pgsql/*.sql') as $file) { if (!is_file($dir.'/migrations/'.basename($file))) copy($file,$dir.'/migrations/'.basename($file)); }
+    $runner->run();
     $audit=new AuditLogger($db);$svc=new WorkspaceService($db,$audit);$rbac=new Rbac($db,$audit);
     $adminPrincipal=['mode'=>'session','user'=>['id'=>$admin]];
     $rbac->requirePermission($adminPrincipal,'organizations.manage');$assert(true,'admin granted workspace scopes');

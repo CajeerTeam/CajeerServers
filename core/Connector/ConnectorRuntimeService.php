@@ -115,7 +115,7 @@ final class ConnectorRuntimeService
         }
         $targetId=$target['id']; $version=$target['version']; $sync=$operation==='sync';
         $backup=$plan?->collector==='routeros.configuration-backup';
-        if($backup)(new Rbac($this->db,$this->audit))->requireUserPermission($actor,'network.configuration.backup');
+        foreach(CollectorAccess::executePermissions($plan?->collector,$operation) as $permission) (new Rbac($this->db,$this->audit))->requireUserPermission($actor,$permission);
         $network=$plan?->collector==='vmmanager.network';
         if($network)(new Rbac($this->db,$this->audit))->requireUserPermission($actor,$sync?'inventory.network.manage':'inventory.network.read');
         if($network&&$sync)(new Rbac($this->db,$this->audit))->requireUserPermission($actor,'inventory.network.read');
@@ -162,6 +162,7 @@ final class ConnectorRuntimeService
             return $this->db->transaction(function(PDO $pdo) use($actor,$targetId,$operation,$items,$requestId,$guard,$complete,$result,$target,$snapshot,$reconciliation,$elapsed,$collection,$observedAt):array {
                 $this->inventory->lockWorkspace($pdo,$target['workspace_id']);
                 if ($guard!==null) $guard($pdo);
+                foreach(CollectorAccess::executePermissions($collection['collector']??null,$operation) as $permission) (new Rbac($this->db,$this->audit))->requireUserPermission($actor,$permission,$pdo);
                 $this->checkPermissions($pdo,$actor,$operation);
                 $pdo->prepare('SELECT id FROM credentials WHERE id=:id FOR SHARE')->execute(['id'=>$target['credential_id']]);
                 $latest=$this->bindings->runtimeContext($actor,$targetId,$target['version'],$operation);
@@ -260,6 +261,7 @@ final class ConnectorRuntimeService
                 throw new HttpException(409,'Connector was rebound or credential rotated.','conflict');
             if ($guard!==null) $guard($pdo);
             $this->checkPermissions($pdo,$actor,'sync');
+            foreach(CollectorAccess::executePermissions($collection['collector']??null,'sync') as $permission) (new Rbac($this->db,$this->audit))->requireUserPermission($actor,$permission,$pdo);
             ConnectorHealthMonitor::record($pdo,$target,$elapsed,null);
             if(($collection['collector']??null)==='vmmanager.network'){
                 (new Rbac($this->db,$this->audit))->requireUserPermission($actor,'inventory.network.manage',$pdo);
@@ -339,6 +341,7 @@ final class ConnectorRuntimeService
     {
         (new Rbac($this->db,$this->audit))->requireUserPermission($actor,'inventory.assets.read');
         if(!in_array($scope,LinuxDiscovery::SCOPES,true))throw new HttpException(422,'Invalid Linux discovery scope.','validation_failed');
+        if($scope==='network')(new Rbac($this->db,$this->audit))->requireUserPermission($actor,'inventory.network.read');
         $target=$this->bindings->show($actor,$targetId);
         if($target['provider']!=='ssh')throw new HttpException(404,'Linux target not found.','not_found');
         return LinuxDiscoveryStore::read($this->db->connection(),$target,$scope);
@@ -347,6 +350,7 @@ final class ConnectorRuntimeService
     {
         (new Rbac($this->db,$this->audit))->requireUserPermission($actor,'inventory.assets.read');
         if(!in_array($scope,WindowsDiscovery::SCOPES,true))throw new HttpException(422,'Invalid Windows discovery scope.','validation_failed');
+        if($scope==='network')(new Rbac($this->db,$this->audit))->requireUserPermission($actor,'inventory.network.read');
         $target=$this->bindings->show($actor,$targetId);
         if($target['provider']!=='winrm')throw new HttpException(404,'Windows target not found.','not_found');
         return WindowsDiscoveryStore::read($this->db->connection(),$target,$scope);
@@ -355,6 +359,7 @@ final class ConnectorRuntimeService
     {
         (new Rbac($this->db,$this->audit))->requireUserPermission($actor,'inventory.assets.read');
         if(!in_array($scope,RouterOsConnector::SCOPES,true))throw new HttpException(422,'Invalid RouterOS scope.','validation_failed');
+        if(in_array($scope,['network','routing'],true))(new Rbac($this->db,$this->audit))->requireUserPermission($actor,'inventory.network.read');
         $target=$this->bindings->show($actor,$targetId);
         if($target['provider']!=='routeros')throw new HttpException(404,'RouterOS target not found.','not_found');
         return RouterOsDiscoveryStore::read($this->db->connection(),$target,$scope);
@@ -363,6 +368,7 @@ final class ConnectorRuntimeService
     {
         (new Rbac($this->db,$this->audit))->requireUserPermission($actor,'inventory.assets.read');
         if(!in_array($scope,SnmpDiscovery::SCOPES,true))throw new HttpException(422,'Invalid Snmp discovery scope.','validation_failed');
+        if(in_array($scope,['interfaces','topology'],true))(new Rbac($this->db,$this->audit))->requireUserPermission($actor,'inventory.network.read');
         $target=$this->bindings->show($actor,$targetId);
         if($target['provider']!=='snmp')throw new HttpException(404,'Snmp target not found.','not_found');
         return SnmpDiscoveryStore::read($this->db->connection(),$target,$scope);
@@ -411,6 +417,7 @@ final class ConnectorRuntimeService
     }
     public function proxmoxStorageNetwork(string $actor,string $targetId):array
     {
+        (new Rbac($this->db,$this->audit))->requireUserPermission($actor,'inventory.network.read');
         (new Rbac($this->db,$this->audit))->requireUserPermission($actor,'inventory.assets.read');
         $target=$this->bindings->show($actor,$targetId);
         if($target['provider']!=='proxmox')throw new HttpException(404,'Proxmox target not found.','not_found');

@@ -7,6 +7,7 @@ use Cajeer\Servers\Audit\AuditLogger;
 use Cajeer\Servers\Database\DatabaseManager;
 use Cajeer\Servers\Http\Exception\HttpException;
 use PDO;
+use Cajeer\Servers\Security\GrantRevocation;
 
 /** PostgreSQL-backed organization/workspace ownership and resource isolation. */
 final class WorkspaceService
@@ -214,6 +215,9 @@ SQL);
 INSERT INTO workspace_members(workspace_id,user_id,role) VALUES (:ws,:user,:role)
 ON CONFLICT (workspace_id,user_id) DO UPDATE SET role=EXCLUDED.role
 SQL)->execute(['ws'=>$workspaceId,'user'=>$userId,'role'=>$role]);
+            }
+            if (in_array($old,['owner','manager'],true) && ($role===null || $role==='viewer' || ($old==='owner' && $role==='manager'))) {
+                GrantRevocation::revoke($pdo,$userId,$workspaceId);
             }
             $this->audit->record($pdo,$actor,$role===null?'workspace.member.removed':'workspace.member.assigned','success','workspace',$workspaceId,['role'=>$role??'removed'], $requestId);
         });

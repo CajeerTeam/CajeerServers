@@ -240,6 +240,7 @@ SQL);
             $update->execute(['hash' => password_hash($replacement, PASSWORD_ARGON2ID), 'id' => $principal['user']['id']]);
             $pdo->prepare('UPDATE auth_sessions SET revoked_at = now() WHERE user_id = :id AND revoked_at IS NULL')->execute(['id' => $principal['user']['id']]);
             $pdo->prepare('UPDATE api_tokens SET revoked_at = now() WHERE user_id = :id AND revoked_at IS NULL')->execute(['id' => $principal['user']['id']]);
+            \Cajeer\Servers\Security\GrantRevocation::revoke($pdo, $principal['user']['id']);
             $this->audit($pdo, $principal['user']['id'], 'auth.password.changed', 'success', 'user', $principal['user']['id']);
         });
     }
@@ -348,7 +349,10 @@ SQL);
     /** @param array<string,mixed> $principal */
     private function assertLiveSession(PDO $pdo, array $principal): void
     {
-        $stmt = $pdo->prepare('SELECT 1 FROM auth_sessions WHERE id = :id AND user_id = :user AND revoked_at IS NULL AND expires_at > now() FOR UPDATE');
+        $stmt = $pdo->prepare('SELECT 1 FROM users WHERE id=:user AND is_active FOR UPDATE');
+        $stmt->execute(['user'=>$principal['user']['id']]);
+        if (!$stmt->fetchColumn()) throw self::unauthorized();
+        $stmt = $pdo->prepare('SELECT 1 FROM auth_sessions s JOIN users u ON u.id=s.user_id WHERE s.id = :id AND s.user_id = :user AND s.revoked_at IS NULL AND s.expires_at > clock_timestamp() AND (NOT u.two_factor_enabled OR s.mfa_verified) FOR UPDATE OF s');
         $stmt->execute(['id' => $principal['id'], 'user' => $principal['user']['id']]);
         if (!$stmt->fetchColumn()) throw self::unauthorized();
     }

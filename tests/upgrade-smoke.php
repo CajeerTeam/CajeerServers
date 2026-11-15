@@ -68,8 +68,8 @@ try {
     $reject(fn()=>$state->record(),'invalid marker identity rejected');
     unlink($root.'/storage/app/installed.json');
     $state->finish('00000000-0000-0000-0000-000000000001','2026-11-15T00:00:00Z');
-    $check($state->record()['version']==='0.9.2','marker records installed code version');
-    $old=$state->record();$old['version']='0.9.1';file_put_contents($root.'/storage/app/installed.json',json_encode($old));
+    $check($state->record()['version']==='0.9.3','marker records installed code version');
+    $old=$state->record();$old['version']='0.9.2';file_put_contents($root.'/storage/app/installed.json',json_encode($old));
     $check($gate->requiresUpgrade(),'old marker detects code version drift');
     $check($app->handle(new HttpRequest('GET','/api/v1/health'))->status===503,'old marker cannot serve upgraded code');
     $state->finish($old['installation_id'],$old['installed_at']);

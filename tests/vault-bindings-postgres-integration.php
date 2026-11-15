@@ -332,8 +332,16 @@ try {
     $ack=$queue->find($final['id']);
     $ok($ack['status']==='completed' && $ack['result']['status']==='succeeded' && $ack['result']['run_id']===$final['id'],'final expired lease recovers compact ACK');
     $ok(strlen($execution->status($admin,$id,$final['id'])['result']['large'])===70000 && $remoteCalls===$callsBeforeRecovery,'large domain result retained without remote replay');
-    $execution->revoke($admin,$id,$grant['id']);
-    $execution->revoke($admin,$id,$healthGrant['id']);
+    // Workspace downgrade is permanent for existing grants, even after re-promotion.
+    $member->execute(['ws'=>$ws,'id'=>$other,'role'=>'owner']);
+    $workspaceSvc=new \Cajeer\Servers\Workspace\WorkspaceService($db,$audit);
+    $workspaceSvc->setMember($other,$ws,$admin,'manager');
+    $workspaceSvc->setMember($other,$ws,$admin,'owner');
+    $reject(403,fn()=>$execution->enqueue($admin,$id,$grant['id'],'after-role-restored'),'restored membership cannot revive delegated secret');
+    $reject(403,fn()=>$execution->enqueue($admin,$id,$healthGrant['id'],'after-role-restored-health'),'health grant permanently revoked too');
+    $q=$pdo->prepare('SELECT count(*) FROM connector_service_grants WHERE actor_id=:actor AND workspace_id=:ws AND revoked_at IS NULL');$q->execute(['actor'=>$admin,'ws'=>$ws]);
+    $ok((int)$q->fetchColumn()===0,'all old workspace grants revoked atomically');
+
 
     $disabled=$store->update($admin,$token['id'],$token['version'],['status'=>'disabled']);
     $reject(404,fn()=>$connector->resolveActive($admin,$id,'api'),'revoked secret unusable');

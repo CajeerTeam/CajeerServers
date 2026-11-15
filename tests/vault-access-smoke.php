@@ -26,7 +26,7 @@ foreach(['','sshx','any','api:password',';drop table','ssh\n'] as $purpose)
     $ok(!SecretAccessService::allowsPurpose('ssh_password',$purpose),'unknown purpose refused');
 $ok(!SecretAccessService::allowsPurpose('unknown','api'),'unknown type refused');
 $ok(in_array('vault.credentials.use',Rbac::PERMISSIONS,true),'separate use permission registered');
-$ok(count(Rbac::PERMISSIONS)===54,'permission registry includes connector permissions');
+$ok(count(Rbac::PERMISSIONS)===58,'permission registry includes connector permissions');
 $path=dirname(__DIR__).'/migrations/pgsql/0019_vault_secret_access.sql';
 $sql=file_get_contents($path);
 $ok(is_string($sql) && str_contains($sql,'CREATE TABLE vault_use_grants'),'persistent one-use grants schema present');

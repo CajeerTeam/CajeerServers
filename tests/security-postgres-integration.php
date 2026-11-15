@@ -77,10 +77,16 @@ try {
     $principal=$auth->authenticate($request());
     $rbac->requirePermission($principal,'security.roles.manage');
     $ok(true,'admin inherits seeded role grants');
+    $scopes=$pdo->query('SELECT scope FROM permissions ORDER BY scope')->fetchAll(PDO::FETCH_COLUMN);
+    $known=Rbac::PERMISSIONS;sort($known);
+    $ok($scopes===$known,'SQL permissions exactly match runtime registry');
     $member=$rbac->createUser($principal,'member-'.bin2hex(random_bytes(4)).'@example.invalid','Regular', 'LongUserPassword!'.bin2hex(random_bytes(8)));
     $userIds[]=$member['id'];
     $weak=['mode'=>'session','user'=>['id'=>$member['id']]];
     $reject(403, static fn ()=>$rbac->requirePermission($weak,'security.audit.read'), 'member cannot read audit');
+    $reject(403,fn()=>$db->transaction(fn(PDO $p)=>$rbac->requirePermission($weak,'network.configuration.read',$p)),'RBAC denial rolls back application transaction');
+    $q=$pdo->prepare("SELECT count(*) FROM audit_log WHERE actor_id=:id AND action='security.permission.denied' AND payload->>'permission'='network.configuration.read'");$q->execute(['id'=>$member['id']]);
+    $ok((int)$q->fetchColumn()===1,'denial audit persists outside rollback');
     $role=$rbac->createRole($principal,'custom-'.bin2hex(random_bytes(3)),'Custom viewer',['security.roles.read']);
     $rbac->membership($principal,$member['id'],$role['slug'],true);
     $rbac->requirePermission($weak,'security.roles.read');
@@ -91,6 +97,8 @@ try {
     $ok(true,'user deactivation committed');
     $enrollment=$mfa->enroll($principal,$password);
     $ok(str_starts_with($enrollment['otpauth_url'],'otpauth://totp/') && strlen($enrollment['secret'])===32,'enrollment secret provided');
+    $stale=$principal;$stale['id']='00000000-0000-4000-8000-000000000099';
+    $reject(403,fn()=>$mfa->confirm($stale,TwoFactorManager::totp(TwoFactorManager::decode32($enrollment['secret']),time())),'nonexistent session cannot confirm MFA');
     $codes=$mfa->confirm($principal,TwoFactorManager::totp(TwoFactorManager::decode32($enrollment['secret']),time()));
     $ok(count($codes)===10,'MFA enabled and recovery codes issued once');
     $fresh=$auth->authenticate($request());

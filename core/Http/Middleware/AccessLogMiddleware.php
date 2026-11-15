@@ -27,7 +27,7 @@ final class AccessLogMiddleware implements MiddlewareInterface
                 $this->logger->info('HTTP request', [
                     'request_id' => $request->attribute('request_id'),
                     'method' => $request->method,
-                    'path' => $request->path,
+                    'path' => $request->attribute('log_route', '[unmatched]'),
                     'duration_ms' => round((hrtime(true) - $start) / 1_000_000, 3),
                     'status' => isset($response) ? $response->status : ($failureStatus ?? 500),
                 ]);

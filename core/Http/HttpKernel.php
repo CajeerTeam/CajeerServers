@@ -49,7 +49,7 @@ final class HttpKernel
     {
         $start = hrtime(true);
         $requestId = bin2hex(random_bytes(12));
-        $request = $request->withAttribute('request_id', $requestId);
+        $request = $request->withAttribute('request_id', $requestId)->withAttribute('log_route', $this->router->logRoute($request));
         $this->errors->mode('http', $requestId);
         $next = fn (HttpRequest $request): HttpResponse => $this->router->dispatch($request);
         foreach (array_reverse($this->middleware) as $middleware) {
