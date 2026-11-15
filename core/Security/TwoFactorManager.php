@@ -66,13 +66,8 @@ final class TwoFactorManager
 
     private function assertLiveSession(PDO $pdo,array $principal):void
     {
-        if (($principal['mode']??null)!=='session' || !isset($principal['id'],$principal['user']['id'])) throw new HttpException(403,'Active browser session required.','session_required');
-        $user=$pdo->prepare('SELECT 1 FROM users WHERE id=:id AND is_active FOR UPDATE');
-        $user->execute(['id'=>$principal['user']['id']]);
-        if (!$user->fetchColumn()) throw new HttpException(403,'Active browser session required.','session_required');
-        $q=$pdo->prepare('SELECT 1 FROM auth_sessions s JOIN users u ON u.id=s.user_id WHERE s.id=:session AND s.user_id=:id AND s.revoked_at IS NULL AND s.expires_at>clock_timestamp() AND (NOT u.two_factor_enabled OR s.mfa_verified) FOR UPDATE OF s');
-        $q->execute(['session'=>$principal['id'],'id'=>$principal['user']['id']]);
-        if (!$q->fetchColumn()) throw new HttpException(403,'Active browser session required.','session_required');
+        try { \Cajeer\Servers\Auth\SessionService::assertLive($pdo, $principal); }
+        catch (HttpException $error) { throw new HttpException(403,'Active browser session required.','session_required'); }
     }
 
     /** @param array<string,mixed> $principal @return array{secret:string,otpauth_url:string} */

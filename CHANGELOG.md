@@ -1,3 +1,12 @@
+## [1.0.2] — 2026-11-15 — Authentication Core Refactoring
+
+- Share credential issuance, authentication, live-session checks and local MFA between password and trusted external identity exchange.
+- Migration 0065 preserves existing sessions and adds source, authentication time, immutable issuer/subject bindings, one-use assertion digests and automatic revocation when a binding is disabled or removed.
+- Serialize first and subsequent login attempts; audit success/failure method without provider secrets. Expose session source and MFA level in the existing settings UI and OpenAPI.
+- Keep password login, CSRF, read-only API tokens, RBAC and workspace policy; no public external endpoint, automatic registration or email matching.
+- Upgrade exactly 1.0.1 to 1.0.2; retain all 64 previous migration checksums and signed strict release acceptance. Add PostgreSQL regression scenarios for local/external session lifecycle, MFA and migration compatibility.
+- Source remains development; actual PostgreSQL/Redis, production build and provider integration acceptance are not assumed.
+
 ## [1.0.1] — 2026-11-15 — Stable Core Acceptance
 
 - Support offline upgrade from exactly 1.0.0, preserve all 64 migrations and previous completed journal.

@@ -39,7 +39,7 @@ final class SessionCookie
     public function set(string $credential): string
     {
         if (TokenCodec::parse($credential, 'cs1') === null) throw new \InvalidArgumentException('Invalid session credential.');
-        return $this->name . '=' . $credential . '; Path=/; HttpOnly; SameSite=Strict; Max-Age=43200' . ($this->secure ? '; Secure' : '');
+        return $this->name . '=' . $credential . '; Path=/; HttpOnly; SameSite=Strict; Max-Age=' . SessionService::LIFETIME . ($this->secure ? '; Secure' : '');
     }
 
     public function clear(): string

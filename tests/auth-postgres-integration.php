@@ -14,6 +14,7 @@ require dirname(__DIR__) . '/core/autoload.php';
 
 use Cajeer\Servers\Auth\AuthenticationService;
 use Cajeer\Servers\Auth\SessionCookie;
+use Cajeer\Servers\Auth\VerifiedExternalIdentity;
 use Cajeer\Servers\Config\ConfigRepository;
 use Cajeer\Servers\Database\ConnectionFactory;
 use Cajeer\Servers\Database\DatabaseManager;
@@ -114,6 +115,45 @@ try {
     $expectHttp(401, static fn () => $auth->authenticate(new HttpRequest('GET', '/api/v1/auth/me', ['Authorization' => 'Bearer ' . $issued['token'] . 'oops'])));
     $expectHttp(401, static fn () => $auth->authenticate(new HttpRequest('GET', '/api/v1/auth/me', ['Authorization' => 'Bearer ' . $issued['token'], 'Cookie' => $cookieHeader]), [], true));
 
+    // The same session issuer accepts only a server-verified external identity with an existing binding.
+    $issuer='https://identity.example.invalid/' . bin2hex(random_bytes(8)); $subject='external-' . bin2hex(random_bytes(8));
+    $proof=static fn (string $sub, ?int $iat=null, ?int $exp=null): VerifiedExternalIdentity => new VerifiedExternalIdentity($issuer,$sub,hash('sha256',random_bytes(32)),$iat??time(),$exp??time()+600);
+    $expectHttp(401,static fn()=>$auth->loginVerifiedExternal($proof($subject),'192.0.2.20'));
+    $link=$pdo->prepare('INSERT INTO auth_external_identities(user_id,issuer,subject) VALUES (:user,:issuer,:subject) RETURNING id::text');
+    $link->execute(['user'=>$userId,'issuer'=>$issuer,'subject'=>$subject]);$bindingId=(string)$link->fetchColumn();
+    $expectHttp(401,static fn()=>$auth->loginVerifiedExternal($proof($subject,time()-600,time()-1),'192.0.2.20'));
+    $expectHttp(401,static fn()=>$auth->loginVerifiedExternal(new VerifiedExternalIdentity('https://other.example.invalid',$subject,hash('sha256',random_bytes(32)),time(),time()+600),'192.0.2.20'));
+    $assertion=$proof($subject);
+    $external=$auth->loginVerifiedExternal($assertion,'192.0.2.20');
+    $externalCookie=explode(';',$external['cookie'],2)[0];
+    $externalRequest=new HttpRequest('GET','/api/v1/auth/me',['Cookie'=>$externalCookie]);
+    $externalPrincipal=$auth->authenticate($externalRequest);
+    $test($externalPrincipal['user']['id']===$userId && $externalPrincipal['auth_method']==='external' && $externalPrincipal['auth_level']==='single_factor','verified external identity uses normal browser session');
+    $test($session['auth_method']==='password' && $session['auth_level']==='single_factor','password session reports source and level');
+    $test($external['csrf_token']!==$login['csrf_token'] && $external['expires_in']===$login['expires_in'],'external and local have independent secrets and identical lifetime');
+    $auth->requireCsrf(new HttpRequest('POST','/api/v1/auth/logout',['Cookie'=>$externalCookie,'X-CSRF-Token'=>$external['csrf_token']]),$externalPrincipal);
+    $expectHttp(403,static fn()=>$auth->requireCsrf(new HttpRequest('POST','/api/v1/auth/logout',['Cookie'=>$externalCookie,'X-CSRF-Token'=>$login['csrf_token']]),$externalPrincipal));
+    $expectHttp(401,static fn()=>$auth->loginVerifiedExternal($assertion,'192.0.2.21'));
+    $rows=$auth->sessions($session);
+    $test(count($rows)===2 && in_array('external',array_column($rows,'auth_method'),true) && !isset($rows[0]['secret_hash']),'session list includes source without secrets');
+    $query=$pdo->prepare("SELECT payload->>'auth_method' FROM audit_log WHERE action='auth.login.succeeded' AND target_id=:id");$query->execute(['id'=>$externalPrincipal['id']]);
+    $test($query->fetchColumn()==='external','external login audit records source');
+    $pdo->prepare('UPDATE auth_external_identities SET enabled=false WHERE id=:id')->execute(['id'=>$bindingId]);
+    $expectHttp(401,static fn()=>$auth->authenticate($externalRequest));
+    $expectHttp(401,static fn()=>$auth->loginVerifiedExternal($proof($subject),'192.0.2.20'));
+    $expectHttp(401,static fn()=>$auth->createToken($externalPrincipal,'stale',['profile:read'],900));
+    $pdo->prepare('UPDATE auth_external_identities SET enabled=true WHERE id=:id')->execute(['id'=>$bindingId]);
+    $expectHttp(401,static fn()=>$auth->authenticate($externalRequest));
+    $test($auth->authenticate($browser('GET','/api/v1/auth/me'))['id']===$session['id'],'disabling external identity does not revoke local session');
+    $pdo->prepare('UPDATE users SET is_active=false WHERE id=:id')->execute(['id'=>$userId]);
+    $expectHttp(401,static fn()=>$auth->loginVerifiedExternal($proof($subject),'192.0.2.20'));
+    $pdo->prepare('UPDATE users SET is_active=true WHERE id=:id')->execute(['id'=>$userId]);
+    $second=$auth->loginVerifiedExternal($proof($subject),'192.0.2.20');
+    $secondRequest=new HttpRequest('GET','/api/v1/auth/me',['Cookie'=>explode(';',$second['cookie'],2)[0]]);
+    $auth->logout($auth->authenticate($secondRequest));
+    $expectHttp(401,static fn()=>$auth->authenticate($secondRequest));
+    $test(count($auth->sessions($session))===1,'external logout shares local session revocation');
+
     $freshCsrf = $auth->csrfToken($browser('GET','/api/v1/auth/csrf'), $session);
     $test($freshCsrf === $login['csrf_token'], 'parallel CSRF fetches preserve current session token');
     $test($auth->csrfToken($browser('GET','/api/v1/auth/csrf'), $session) === $freshCsrf, 'second tab gets identical token');
@@ -140,7 +180,10 @@ try {
     $expectHttp(401, static fn () => $auth->authenticate(new HttpRequest('GET','/api/v1/auth/me',['Cookie' => $thisCookie])));
     $test(count($auth->sessions($session)) === 1, 'revoked session is removed');
 
+    $beforeChange=$auth->loginVerifiedExternal($proof($subject),'192.0.2.20');
+    $beforeChangeRequest=new HttpRequest('GET','/api/v1/auth/me',['Cookie'=>explode(';',$beforeChange['cookie'],2)[0]]);
     $auth->changePassword($session, $password, $newPassword);
+    $expectHttp(401,static fn()=>$auth->authenticate($beforeChangeRequest));
     $expectHttp(401, static fn () => $auth->authenticate($browser('GET','/api/v1/auth/me')));
     $expectHttp(401, static fn () => $auth->loginOrReject($email, $password, '192.0.2.13'));
     $after = $auth->loginOrReject($email, $newPassword, '192.0.2.14');
@@ -159,6 +202,7 @@ try {
 } finally {
     if ($pdo !== null) {
         try {
+            if (isset($issuer)) $pdo->prepare('DELETE FROM auth_external_assertions WHERE issuer=:issuer')->execute(['issuer'=>$issuer]);
             foreach ($ids as $id) {
                 // audit_log is append-only since 0.1.6; test actors leave durable audit records.
                 $pdo->prepare('DELETE FROM users WHERE id = :id')->execute(['id' => $id]);

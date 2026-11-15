@@ -20,7 +20,7 @@ use RuntimeException;
 final class AuthenticationService
 {
     public const TOKEN_SCOPES = ['profile:read', 'sessions:read', 'tokens:read'];
-    private const SESSION_SECONDS = 43200;
+    private readonly SessionService $sessions;
     private const MAX_TOKEN_SECONDS = 2592000;
 
     public function __construct(
@@ -28,9 +28,9 @@ final class AuthenticationService
         private readonly ConfigRepository $config,
         private readonly InstallState $state,
         private readonly SessionCookie $cookie,
-        private readonly ?TwoFactorManager $twoFactor = null,
+        ?TwoFactorManager $twoFactor = null,
         private readonly ?RateLimiter $rateLimiter = null,
-    ) {}
+    ) { $this->sessions = new SessionService($cookie, $twoFactor); }
 
     public function cookie(): SessionCookie { return $this->cookie; }
 
@@ -63,35 +63,16 @@ final class AuthenticationService
             if ($this->rateLimiter !== null && !$this->rateLimiter->hit($pdo, 'login.ip', $clientAddress, 30, 900)) {
                 return ['ip_limited' => true];
             }
-            $guard = $pdo->prepare('SELECT failed_count, locked_until > now() AS locked FROM auth_login_attempts WHERE subject_hash = :hash FOR UPDATE');
-            $guard->execute(['hash' => $key]);
-            $blocked = $guard->fetch(PDO::FETCH_ASSOC);
-            if (is_array($blocked) && self::dbBool($blocked['locked'] ?? false)) {
-                throw new HttpException(429, 'Too many login attempts. Try again later.', 'login_rate_limited', ['Retry-After' => '900']);
-            }
+            if (!$this->lockLoginAttempts($pdo, $key)) return ['ip_limited' => true];
             $stmt = $pdo->prepare('SELECT id::text, email, name, password_hash, is_active, two_factor_enabled FROM users WHERE lower(email) = :email LIMIT 1 FOR UPDATE');
             $stmt->execute(['email' => $email]);
             $user = $stmt->fetch(PDO::FETCH_ASSOC);
             static $dummyHash = null;
             $dummyHash ??= password_hash('dummy-nonexistent-user-password', PASSWORD_ARGON2ID);
             $valid = password_verify($password, is_array($user) ? (string) $user['password_hash'] : $dummyHash);
-            $mfaEnabled = is_array($user) && self::dbBool($user['two_factor_enabled'] ?? false);
-            $mfaValid = !$mfaEnabled || ($valid && $this->twoFactor !== null && $this->twoFactor->verifyLogin($pdo, (string) $user['id'], $mfaCode));
-            if (!$valid || !is_array($user) || !self::dbBool($user['is_active'] ?? false) || !$mfaValid) {
-                $failure = $pdo->prepare(<<<'SQL'
-INSERT INTO auth_login_attempts (subject_hash, failed_count, window_started, locked_until)
-VALUES (:hash, 1, now(), NULL)
-ON CONFLICT (subject_hash) DO UPDATE SET
-    failed_count = CASE WHEN auth_login_attempts.window_started < now() - interval '15 minutes' THEN 1 ELSE auth_login_attempts.failed_count + 1 END,
-    window_started = CASE WHEN auth_login_attempts.window_started < now() - interval '15 minutes' THEN now() ELSE auth_login_attempts.window_started END,
-    locked_until = CASE
-        WHEN auth_login_attempts.window_started < now() - interval '15 minutes' THEN NULL
-        WHEN auth_login_attempts.failed_count + 1 >= 6 THEN now() + interval '15 minutes'
-        ELSE NULL END
-SQL);
-                $failure->execute(['hash' => $key]);
-                $this->audit($pdo, null, 'auth.login.failed', 'denied');
-                // Do not throw inside a transaction: failure counters must commit.
+            $session = $valid && is_array($user) ? $this->sessions->issue($pdo, $user, $mfaCode, $this->appKey()) : null;
+            if ($session === null) {
+                $this->failedLogin($pdo, $key, 'password');
                 return ['rejected' => true];
             }
             if (password_needs_rehash((string) $user['password_hash'], PASSWORD_ARGON2ID)) {
@@ -99,15 +80,7 @@ SQL);
                 $rehash->execute(['hash' => password_hash($password, PASSWORD_ARGON2ID), 'id' => $user['id']]);
             }
             $pdo->prepare('DELETE FROM auth_login_attempts WHERE subject_hash = :hash')->execute(['hash' => $key]);
-            $issued = TokenCodec::issue('cs1');
-            $csrf = TokenCodec::csrf($issued['credential'], $this->appKey());
-            $save = $pdo->prepare("INSERT INTO auth_sessions (id, user_id, secret_hash, csrf_hash, expires_at, mfa_verified) VALUES (:id,:user,:secret,:csrf,now() + interval '12 hours',:mfa)");
-            $save->execute(['id' => $issued['id'], 'user' => $user['id'], 'secret' => $issued['hash'], 'csrf' => TokenCodec::digest($csrf), 'mfa' => $mfaEnabled ? 'true' : 'false']);
-            $this->audit($pdo, (string) $user['id'], 'auth.login.succeeded', 'success', 'session', $issued['id']);
-            return [
-                'user' => $this->publicUser($user), 'cookie' => $this->cookie->set($issued['credential']),
-                'csrf_token' => $csrf, 'expires_in' => self::SESSION_SECONDS,
-            ];
+            return $session;
         }, 2) ?: throw new RuntimeException('Login failed.');
     }
 
@@ -118,6 +91,73 @@ SQL);
         if (($result['ip_limited'] ?? false) === true) throw new HttpException(429, 'Too many login attempts.', 'login_rate_limited', ['Retry-After' => '900']);
         if (($result['rejected'] ?? false) === true) throw self::unauthorized();
         return $result;
+    }
+
+    /** Internal only: an adapter must verify the external protocol before calling this.
+     * No email matching, automatic provisioning, external roles, or externally asserted MFA.
+     */
+    public function loginVerifiedExternal(VerifiedExternalIdentity $identity, string $clientAddress, ?string $mfaCode = null): array
+    {
+        $this->assertInstalled();
+        if (!$identity->isFresh(time())) throw self::unauthorized();
+        $key = hash_hmac('sha256', "external\0" . $identity->issuer . "\0" . $identity->subject, $this->appKey());
+        $result = $this->database->transaction(function (PDO $pdo) use ($identity, $clientAddress, $mfaCode, $key): array {
+            if ($this->rateLimiter !== null && !$this->rateLimiter->hit($pdo, 'login.ip', $clientAddress, 30, 900)) return ['ip_limited'=>true];
+            if (!$this->lockLoginAttempts($pdo, $key)) return ['ip_limited'=>true];
+            // Resolve only by the provider's stable issuer + subject. Lock user before binding.
+            $lookup=$pdo->prepare('SELECT id::text,user_id::text FROM auth_external_identities WHERE issuer=:issuer AND subject=:subject AND enabled');
+            $lookup->execute(['issuer'=>$identity->issuer,'subject'=>$identity->subject]);
+            $binding=$lookup->fetch(PDO::FETCH_ASSOC);
+            $user=false;
+            if (is_array($binding)) {
+                $stmt=$pdo->prepare('SELECT id::text,email,name,is_active,two_factor_enabled FROM users WHERE id=:id FOR UPDATE');
+                $stmt->execute(['id'=>$binding['user_id']]);
+                $user=$stmt->fetch(PDO::FETCH_ASSOC);
+                $lock=$pdo->prepare('SELECT 1 FROM auth_external_identities WHERE id=:id AND user_id=:user AND issuer=:issuer AND subject=:subject AND enabled FOR UPDATE');
+                $lock->execute(['id'=>$binding['id'],'user'=>$binding['user_id'],'issuer'=>$identity->issuer,'subject'=>$identity->subject]);
+                if (!$lock->fetchColumn()) $user=false;
+            }
+            if (!is_array($user) || !self::dbBool($user['is_active']) || !$identity->isFresh(time())) {
+                $this->failedLogin($pdo,$key,'external'); return ['rejected'=>true];
+            }
+            $consume=$pdo->prepare('INSERT INTO auth_external_assertions (issuer,assertion_digest,expires_at) VALUES (:issuer,:digest,to_timestamp(:expires)) ON CONFLICT DO NOTHING');
+            $consume->execute(['issuer'=>$identity->issuer,'digest'=>$identity->assertionDigest,'expires'=>$identity->exchangeExpiresAt()]);
+            if ($consume->rowCount() !== 1) { $this->failedLogin($pdo,$key,'external'); return ['rejected'=>true]; }
+            $session=$this->sessions->issue($pdo,$user,$mfaCode,$this->appKey(),$binding['id']);
+            if ($session === null) { $this->failedLogin($pdo,$key,'external'); return ['rejected'=>true]; }
+            $pdo->prepare('DELETE FROM auth_login_attempts WHERE subject_hash=:hash')->execute(['hash'=>$key]);
+            return $session;
+        }, 2);
+        if (($result['ip_limited'] ?? false) === true) throw new HttpException(429,'Too many login attempts.','login_rate_limited',['Retry-After'=>'900']);
+        if (($result['rejected'] ?? false) === true) throw self::unauthorized();
+        return $result;
+    }
+
+    /** Serialize even the first attempt for an unknown identity. */
+    private function lockLoginAttempts(PDO $pdo, string $key): bool
+    {
+        $guard=$pdo->prepare(<<<'SQL'
+INSERT INTO auth_login_attempts (subject_hash,failed_count,window_started) VALUES (:hash,0,clock_timestamp())
+ON CONFLICT (subject_hash) DO UPDATE SET subject_hash=EXCLUDED.subject_hash
+RETURNING locked_until > clock_timestamp() AS locked
+SQL);
+        $guard->execute(['hash'=>$key]);
+        $row=$guard->fetch(PDO::FETCH_ASSOC);
+        if (!is_array($row)) throw new RuntimeException('Login attempt lock unavailable.');
+        return !self::dbBool($row['locked'] ?? false);
+    }
+
+    private function failedLogin(PDO $pdo, string $key, string $method): void
+    {
+        $failure=$pdo->prepare(<<<'SQL'
+UPDATE auth_login_attempts SET
+ failed_count=CASE WHEN window_started < clock_timestamp()-interval '15 minutes' THEN 1 ELSE failed_count+1 END,
+ window_started=CASE WHEN window_started < clock_timestamp()-interval '15 minutes' THEN clock_timestamp() ELSE window_started END,
+ locked_until=CASE WHEN window_started < clock_timestamp()-interval '15 minutes' THEN NULL WHEN failed_count+1>=6 THEN clock_timestamp()+interval '15 minutes' ELSE NULL END
+WHERE subject_hash=:hash
+SQL);
+        $failure->execute(['hash'=>$key]);
+        $this->audit($pdo,null,'auth.login.failed','denied',payload:['auth_method'=>$method]);
     }
 
     /** @return array{mode:string,user:array<string,string>,id:string,scopes:list<string>,csrf_hash?:string} */
@@ -131,23 +171,7 @@ SQL);
             }
             return $this->bearer($match[1], $scopes);
         }
-        $raw = $this->cookie->read($request);
-        $id = is_string($raw) ? TokenCodec::parse($raw, 'cs1') : null;
-        if ($id === null) throw self::unauthorized();
-        $stmt = $this->database->connection()->prepare(<<<'SQL'
-SELECT s.id::text AS session_id, s.secret_hash, s.csrf_hash, s.mfa_verified,
-       u.id::text AS user_id, u.email, u.name, u.is_active, u.two_factor_enabled
-FROM auth_sessions s JOIN users u ON u.id = s.user_id
-WHERE s.id = :id AND s.revoked_at IS NULL AND s.expires_at > now()
-SQL);
-        $stmt->execute(['id' => $id]);
-        $row = $stmt->fetch(PDO::FETCH_ASSOC);
-        if (!is_array($row) || !self::dbBool($row['is_active']) || (self::dbBool($row['two_factor_enabled']) && !self::dbBool($row['mfa_verified'])) || !TokenCodec::validHash((string) $row['secret_hash'], $raw)) {
-            throw self::unauthorized();
-        }
-        $touch = $this->database->connection()->prepare("UPDATE auth_sessions SET last_seen_at = now() WHERE id = :id AND last_seen_at < now() - interval '5 minutes'");
-        $touch->execute(['id' => $id]);
-        return ['mode' => 'session', 'id' => $id, 'user' => $this->publicUser($row, 'user_id'), 'scopes' => [], 'csrf_hash' => (string) $row['csrf_hash'], 'mfa_verified' => self::dbBool($row['mfa_verified'])];
+        return $this->sessions->authenticate($this->database->connection(), $request);
     }
 
     /** @return array{mode:string,user:array<string,string>,id:string,scopes:list<string>} */
@@ -267,12 +291,13 @@ SQL);
     /** @param array<string,mixed> $principal @return list<array<string,mixed>> */
     public function sessions(array $principal): array
     {
-        $stmt = $this->database->connection()->prepare("SELECT id::text, created_at::text, last_seen_at::text, expires_at::text FROM auth_sessions WHERE user_id = :user AND revoked_at IS NULL AND expires_at > now() ORDER BY created_at DESC LIMIT 100");
+        $stmt = $this->database->connection()->prepare("SELECT id::text, created_at::text, last_seen_at::text, expires_at::text, auth_method, authenticated_at::text, mfa_verified FROM auth_sessions WHERE user_id = :user AND revoked_at IS NULL AND expires_at > now() ORDER BY created_at DESC LIMIT 100");
         $stmt->execute(['user' => $principal['user']['id']]);
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
         return array_map(static fn (array $r): array => [
             'id' => $r['id'], 'created_at' => $r['created_at'], 'last_seen_at' => $r['last_seen_at'],
             'expires_at' => $r['expires_at'], 'current' => $r['id'] === $principal['id'],
+            'auth_method' => $r['auth_method'], 'authenticated_at' => $r['authenticated_at'], 'mfa_verified' => self::dbBool($r['mfa_verified']), 'auth_level' => self::dbBool($r['mfa_verified']) ? 'mfa' : 'single_factor',
         ], $rows);
     }
 
@@ -356,18 +381,13 @@ SQL);
     /** @param array<string,mixed> $principal */
     private function assertLiveSession(PDO $pdo, array $principal): void
     {
-        $stmt = $pdo->prepare('SELECT 1 FROM users WHERE id=:user AND is_active FOR UPDATE');
-        $stmt->execute(['user'=>$principal['user']['id']]);
-        if (!$stmt->fetchColumn()) throw self::unauthorized();
-        $stmt = $pdo->prepare('SELECT 1 FROM auth_sessions s JOIN users u ON u.id=s.user_id WHERE s.id = :id AND s.user_id = :user AND s.revoked_at IS NULL AND s.expires_at > clock_timestamp() AND (NOT u.two_factor_enabled OR s.mfa_verified) FOR UPDATE OF s');
-        $stmt->execute(['id' => $principal['id'], 'user' => $principal['user']['id']]);
-        if (!$stmt->fetchColumn()) throw self::unauthorized();
+        SessionService::assertLive($pdo, $principal);
     }
 
     /** @param array<string,mixed> $row @return array<string,string> */
     private function publicUser(array $row, string $idKey = 'id'): array
     {
-        return ['id' => (string) $row[$idKey], 'email' => (string) $row['email'], 'name' => (string) $row['name']];
+        return SessionService::publicUser($row, $idKey);
     }
 
     private function appKey(): string
@@ -380,18 +400,18 @@ SQL);
 
     private static function dbBool(mixed $value): bool
     {
-        return $value === true || $value === 1 || $value === '1' || $value === 't';
+        return SessionService::dbBool($value);
     }
 
     private static function unauthorized(): HttpException
     {
-        return new HttpException(401, 'Authentication required or credentials invalid.', 'unauthorized', ['WWW-Authenticate' => 'Bearer realm="CajeerServers"']);
+        return SessionService::unauthorized();
     }
 
-    private function audit(PDO $pdo, ?string $user, string $action, string $result, ?string $target = null, ?string $targetId = null): void
+    private function audit(PDO $pdo, ?string $user, string $action, string $result, ?string $target = null, ?string $targetId = null, array $payload = []): void
     {
-        $stmt = $pdo->prepare('INSERT INTO audit_log (actor_type, actor_id, action, target_type, target_id, result) VALUES (:type,:user,:action,:target,:target_id,:result)');
+        $stmt = $pdo->prepare('INSERT INTO audit_log (actor_type, actor_id, action, target_type, target_id, result, payload) VALUES (:type,:user,:action,:target,:target_id,:result,CAST(:payload AS jsonb))');
         $stmt->execute(['type' => $user === null ? 'anonymous' : 'user', 'user' => $user,
-            'action' => $action, 'target' => $target, 'target_id' => $targetId, 'result' => $result]);
+            'action' => $action, 'target' => $target, 'target_id' => $targetId, 'result' => $result, 'payload' => json_encode($payload === [] ? (object)[] : $payload, JSON_THROW_ON_ERROR)]);
     }
 }

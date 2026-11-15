@@ -41,6 +41,7 @@ final class ReleaseVerifier
         $check('openapi_version', $apiVersion === $version && str_contains((string)$api, 'openapi: 3.1.1'),
             'OpenAPI must match VERSION and use 3.1.1.');
         foreach (['public/index.php', 'core/bootstrap.php', 'bin/cajeer', 'routes/api.php',
+                  'core/Auth/SessionService.php', 'core/Auth/VerifiedExternalIdentity.php', 'migrations/pgsql/0065_authentication_core.sql', 'tests/auth-postgres-integration.php', 'docs/Authentication-Core-Refactoring-1.0.2.md',
                   'migrations/pgsql/0007_admin_ui_permissions.sql', 'migrations/pgsql/0008_inventory_readiness.sql',
                   'core/Inventory/InventoryReadiness.php', 'migrations/pgsql/0009_organizations_workspaces.sql',
                   'core/Workspace/WorkspaceService.php', 'core/Workspace/WorkspaceController.php',

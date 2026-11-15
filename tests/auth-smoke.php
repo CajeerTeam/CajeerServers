@@ -7,6 +7,8 @@ require dirname(__DIR__) . '/core/autoload.php';
 use Cajeer\Servers\Auth\AuthenticationService;
 use Cajeer\Servers\Auth\SessionCookie;
 use Cajeer\Servers\Auth\TokenCodec;
+use Cajeer\Servers\Auth\VerifiedExternalIdentity;
+use Cajeer\Servers\Auth\SessionService;
 use Cajeer\Servers\Config\ConfigRepository;
 use Cajeer\Servers\Kernel\Application;
 use Cajeer\Servers\Runtime\HttpRequest;
@@ -60,6 +62,20 @@ try {
     $check(str_contains($cookie->clear(), 'Max-Age=0'), 'cookie removal uses expiry');
     $check(count(AuthenticationService::TOKEN_SCOPES) === 3, 'three narrow read-only token scopes');
 
+    $now=time(); $digest=hash('sha256','test assertion bytes');
+    $proof=new VerifiedExternalIdentity('https://identity.example.test','opaque-subject',$digest,$now,$now+3600);
+    $check($proof->isFresh($now) && $proof->exchangeExpiresAt()===$now+300,'external exchange freshness bounded to five minutes');
+    $check(!$proof->isFresh($now+300) && !$proof->isFresh($now-31),'external stale/future assertion rejected');
+    foreach (['http://identity.example.test','https://user@identity.example.test','https://identity.example.test?x=1','https://identity.example.test#x'] as $invalid) {
+        try { new VerifiedExternalIdentity($invalid,'subject',$digest,$now,$now+60); $check(false,'invalid issuer'); }
+        catch (InvalidArgumentException) { $check(true,'invalid issuer rejected'); }
+    }
+    try { new VerifiedExternalIdentity('https://identity.example.test','subject','raw-token',$now,$now+60); $check(false,'raw assertion rejected'); }
+    catch (InvalidArgumentException) { $check(true,'only proof digest accepted'); }
+    $check(str_contains($set,'Max-Age='.SessionService::LIFETIME),'cookie lifetime matches shared session issuer');
+    $migration=file_get_contents(dirname(__DIR__).'/migrations/pgsql/0065_authentication_core.sql');
+    $statements=(new \Cajeer\Servers\Database\SqlStatementParser())->split($migration);
+    $check(count($statements)>=10 && str_contains(implode(' ',$statements),'CREATE TRIGGER auth_external_identity_disabled'),'auth migration parsed including trigger body');
     $app = (new Application(dirname(__DIR__)))->boot();
     foreach (['/api/v1/auth/me', '/api/v1/auth/csrf', '/api/v1/auth/sessions', '/api/v1/auth/tokens'] as $path) {
         $response = $app->handle(new HttpRequest('GET', $path));

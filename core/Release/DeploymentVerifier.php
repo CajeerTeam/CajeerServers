@@ -91,7 +91,7 @@ final class DeploymentVerifier
                 $migration = $this->app->container()->get(MigrationRunner::class);
                 $validation = $migration->validate();
                 $rows = $validation['rows'];
-                return $validation['valid'] && count($rows) === 64 && count(array_filter(
+                return $validation['valid'] && count($rows) === 65 && count(array_filter(
                     $rows, static fn (array $row): bool => $row['status'] !== 'applied')) === 0;
             }, 'Every shipped PostgreSQL migration must be applied with valid checksum.');
             $this->probe($checks, 'workspace_integrity', function (): bool {

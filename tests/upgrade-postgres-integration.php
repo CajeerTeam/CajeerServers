@@ -31,8 +31,9 @@ try {
         foreach(['config','routes','migrations/pgsql'] as $d)foreach(glob($source.'/'.$d.'/*') as $f)if(is_file($f))copy($f,$root.'/'.$d.'/'.basename($f));
         copy($source.'/.env.example',$root.'/.env.example');
     }
-    file_put_contents($old.'/VERSION',"1.0.0\n"); copy($source.'/VERSION',$new.'/VERSION');
-    // Rehearse the 1.0.0 schema: all sixty-four historical SQL files are unchanged.
+    unlink($old.'/migrations/pgsql/0065_authentication_core.sql');
+    file_put_contents($old.'/VERSION',"1.0.1\n"); copy($source.'/VERSION',$new.'/VERSION');
+    // Rehearse the 1.0.1 schema: all sixty-four historical SQL files are unchanged.
     $installer=new InstallService($old);
     $input=['APP_ENV'=>'local','APP_URL'=>'http://127.0.0.1:8080','APP_KEY'=>'','DB_CONNECTION'=>'pgsql','DB_HOST'=>$host,'DB_PORT'=>$port,'DB_DATABASE'=>$fromDb,'DB_USERNAME'=>$user,'DB_PASSWORD'=>$pass,'DB_SSLMODE'=>$ssl,'DB_SSLROOTCERT'=>'','admin_email'=>'upgrade@example.invalid','admin_name'=>'Upgrade Test','admin_password'=>'Upgrade test private administrator password'];
     $result=$installer->install($input);
@@ -43,6 +44,12 @@ try {
     $pdo=new PDO($dsn($fromDb),$user,$pass,[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);
     $hash=$pdo->query("SELECT password_hash FROM users WHERE email='upgrade@example.invalid'")->fetchColumn();
     $assert(is_string($hash)&&password_verify($input['admin_password'],$hash),'administrator credentials persisted');
+    // Create a genuine 1.0.1-format session before the new migration.
+    $oldSession=\Cajeer\Servers\Auth\TokenCodec::issue('cs1');
+    $oldCsrf=bin2hex(random_bytes(32));
+    $legacy=$pdo->prepare("INSERT INTO auth_sessions(id,user_id,secret_hash,csrf_hash,expires_at,mfa_verified) SELECT :id,id,:secret,:csrf,now()+interval '12 hours',false FROM users WHERE email='upgrade@example.invalid'");
+    $legacy->execute(['id'=>$oldSession['id'],'secret'=>$oldSession['hash'],'csrf'=>hash('sha256',$oldCsrf)]);
+    $beforeSession=$pdo->query("SELECT id::text,secret_hash,csrf_hash,created_at::text,expires_at::text FROM auth_sessions WHERE id='".$oldSession['id']."'")->fetch(PDO::FETCH_ASSOC);
     $vault='base64:'.base64_encode(random_bytes(32));
     $realRedisPort=getenv('CAJEER_REDIS_TEST_PORT')?:'6379'; $realRedisHost=getenv('CAJEER_REDIS_TEST_HOST')?:'127.0.0.1';
     foreach(['DB_CONNECTION'=>'pgsql','DB_HOST'=>$host,'DB_PORT'=>$port,'DB_DATABASE'=>$fromDb,'DB_USERNAME'=>$user,'DB_PASSWORD'=>$pass,'DB_SSLMODE'=>$ssl,'DB_SSLROOTCERT'=>'','APP_ENV'=>'local','APP_DEBUG'=>'false','APP_URL'=>'http://127.0.0.1:8080','STORAGE_DISK'=>'local','STORAGE_LOCAL_ROOT'=>$new.'/storage/files','VAULT_MASTER_KEY'=>$vault,'VAULT_MASTER_KEY_FILE'=>'','REDIS_HOST'=>$realRedisHost,'REDIS_PORT'=>'1','REDIS_TLS'=>'false'] as $k=>$v)putenv($k.'='.$v);
@@ -59,8 +66,8 @@ try {
     $oldSql=$old.'/migrations/pgsql/0060_network_configuration_backup.sql';$sql=file_get_contents($oldSql);file_put_contents($oldSql,$sql."\n-- altered\n");
     $reject(fn()=>$upgrade->run($old,$archive,$key),'source migration checksum drift rejected');file_put_contents($oldSql,$sql);
     $assert(!file_exists($archive)&&$upgrade->status()['upgrade']===null,'no side effects before verified source');
-    // Seed a prior completed journal and a valid delegation; 1.0.1 must preserve it.
-    $prior=['phase'=>'complete','from'=>'0.9.9','to'=>'1.0.0','installation_id'=>$oldId,'database'=>$fromDb,'upgrade_id'=>bin2hex(random_bytes(16))];
+    // Seed a prior completed journal and a valid delegation; 1.0.2 must preserve it.
+    $prior=['phase'=>'complete','from'=>'1.0.0','to'=>'1.0.1','installation_id'=>$oldId,'database'=>$fromDb,'upgrade_id'=>bin2hex(random_bytes(16))];
     file_put_contents($new.'/storage/app/upgrade.json',json_encode($prior));chmod($new.'/storage/app/upgrade.json',0600);
     $grant=$pdo->query("INSERT INTO connector_service_grants(workspace_id,target_id,actor_id,asset_id,credential_id,purpose,target_version,credential_version,operation,expires_at) SELECT gen_random_uuid(),gen_random_uuid(),id,gen_random_uuid(),gen_random_uuid(),'ssh',1,1,'inspect',now()+interval '1 hour' FROM users WHERE email='upgrade@example.invalid' RETURNING id")->fetchColumn();
     $pdo->prepare("INSERT INTO collection_plans(grant_id,name,collector_name,interval_seconds,next_due_at) VALUES(:g,'Legacy plan','ssh.inventory',60,now())")->execute(['g'=>$grant]);
@@ -75,18 +82,23 @@ try {
     $q=$pdo->prepare('SELECT g.revoked_at IS NULL AND p.enabled FROM connector_service_grants g JOIN collection_plans p ON p.grant_id=g.id WHERE g.id=:id');$q->execute(['id'=>$grant]);
     $assert(in_array($q->fetchColumn(),[true,'t','1',1],true),'migration preserves valid delegation and enabled plan');
     $assert($journal['backup_sha256']===hash_file('sha256',$archive),'backup hash pinned');
-    $assert((new InstallState($new))->record()['version']==='1.0.0','failed verification does not advance marker');
+    $assert((new InstallState($new))->record()['version']==='1.0.1','failed verification does not advance marker');
     $app->terminate();$app=null;putenv('REDIS_PORT='.$realRedisPort);
     $app=(new Application($new))->boot();$upgrade=new UpgradeService($app);$result=$upgrade->run($old,$archive,$key);
     $assert($result['upgrade']['phase']==='complete'&&$result['maintenance'],'resume completed without reopening');
     $assert($result['upgrade']['backup_sha256']===$journal['backup_sha256'],'resume reused exact archive');
-    $assert((new InstallState($new))->record()['version']==='1.0.1','successful verification advances marker');
+    $assert((new InstallState($new))->record()['version']==='1.0.2','successful verification advances marker');
     $assert((new InstallState($new))->record()['installation_id']===$oldId,'installation identity preserved');
     $assert($pdo->query("SELECT password_hash FROM users WHERE email='upgrade@example.invalid'")->fetchColumn()===$hash,'existing user unchanged');
+    $afterSession=$pdo->query("SELECT id::text,secret_hash,csrf_hash,created_at::text,expires_at::text,auth_method,authenticated_at::text FROM auth_sessions WHERE id='".$oldSession['id']."'")->fetch(PDO::FETCH_ASSOC);
+    $assert(array_intersect_key($afterSession,$beforeSession)===$beforeSession && $afterSession['auth_method']==='password' && $afterSession['authenticated_at']===$afterSession['created_at'],'migration preserves old session hashes, expiry and identity');
+    $oldBrowser=new \Cajeer\Servers\Runtime\HttpRequest('GET','/api/v1/auth/me',['Cookie'=>'cajeer_session='.$oldSession['credential']]);
+    $auth=$app->container()->get(\Cajeer\Servers\Auth\AuthenticationService::class);
+    $assert($auth->authenticate($oldBrowser)['id']===$oldSession['id'],'old session cookie works after upgrade');
     $assert($app->container()->get(CredentialsVault::class)->check()['ok'],'Vault verifier survives upgrade');
     $reject(fn()=>$upgrade->restore($key,$fromDb,$fromDb,$dir.'/bad-storage',$dir.'/bad-secrets'),'rollback cannot overwrite original database');
     $recovery=$dir.'/recovery';$storage=$dir.'/restored-storage';$report=$upgrade->restore($key,$restoreDb,$restoreDb,$storage,$recovery);
-    $assert($report['restored']&&$report['source_version']==='1.0.0','real pg_restore into isolated replacement');
+    $assert($report['restored']&&$report['source_version']==='1.0.1','real pg_restore into isolated replacement');
     $restored=new PDO($dsn($restoreDb),$user,$pass,[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);
     $assert($restored->query("SELECT installation_id::text FROM cajeer_installation WHERE singleton_id=1")->fetchColumn()===$oldId,'restored installation identity');
     $assert($restored->query("SELECT password_hash FROM users WHERE email='upgrade@example.invalid'")->fetchColumn()===$hash,'restored account data');

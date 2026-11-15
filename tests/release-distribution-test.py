@@ -44,7 +44,7 @@ class DistributionTests(unittest.TestCase):
                        'promotion_ready': False, 'version': self.VERSION, 'candidate_id': self.identity, 'commit': commit,
                        'archive_sha256': self.package_hash, 'strict_exit': 0, 'deployment_exit': 0, 'capacity_profile': r.CAPACITY,
                        'soak_seconds': 259200, 'soak_checks': 4321, 'started_at': 1000000, 'finished_at': 1259300}
-        if self.VERSION == '1.0.1':
+        if self.VERSION != '1.0.0':
             self.report['format'] = 3
             self.report['strict_verification'] = {'format':1, 'version':self.VERSION, 'candidate_id':self.identity,
                 'steps':[{'name':name,'exit':0,'elapsed_ms':10} for name in sorted(r.candidate.STRICT_REQUIRED)]}
@@ -184,5 +184,8 @@ class PatchDistributionTests(DistributionTests):
         self.sign()
         with self.assertRaisesRegex(ValueError, 'identity mismatch'):
             r.accepted(self.directory, self.identity, self.public)
+
+class AuthenticationCoreDistributionTests(PatchDistributionTests):
+    VERSION = '1.0.2'
 
 if __name__ == '__main__': unittest.main(verbosity=2)

@@ -1,8 +1,8 @@
 openapi: 3.1.1
 info:
   title: CajeerServers REST API
-  version: 1.0.1
-  description: 'CajeerServers 1.0.1: infrastructure inventory, credentials, connectors, collection and operations.'
+  version: 1.0.2
+  description: 'CajeerServers 1.0.2: infrastructure inventory, credentials, connectors, collection and operations.'
 servers:
 - url: /api/v1
 security: []
@@ -13336,6 +13336,10 @@ components:
       - last_seen_at
       - expires_at
       - current
+      - auth_method
+      - authenticated_at
+      - mfa_verified
+      - auth_level
       properties:
         id:
           type: string
@@ -13348,6 +13352,16 @@ components:
           type: string
         current:
           type: boolean
+        auth_method:
+          type: string
+          enum: [password, external]
+        authenticated_at:
+          type: string
+        mfa_verified:
+          type: boolean
+        auth_level:
+          type: string
+          enum: [single_factor, mfa]
     Sessions:
       type: object
       required:

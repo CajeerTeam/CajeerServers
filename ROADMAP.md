@@ -651,3 +651,14 @@ Roadmap основан на SemVer, LTS и security-release модели. При
 - [ ] Full production acceptance: PHP/PG matrix, locked build, live devices, browser, capacity, DR, 72h soak and independent approval.
 
 См. [Stable Core Acceptance 1.0.1](docs/Stable-Core-Acceptance-1.0.1.md).
+
+
+## 1.0.2 — Authentication Core Refactoring
+
+- [x] Единый runtime `SessionService`, локальный вход и внутренний обмен проверенной внешней идентичности на обычную сессию.
+- [x] Миграция 0065, сохранение сессий 1.0.1, блокировка повторного подтверждения, локальная MFA и отзыв при отключении идентичности.
+- [x] Источник и уровень аутентификации в профиле, аудит, совместимые API и offline upgrade.
+- [ ] PostgreSQL/Redis и strict acceptance на production-подобном стенде.
+- [ ] 1.0.3 — реальный SkiF4er ID Provider (OIDC discovery, token exchange, проверка подписи/issuer/audience/nonce), затем 1.0.4 — браузерный вход.
+
+См. [Authentication Core Refactoring 1.0.2](docs/Authentication-Core-Refactoring-1.0.2.md).

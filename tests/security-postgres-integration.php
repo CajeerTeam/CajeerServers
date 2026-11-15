@@ -11,6 +11,7 @@ require dirname(__DIR__) . '/core/autoload.php';
 use Cajeer\Servers\Audit\AuditLogger;
 use Cajeer\Servers\Auth\AuthenticationService;
 use Cajeer\Servers\Auth\SessionCookie;
+use Cajeer\Servers\Auth\VerifiedExternalIdentity;
 use Cajeer\Servers\Config\ConfigRepository;
 use Cajeer\Servers\Database\ConnectionFactory;
 use Cajeer\Servers\Database\DatabaseManager;
@@ -107,6 +108,20 @@ try {
     $newLogin=$auth->loginOrReject($email,$password,'192.0.2.46',$codes[0]);
     $ok(is_array($newLogin['user']),'one-use recovery code authenticates');
     $reject(401,static fn()=>$auth->loginOrReject($email,$password,'192.0.2.47',$codes[0]),'reused recovery code denied');
+    // A verified provider assertion cannot bypass local TOTP/recovery codes.
+    $issuer='https://mfa.example.invalid/' . bin2hex(random_bytes(8)); $subject='external-mfa';
+    $pdo->prepare('INSERT INTO auth_external_identities(user_id,issuer,subject) VALUES (:user,:issuer,:subject)')->execute(['user'=>$adminId,'issuer'=>$issuer,'subject'=>$subject]);
+    $proof=static fn (): VerifiedExternalIdentity => new VerifiedExternalIdentity($issuer,$subject,hash('sha256',random_bytes(32)),time(),time()+600);
+    $attempt=$proof();
+    $reject(401,static fn()=>$auth->loginVerifiedExternal($attempt,'192.0.2.48'),'external login without local MFA denied');
+    $reject(401,static fn()=>$auth->loginVerifiedExternal($attempt,'192.0.2.48',$codes[9]),'failed external proof cannot be replayed');
+    $ext=$auth->loginVerifiedExternal($proof(),'192.0.2.48',$codes[9]);
+    $extReq=new HttpRequest('GET','/api/v1/auth/me',['Cookie'=>explode(';',$ext['cookie'],2)[0]]);
+    $extPrincipal=$auth->authenticate($extReq);
+    $ok($extPrincipal['auth_method']==='external' && $extPrincipal['mfa_verified'] && $extPrincipal['auth_level']==='mfa','external login enforces local MFA');
+    $reject(401,static fn()=>$auth->loginVerifiedExternal($proof(),'192.0.2.49',$codes[9]),'external recovery code cannot be reused');
+    $auth->logout($extPrincipal);
+    $reject(401,static fn()=>$auth->authenticate($extReq),'external session logout revokes cookie');
     $token=$auth->createToken($fresh,'MFA client',['profile:read'],600);
     $tokenPrincipal=$auth->authenticate(new HttpRequest('GET','/api/v1/auth/me',['Authorization'=>'Bearer '.$token['token']]));
     $ok($tokenPrincipal['mode']==='token','MFA-issued bearer token works');

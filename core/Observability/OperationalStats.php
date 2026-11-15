@@ -65,6 +65,7 @@ final class OperationalStats
             'auth_login_attempts' => 'window_started',
             'security_rate_limits' => 'expires_at',
             'auth_sessions' => 'expires_at',
+            'auth_external_assertions' => 'expires_at',
             'webhook_events' => 'received_at',
             'vault_use_grants' => 'expires_at',
         ];
