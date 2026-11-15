@@ -10,6 +10,9 @@ use Cajeer\Servers\Database\ConnectionFactory;
 use Cajeer\Servers\Database\DatabaseManager;
 use Cajeer\Servers\Database\MigrationRunner;
 use Cajeer\Servers\Inventory\CmdbIntegrity;
+use Cajeer\Servers\Inventory\CmdbRepair;
+use Cajeer\Servers\Inventory\HistoryService;
+use Cajeer\Servers\Workspace\WorkspaceService;
 use Cajeer\Servers\Inventory\InventoryRepository;
 use Cajeer\Servers\Inventory\InventoryService;
 use Cajeer\Servers\Inventory\IpamService;
@@ -28,14 +31,15 @@ $ok=static function(bool $yes,string $why)use(&$checks):void{
     $checks++;
 };
 try{
-    $db=new DatabaseManager(new ConfigRepository($root.'/config'),new ConnectionFactory(),[
+    $config=[
         'driver'=>'pgsql','host'=>getenv('CAJEER_PG_TEST_HOST')?:'127.0.0.1',
         'port'=>getenv('CAJEER_PG_TEST_PORT')?:'5432',
         'database'=>getenv('CAJEER_PG_TEST_DATABASE'),
         'username'=>getenv('CAJEER_PG_TEST_USERNAME')?:'cajeer',
         'password'=>getenv('CAJEER_PG_TEST_PASSWORD')?:'',
         'sslmode'=>getenv('CAJEER_PG_TEST_SSLMODE')?:'prefer',
-    ]);
+    ];
+    $db=new DatabaseManager(new ConfigRepository($root.'/config'),new ConnectionFactory(),$config);
     $pdo=$db->connection();
     $ok((int)$pdo->query("SELECT current_setting('server_version_num')")->fetchColumn()>=170000,'PostgreSQL 17+');
     $pdo->exec('CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public');
@@ -71,7 +75,18 @@ try{
     $ok(($initial['totals']['assets']??-1)===1,'real asset count');
     $ok($integrity->inspect(true)['ok']===true,'deep cycle scan succeeds');
 
+    // Two independent transactions: the original trigger cannot see a committed network
+    // through an older REPEATABLE READ snapshot. The GiST exclusion constraint must reject it.
+    $other=(new ConnectionFactory())->make($config);
+    $other->exec('SET search_path TO "'.$schema.'", public');
+    $other->beginTransaction();$other->exec('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
+    $other->query('SELECT count(*) FROM inventory_networks')->fetchColumn();
     $network=$ipam->create($actor,'network',$workspace,['name'=>'cmdb-net','cidr'=>'198.51.100.0/24']);
+    try {
+        $other->prepare("INSERT INTO inventory_networks(workspace_id,name,cidr) VALUES(:ws,'overlap','198.51.100.128/25')")->execute(['ws'=>$workspace]);
+        throw new RuntimeException('Concurrent overlapping CIDR accepted');
+    }catch(PDOException $e){$ok(in_array((string)($e->errorInfo[0]??$e->getCode()),['23P01','40001'],true),'stale transaction cannot create overlapping CIDR');}
+    finally{$other->rollBack();$other=null;}
     $interface=$ipam->create($actor,'interface',$workspace,['name'=>'eth0','asset_id'=>$asset['id']]);
     try{
         $inventory->delete($actor,$asset['id'],$updated['version']);
@@ -87,10 +102,32 @@ try{
     $ok($broken['ok']===false,'deleted provenance is detected');
     $ok(in_array('history.missing_field_provenance',array_column(array_filter($broken['checks'],
         static fn(array $c):bool=>!$c['ok']),'name'),true),'provenance invariant reports failure');
-    $pdo->prepare("INSERT INTO inventory_field_provenance(asset_id,field,mode,source) VALUES (:asset,'name','manual','manual')")
-        ->execute(['asset'=>$asset['id']]);
+    $pdo->prepare('INSERT INTO cajeer_installation(admin_user_id) VALUES(:id)')->execute(['id'=>$actor]);
+    $repair=new CmdbRepair($db,$audit);$preview=$repair->preview($workspace);
+    $ok($preview['missing']===1 && $preview['applied']===false,'read-only repair preview exact count');
+    $pdo->prepare("DELETE FROM inventory_field_provenance WHERE asset_id=:id AND field='status'")->execute(['id'=>$asset['id']]);
+    try{$repair->apply($workspace,$preview['confirmation']);throw new RuntimeException('Stale preview accepted');}
+    catch(RuntimeException $e){$ok($e->getMessage()==='Repair plan changed; generate a new preview.','stale repair rejected');}
+    $fresh=$repair->preview($workspace);$applied=$repair->apply($workspace,$fresh['confirmation']);
+    $ok($applied['repaired']===2 && $repair->preview($workspace)['missing']===0,'repair commits exact approved rows');
+    $ok((int)$pdo->query("SELECT count(*) FROM audit_log WHERE action='inventory.integrity.repaired'")->fetchColumn()===1,'repair audited once');
     $ok($integrity->inspect()['ok']===true,'restoration clears violation');
     $ok($network['cidr']==='198.51.100.0/24','existing IPAM API preserved');
+    // A moved import asset retains historical receipts but not the old open conflict or cursor.
+    $history=new HistoryService($db,$repo,$inventory,$audit);$workspaces=new WorkspaceService($db,$audit);
+    $org=(string)$pdo->query("SELECT id::text FROM organizations WHERE slug='default'")->fetchColumn();
+    $dest=$workspaces->createWorkspace($actor,$org,'cmdb-destination','Destination')['id'];
+    $now=new DateTimeImmutable('now',new DateTimeZone('UTC'));
+    $ev=['workspace_id'=>$workspace,'external_id'=>'move-test','event_key'=>'move-1','type'=>'server','fields'=>['name'=>'Original'],'observed_at'=>$now->format('Y-m-d\TH:i:s.u\Z')];
+    $import=$history->observe($actor,$ev)['asset_id'];
+    $history->override($actor,$import,1,['fields'=>['name'=>'Manual']]);
+    $history->observe($actor,[...$ev,'event_key'=>'move-2','fields'=>['name'=>'Remote'],'observed_at'=>$now->modify('+1 second')->format('Y-m-d\TH:i:s.u\Z')]);
+    $ok(count($history->conflicts($actor,$import)['data'])===1,'open conflict before transfer');
+    $workspaces->transferAsset($actor,$workspace,$import,$dest);
+    $ok($history->conflicts($actor,$import)['data']===[] && $history->provenance($actor,$import)['observations']===[],'transfer closes old conflicts and resets cursor');
+    $history->observe($actor,[...$ev,'workspace_id'=>$dest,'event_key'=>'move-3','fields'=>['name'=>'New remote']]);
+    $ok(count($history->conflicts($actor,$import)['data'])===1,'new workspace gets independent conflict even with older timestamp');
+    $ok($integrity->inspect()['ok'],'CMDB consistent after transfer');
     echo "PASS: $checks PostgreSQL CMDB integration assertions.\n";
 }catch(Throwable $error){$failed=true;fwrite(STDERR,'FAIL: CMDB integration: '.$error::class.': '.$error->getMessage()."\n");}
 finally{

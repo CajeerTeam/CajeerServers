@@ -35,59 +35,78 @@ final class HistoryService
         return $row;
     }
 
+    /** A single snapshot covers authorization, asset scope, history and pagination. */
+    private function readSnapshot(callable $read):array
+    {
+        $pdo=$this->db->connection();
+        if($pdo->inTransaction())return $read($pdo); // caller owns transaction/isolation
+        return $this->db->transaction(function(PDO $pdo)use($read):array{
+            $pdo->exec('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY');
+            return $read($pdo);
+        });
+    }
+
     /** @return array<string,mixed> */
     public function revisions(string $actor,string $id,int $limit=30,int $offset=0):array
     {
         if($limit<1||$limit>100||$offset<0||$offset>10000)throw new HttpException(422,'Invalid pagination.','validation_failed');
-        $pdo=$this->db->connection();$asset=$this->visible($pdo,$actor,$id);
-        $sql='SELECT asset_version,operation,origin,actor_id::text,request_id,before_state::text,after_state::text,changes::text,created_at::text FROM inventory_asset_revisions WHERE asset_id=:asset AND workspace_id=:ws ORDER BY asset_version DESC LIMIT :limit OFFSET :offset';
-        $stmt=$pdo->prepare($sql);
-        $stmt->bindValue(':asset',$asset['id']);$stmt->bindValue(':ws',$asset['workspace_id']);
-        $stmt->bindValue(':limit',$limit,PDO::PARAM_INT);$stmt->bindValue(':offset',$offset,PDO::PARAM_INT);$stmt->execute();
-        $data=[];
-        foreach($stmt->fetchAll(PDO::FETCH_ASSOC) as $row){
-            foreach(['before_state','after_state','changes'] as $field)$row[$field]=json_decode($row[$field],true,32,JSON_THROW_ON_ERROR);
-            $row['asset_version']=(int)$row['asset_version'];$data[]=$row;
-        }
-        $count=$pdo->prepare('SELECT count(*) FROM inventory_asset_revisions WHERE asset_id=:asset AND workspace_id=:ws');
-        $count->execute(['asset'=>$asset['id'],'ws'=>$asset['workspace_id']]);
-        return ['data'=>$data,'pagination'=>['total'=>(int)$count->fetchColumn(),'limit'=>$limit,'offset'=>$offset]];
+        return $this->readSnapshot(function(PDO $pdo)use($actor,$id,$limit,$offset):array{
+            $asset=$this->visible($pdo,$actor,$id);
+            $sql='SELECT asset_version,operation,origin,actor_id::text,request_id,before_state::text,after_state::text,changes::text,created_at::text FROM inventory_asset_revisions WHERE asset_id=:asset AND workspace_id=:ws ORDER BY asset_version DESC LIMIT :limit OFFSET :offset';
+            $stmt=$pdo->prepare($sql);
+            $stmt->bindValue(':asset',$asset['id']);$stmt->bindValue(':ws',$asset['workspace_id']);
+            $stmt->bindValue(':limit',$limit,PDO::PARAM_INT);$stmt->bindValue(':offset',$offset,PDO::PARAM_INT);$stmt->execute();
+            $data=[];
+            foreach($stmt->fetchAll(PDO::FETCH_ASSOC) as $row){
+                foreach(['before_state','after_state','changes'] as $field)$row[$field]=json_decode($row[$field],true,32,JSON_THROW_ON_ERROR);
+                $row['asset_version']=(int)$row['asset_version'];$data[]=$row;
+            }
+            $count=$pdo->prepare('SELECT count(*) FROM inventory_asset_revisions WHERE asset_id=:asset AND workspace_id=:ws');
+            $count->execute(['asset'=>$asset['id'],'ws'=>$asset['workspace_id']]);
+            return ['data'=>$data,'pagination'=>['total'=>(int)$count->fetchColumn(),'limit'=>$limit,'offset'=>$offset]];
+        });
     }
 
     /** @return array<string,mixed> */
     public function provenance(string $actor,string $id):array
     {
-        $pdo=$this->db->connection();$asset=$this->visible($pdo,$actor,$id);
-        $p=$pdo->prepare('SELECT field,mode,source,actor_id::text,observed_at::text,updated_at::text FROM inventory_field_provenance WHERE asset_id=:asset ORDER BY field');
-        $p->execute(['asset'=>$asset['id']]);
-        $s=$pdo->prepare('SELECT source,last_observed_at::text,last_received_at::text FROM inventory_observation_state WHERE asset_id=:asset ORDER BY source');
-        $s->execute(['asset'=>$asset['id']]);
-        return ['asset_id'=>$asset['id'],'source'=>$asset['source'],'fields'=>$p->fetchAll(PDO::FETCH_ASSOC),'observations'=>$s->fetchAll(PDO::FETCH_ASSOC)];
+        return $this->readSnapshot(function(PDO $pdo)use($actor,$id):array{
+            $asset=$this->visible($pdo,$actor,$id);
+            $p=$pdo->prepare('SELECT field,mode,source,actor_id::text,observed_at::text,updated_at::text FROM inventory_field_provenance WHERE asset_id=:asset ORDER BY field');
+            $p->execute(['asset'=>$asset['id']]);
+            $s=$pdo->prepare('SELECT source,last_observed_at::text,last_received_at::text FROM inventory_observation_state WHERE asset_id=:asset ORDER BY source');
+            $s->execute(['asset'=>$asset['id']]);
+            return ['asset_id'=>$asset['id'],'source'=>$asset['source'],'fields'=>$p->fetchAll(PDO::FETCH_ASSOC),'observations'=>$s->fetchAll(PDO::FETCH_ASSOC)];
+        });
     }
 
     /** @return array<string,mixed> */
     public function conflicts(string $actor,string $id,bool $includeResolved=false):array
     {
-        $pdo=$this->db->connection();$asset=$this->visible($pdo,$actor,$id);
-        $sql='SELECT id::text,field,source,observed_value::text,observed_at::text,last_seen_at::text,seen_count,resolved_at::text FROM inventory_reconciliation_conflicts WHERE asset_id=:id AND workspace_id=:ws';
-        if(!$includeResolved)$sql.=' AND resolved_at IS NULL';
-        $stmt=$pdo->prepare($sql.' ORDER BY last_seen_at DESC LIMIT 100');
-        $stmt->execute(['id'=>$asset['id'],'ws'=>$asset['workspace_id']]);
-        $rows=$stmt->fetchAll(PDO::FETCH_ASSOC);
-        foreach($rows as &$row){$row['observed_value']=json_decode($row['observed_value'],true,32,JSON_THROW_ON_ERROR);$row['seen_count']=(int)$row['seen_count'];}unset($row);
-        return ['data'=>$rows];
+        return $this->readSnapshot(function(PDO $pdo)use($actor,$id,$includeResolved):array{
+            $asset=$this->visible($pdo,$actor,$id);
+            $sql='SELECT id::text,field,source,observed_value::text,observed_at::text,last_seen_at::text,seen_count,resolved_at::text FROM inventory_reconciliation_conflicts WHERE asset_id=:id AND workspace_id=:ws';
+            if(!$includeResolved)$sql.=' AND resolved_at IS NULL';
+            $stmt=$pdo->prepare($sql.' ORDER BY last_seen_at DESC LIMIT 100');
+            $stmt->execute(['id'=>$asset['id'],'ws'=>$asset['workspace_id']]);
+            $rows=$stmt->fetchAll(PDO::FETCH_ASSOC);
+            foreach($rows as &$row){$row['observed_value']=json_decode($row['observed_value'],true,32,JSON_THROW_ON_ERROR);$row['seen_count']=(int)$row['seen_count'];}unset($row);
+            return ['data'=>$rows];
+        });
     }
 
     /** @return array<string,mixed> */
     public function observations(string $actor,string $id,int $limit=30):array
     {
         if($limit<1||$limit>100)throw new HttpException(422,'Invalid limit.','validation_failed');
-        $pdo=$this->db->connection();$asset=$this->visible($pdo,$actor,$id);
-        $stmt=$pdo->prepare('SELECT id::text,source,external_id,event_key,observed_at::text,received_at::text,outcome,applied_fields::text,conflicted_fields::text FROM inventory_observations WHERE asset_id=:id AND workspace_id=:ws ORDER BY received_at DESC,id DESC LIMIT :lim');
-        $stmt->bindValue(':id',$asset['id']);$stmt->bindValue(':ws',$asset['workspace_id']);$stmt->bindValue(':lim',$limit,PDO::PARAM_INT);$stmt->execute();
-        $rows=$stmt->fetchAll(PDO::FETCH_ASSOC);
-        foreach($rows as &$row){foreach(['applied_fields','conflicted_fields'] as $f)$row[$f]=json_decode($row[$f],true,16,JSON_THROW_ON_ERROR);}unset($row);
-        return ['data'=>$rows];
+        return $this->readSnapshot(function(PDO $pdo)use($actor,$id,$limit):array{
+            $asset=$this->visible($pdo,$actor,$id);
+            $stmt=$pdo->prepare('SELECT id::text,source,external_id,event_key,observed_at::text,received_at::text,outcome,applied_fields::text,conflicted_fields::text FROM inventory_observations WHERE asset_id=:id AND workspace_id=:ws ORDER BY received_at DESC,id DESC LIMIT :lim');
+            $stmt->bindValue(':id',$asset['id']);$stmt->bindValue(':ws',$asset['workspace_id']);$stmt->bindValue(':lim',$limit,PDO::PARAM_INT);$stmt->execute();
+            $rows=$stmt->fetchAll(PDO::FETCH_ASSOC);
+            foreach($rows as &$row){foreach(['applied_fields','conflicted_fields'] as $f)$row[$f]=json_decode($row[$f],true,16,JSON_THROW_ON_ERROR);}unset($row);
+            return ['data'=>$rows];
+        });
     }
 
     /** Atomically reconcile a bounded discovery batch using the same validation and provenance engine. */
@@ -158,12 +177,12 @@ SQL);
                     foreach($event['fields'] as $field=>$value){
                         $modeStmt->execute(['id'=>$assetId,'field'=>$field]);$mode=$modeStmt->fetchColumn();
                         if($mode==='manual'){
-                            if(($field==='attributes'?($asset[$field][array_key_first($value)]??null)!=reset($value):$asset[$field]!==$value)){
+                            if(ObservationInput::fieldChanged($asset,$field,$value)){
                                 $conflicted[]=$field;
                                 $this->recordConflict($pdo,$assetId,$ws,$field,$value,$event['observed_at']);
                             }else{$this->resolveConflict($pdo,$assetId,$field);}
                         }else{
-                            if(($field==='attributes'?($asset[$field][array_key_first($value)]??null)!=reset($value):$asset[$field]!==$value)){$patch[$field]=$field==='attributes'?InfrastructureAsset::changes(['attributes'=>array_replace($asset[$field],$value)])['attributes']:$value;$applied[]=$field;}
+                            if(ObservationInput::fieldChanged($asset,$field,$value)){$patch[$field]=$field==='attributes'?InfrastructureAsset::changes(['attributes'=>array_replace($asset[$field],$value)])['attributes']:$value;$applied[]=$field;}
                             $this->setProvenance($pdo,$assetId,$field,'observed','import',$actor,$event['observed_at']);
                             $this->resolveConflict($pdo,$assetId,$field);
                         }
@@ -228,6 +247,7 @@ SQL);
         return $this->db->transaction(function(PDO $pdo)use($actor,$assetId,$expectedVersion,$fields,$requestId):array{
             $current=$this->visible($pdo,$actor,$assetId,true);$ws=$current['workspace_id'];
             $this->repo->lockWorkspace($pdo,$ws);
+            $this->repo->workspaceRole($pdo,$ws,$actor,true);
             $row=$this->repo->find($pdo,$actor,$assetId,true,true);
             if($row===null||$row['workspace_id']!==$ws)throw new HttpException(409,'Asset moved.','conflict');
             if($row['source']!=='import'||$row['deleted_at']!==null)throw new HttpException(409,'Only active imported assets accept overrides.','conflict');
@@ -249,10 +269,11 @@ SQL);
         return $this->db->transaction(function(PDO $pdo)use($actor,$assetId,$version,$field,$requestId):array{
             $current=$this->visible($pdo,$actor,$assetId,true);$ws=$current['workspace_id'];
             $this->repo->lockWorkspace($pdo,$ws);
+            $this->repo->workspaceRole($pdo,$ws,$actor,true);
             $row=$this->repo->find($pdo,$actor,$assetId,true,true);
             if($row===null||$row['workspace_id']!==$ws||$row['source']!=='import'||$row['deleted_at']!==null)throw new HttpException(409,'Invalid imported asset.','conflict');
             if($row['version']!==$version)throw new HttpException(412,'Asset version changed.','precondition_failed');
-            $stmt=$pdo->prepare("DELETE FROM inventory_field_provenance WHERE asset_id=:id AND field=:field AND mode='manual'");
+            $stmt=$pdo->prepare("UPDATE inventory_field_provenance SET mode='observed',source='import',actor_id=NULL,observed_at=NULL,updated_at=clock_timestamp() WHERE asset_id=:id AND field=:field AND mode='manual'");
             $stmt->execute(['id'=>$assetId,'field'=>$field]);
             if($stmt->rowCount()!==1)throw new HttpException(409,'No override exists.','conflict');
             self::context($pdo,$actor,'manual',$requestId);
@@ -267,17 +288,22 @@ SQL);
     public function restoreRevision(string $actor,string $id,int $expectedVersion,int $historyVersion,?string $requestId=null):array
     {
         if($historyVersion<1)throw new HttpException(422,'Invalid revision.','validation_failed');
-        $pdo=$this->db->connection();$row=$this->visible($pdo,$actor,$id,true);
-        if($row['source']!=='manual'||$row['deleted_at']!==null)throw new HttpException(409,'Only active manual assets can restore fields.','conflict');
-        $stmt=$pdo->prepare('SELECT after_state::text FROM inventory_asset_revisions WHERE asset_id=:id AND workspace_id=:ws AND asset_version=:version');
-        $stmt->execute(['id'=>$row['id'],'ws'=>$row['workspace_id'],'version'=>$historyVersion]);
-        $raw=$stmt->fetchColumn();if(!is_string($raw))throw new HttpException(404,'Revision not found.','not_found');
-        $snapshot=json_decode($raw,true,32,JSON_THROW_ON_ERROR);
-        $patch=[];foreach(['name','status','os_family','ip_addresses','tags','environment','owner_user_id'] as $f){if(array_key_exists($f,$snapshot))$patch[$f]=$snapshot[$f];}
-        // Update performs workspace+owner authorization, ETag comparison and its own audit.
-        return $this->db->transaction(function(PDO $connection)use($actor,$id,$expectedVersion,$patch,$requestId,$historyVersion):array{
+        return $this->db->transaction(function(PDO $pdo)use($actor,$id,$expectedVersion,$historyVersion,$requestId):array{
+            $visible=$this->visible($pdo,$actor,$id,true);$ws=$visible['workspace_id'];
+            $this->repo->lockWorkspace($pdo,$ws);
+            $this->repo->workspaceRole($pdo,$ws,$actor,true);
+            $row=$this->repo->find($pdo,$actor,$id,true,true);
+            if($row===null || $row['workspace_id']!==$ws)throw new HttpException(409,'Asset moved.','conflict');
+            if($row['source']!=='manual'||$row['deleted_at']!==null)throw new HttpException(409,'Only active manual assets can restore fields.','conflict');
+            if($row['version']!==$expectedVersion)throw new HttpException(412,'Asset version changed.','precondition_failed');
+            $stmt=$pdo->prepare('SELECT after_state::text FROM inventory_asset_revisions WHERE asset_id=:id AND workspace_id=:ws AND asset_version=:version');
+            $stmt->execute(['id'=>$row['id'],'ws'=>$ws,'version'=>$historyVersion]);
+            $raw=$stmt->fetchColumn();if(!is_string($raw))throw new HttpException(404,'Revision not found.','not_found');
+            $snapshot=json_decode($raw,true,32,JSON_THROW_ON_ERROR);
+            $patch=[];foreach(['name','status','os_family','ip_addresses','tags','environment','owner_user_id'] as $f){if(array_key_exists($f,$snapshot))$patch[$f]=$snapshot[$f];}
+            // The history read and optimistic update share one workspace/asset lock and transaction.
             $updated=$this->inventory->update($actor,$id,$expectedVersion,$patch,$requestId);
-            $this->audit->record($connection,$actor,'inventory.revision.restored','success','inventory_asset',$id,['reason'=>'historical_restore'], $requestId);
+            $this->audit->record($pdo,$actor,'inventory.revision.restored','success','inventory_asset',$id,['reason'=>'historical_restore'],$requestId);
             return $updated;
         });
     }

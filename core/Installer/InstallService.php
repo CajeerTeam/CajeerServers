@@ -227,6 +227,8 @@ final class InstallService
         if (!in_array($ok,[true,1,'1','t'],true)) throw new RuntimeException('Installation requires writable public schema with USAGE and CREATE privileges.');
         $crypto=$pdo->query("SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname='pgcrypto') OR (EXISTS(SELECT 1 FROM pg_available_extensions WHERE name='pgcrypto') AND has_database_privilege(current_user,current_database(),'CREATE'))")->fetchColumn();
         if (!in_array($crypto,[true,1,'1','t'],true)) throw new RuntimeException('pgcrypto must be installed or available to the database owner.');
+        $gist=$pdo->query("SELECT EXISTS(SELECT 1 FROM pg_extension e JOIN pg_namespace n ON n.oid=e.extnamespace WHERE e.extname='btree_gist' AND n.nspname='public') OR (NOT EXISTS(SELECT 1 FROM pg_extension WHERE extname='btree_gist') AND EXISTS(SELECT 1 FROM pg_available_extensions WHERE name='btree_gist') AND has_database_privilege(current_user,current_database(),'CREATE'))")->fetchColumn();
+        if (!in_array($gist,[true,1,'1','t'],true)) throw new RuntimeException('btree_gist must be installed in public or available to the database owner.');
     }
 
     /** @param array<string,string> $input @return array{admin_email:string,admin_name:string,admin_password:string,env:array<string,string>} */

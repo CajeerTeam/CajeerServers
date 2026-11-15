@@ -103,6 +103,8 @@ try{
     $current=$assets->read($admin,$external);
     $cleared=$history->clearOverride($admin,$external,$current['version'],'name');
     $ok($cleared['version']===$current['version']+1,'clearing override versioned');
+    $fields=array_column($history->provenance($admin,$external)['fields'],null,'field');
+    $ok(count($fields)===6 && $fields['name']['mode']==='observed' && $fields['name']['observed_at']===null,'clearing retains provenance without inventing observation');
     $r=$history->observe($admin,[...$next,'event_key'=>'e-003','observed_at'=>(new DateTimeImmutable('now',new DateTimeZone('UTC')))->modify('+2 second')->format('Y-m-d\TH:i:s\Z')]);
     $ok($r['outcome']==='applied'&&$assets->read($admin,$external)['name']==='Imported-other','next observation applies cleared override');
     $ok(count($history->conflicts($admin,$external)['data'])===0,'resolved conflict excluded');

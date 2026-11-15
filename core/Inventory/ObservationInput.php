@@ -36,6 +36,8 @@ final class ObservationInput
         if(isset($input['observed_at'])){
             if(!is_string($input['observed_at'])||strlen($input['observed_at'])>40||preg_match('/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,6})?(?:Z|[+-]\d\d:\d\d)$/D',$input['observed_at'])!==1)self::bad('observed_at');
             try{$time=new \DateTimeImmutable($input['observed_at']);}catch(\Exception){self::bad('observed_at');}
+            $errors=\DateTimeImmutable::getLastErrors();
+            if($errors!==false && ($errors['warning_count']>0 || $errors['error_count']>0))self::bad('observed_at');
         }else{$time=new \DateTimeImmutable('now',new \DateTimeZone('UTC'));}
         $now=new \DateTimeImmutable('now',new \DateTimeZone('UTC'));
         if($time->getTimestamp()>$now->getTimestamp()+300 || $time->getTimestamp()<$now->getTimestamp()-366*86400)self::bad('observed_at');
@@ -55,6 +57,24 @@ final class ObservationInput
         if(array_keys($input)!==['fields']||!is_array($input['fields'])||$input['fields']===[]||array_is_list($input['fields']))self::bad('fields');
         foreach($input['fields'] as $field=>$value)if(!in_array($field,self::FIELDS,true))self::bad('fields');
         return InfrastructureAsset::changes($input['fields']);
+    }
+
+    /** JSONB object key order is not semantic; list order and scalar types are. */
+    public static function fieldChanged(array $asset,string $field,mixed $value):bool
+    {
+        if($field!=='attributes')return $asset[$field]!==$value;
+        $key=array_key_first($value);
+        return self::canonical($asset[$field][$key]??null)!==self::canonical($value[$key]);
+    }
+
+    private static function canonical(mixed $value):mixed
+    {
+        if(is_float($value))return json_decode(json_encode($value,JSON_THROW_ON_ERROR),true,512,JSON_THROW_ON_ERROR);
+        if(!is_array($value))return $value;
+        if(!array_is_list($value))ksort($value,SORT_STRING);
+        foreach($value as &$item)$item=self::canonical($item);
+        unset($item);
+        return $value;
     }
 
     private static function bad(string $field):never

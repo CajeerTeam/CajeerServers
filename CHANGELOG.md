@@ -1,3 +1,11 @@
+## [0.9.4] — 2026-11-15 — Database & Data Integrity
+
+- Enforce workspace CIDR non-overlap with a PostgreSQL GiST exclusion constraint, even under concurrent transactions.
+- Keep observation provenance complete, compare connector metadata canonically without ignoring scalar type changes, close stale cross-workspace conflicts, and reset observation cursors on transfer.
+- Commit import observations, receipts and progress atomically; enforce contiguous import checkpoints in PostgreSQL.
+- Extend CMDB integrity diagnostics and add confirmed offline repair of missing manual provenance.
+- Support 0.9.3 → 0.9.4 offline upgrade; retain existing data, grants, and immutable historical migrations.
+
 ## [0.9.3] — 2026-11-15 — Security & Access Control Hardening
 
 - Synchronize 58 runtime/SQL RBAC permissions and retain denied RBAC audit events on transaction rollback.

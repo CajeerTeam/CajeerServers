@@ -5,6 +5,10 @@ namespace Cajeer\Servers\Cli;
 
 use Cajeer\Servers\Inventory\InventoryReadiness;
 use Cajeer\Servers\Inventory\CmdbIntegrity;
+use Cajeer\Servers\Inventory\CmdbRepair;
+use Cajeer\Servers\Database\DatabaseManager;
+use Cajeer\Servers\Audit\AuditLogger;
+use Cajeer\Servers\Update\Maintenance;
 use Cajeer\Servers\Kernel\Application;
 
 /** Manual inventory upgrade inspection; no HTTP route or secret-bearing export. */
@@ -16,6 +20,7 @@ final class InventoryCommands
     public function run(string $command, array $argv): int
     {
         $args = array_slice($argv, 2);
+        if ($command==='inventory:repair') return $this->repair($args);
         $allowed = match ($command) {
             'inventory:preflight' => ['--json', '--strict'],
             'inventory:integrity' => ['--json', '--deep'],
@@ -59,4 +64,28 @@ final class InventoryCommands
         }
         return $report['ok'] ? 0 : 1;
     }
+
+    private function repair(array $args):int
+    {
+        $workspace=null;$confirmation=null;$apply=false;
+        foreach($args as $arg){
+            if(str_starts_with($arg,'--workspace=') && $workspace===null)$workspace=substr($arg,12);
+            elseif(str_starts_with($arg,'--confirm=') && $confirmation===null)$confirmation=substr($arg,10);
+            elseif($arg==='--apply' && !$apply)$apply=true;
+            else throw new \RuntimeException('Invalid or duplicate repair option.');
+        }
+        if($workspace===null || ($apply!==($confirmation!==null)))throw new \RuntimeException('Usage: inventory:repair --workspace=UUID [--apply --confirm=SHA256]');
+        $maintenance=new Maintenance($this->app->basePath());
+        return $maintenance->exclusive(function()use($maintenance,$workspace,$confirmation,$apply):int{
+            if(!$maintenance->active() || $maintenance->requiresUpgrade())throw new \RuntimeException('Repair requires maintenance on the fully upgraded installation.');
+            $journal=$maintenance->journal();
+            if($journal!==null && $journal['phase']!=='complete')throw new \RuntimeException('Finish the upgrade before repairing data.');
+            $container=$this->app->container();
+            $service=new CmdbRepair($container->get(DatabaseManager::class),$container->get(AuditLogger::class));
+            $report=$apply?$service->apply($workspace,$confirmation):$service->preview($workspace);
+            fwrite(STDOUT,json_encode($report,JSON_THROW_ON_ERROR|JSON_PRETTY_PRINT)."\n");
+            return 0;
+        },10);
+    }
+
 }

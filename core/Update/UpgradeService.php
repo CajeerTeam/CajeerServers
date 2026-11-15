@@ -10,6 +10,7 @@ use Cajeer\Servers\Config\ConfigRepository;
 use Cajeer\Servers\Database\DatabaseManager;
 use Cajeer\Servers\Database\MigrationRunner;
 use Cajeer\Servers\Installer\InstallState;
+use Cajeer\Servers\Inventory\CmdbIntegrity;
 use Cajeer\Servers\Kernel\Application;
 use Cajeer\Servers\Observability\Diagnostics;
 use Cajeer\Servers\Credentials\CredentialsVault;
@@ -51,7 +52,7 @@ final class UpgradeService
             if ($old === false || $old === realpath($this->app->basePath()) || !is_dir($old)) throw new RuntimeException('A separate retained source release directory is required.');
             $from = trim((string) file_get_contents($old . '/VERSION'));
             $to = $this->app->version();
-            if ($from !== '0.9.2' || $to !== '0.9.3') throw new RuntimeException('Supported upgrade is 0.9.2 to 0.9.3.');
+            if ($from !== '0.9.3' || $to !== '0.9.4') throw new RuntimeException('Supported upgrade is 0.9.3 to 0.9.4.');
             if (!str_starts_with($archive,'/') || !str_starts_with($key,'/')) throw new RuntimeException('Backup and key paths must be absolute.');
             $db = $this->app->container()->get(DatabaseManager::class);
             if ($db->driver() !== 'pgsql') throw new RuntimeException('Upgrade requires PostgreSQL.');
@@ -150,7 +151,7 @@ final class UpgradeService
             if (is_link($file) || !is_file($file)) throw new RuntimeException('Unsafe source migration.');
             $files[basename($file,'.sql')]=hash_file('sha256',$file) ?: throw new RuntimeException('Cannot hash source migration.');
         }
-        if (count($files)!==60 || !isset($files['0060_network_configuration_backup'])) throw new RuntimeException('Source migration set is incomplete.');
+        if (count($files)!==61 || !isset($files['0061_security_grant_revocation'])) throw new RuntimeException('Source migration set is incomplete.');
         return $files;
     }
 
@@ -170,6 +171,8 @@ final class UpgradeService
         $validation=$this->app->container()->get(MigrationRunner::class)->validate();
         if (!$validation['valid'] || in_array('pending',array_column($validation['rows'],'status'),true)) throw new RuntimeException('Schema not ready.');
         if ((int)$pdo->query('SELECT count(*) FROM vault_key_state')->fetchColumn()>0) $this->app->container()->get(CredentialsVault::class)->check();
+        $integrity=$this->app->container()->get(CmdbIntegrity::class)->inspect();
+        if (!$integrity['ok']) throw new RuntimeException('Post-upgrade CMDB integrity failed; inspect inventory:integrity --json.');
         $report=$this->app->container()->get(Diagnostics::class)->run(true);
         if (!$report['ok']) throw new RuntimeException('Post-upgrade readiness failed: '.implode(', ',array_keys(array_filter($report['checks'],static fn($c)=>!$c['ok']))));
     }

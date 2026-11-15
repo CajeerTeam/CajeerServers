@@ -67,11 +67,40 @@ SELECT count(*) FROM inventory_asset_tags at
  JOIN inventory_tags t ON t.id=at.tag_id AND t.workspace_id=at.workspace_id
  WHERE NOT (a.tags ? t.slug)
 SQL,
+        'catalog.missing_tag_association' => <<<'SQL'
+SELECT count(*) FROM inventory_assets a CROSS JOIN LATERAL jsonb_array_elements_text(
+ CASE WHEN jsonb_typeof(a.tags)='array' THEN a.tags ELSE '[]'::jsonb END) v(slug)
+ WHERE NOT EXISTS (SELECT 1 FROM inventory_asset_tags at JOIN inventory_tags t ON t.id=at.tag_id AND t.workspace_id=at.workspace_id
+ WHERE at.asset_id=a.id AND at.workspace_id=a.workspace_id AND t.slug=v.slug)
+SQL,
+        'history.latest_snapshot_mismatch' => <<<'SQL'
+SELECT count(*) FROM inventory_assets a JOIN inventory_asset_revisions r ON r.asset_id=a.id AND r.asset_version=a.version
+ WHERE (r.after_state - 'deleted_at') IS DISTINCT FROM (cajeer_inventory_history_snapshot(a) - 'deleted_at')
+ OR CASE WHEN r.after_state->>'deleted_at' IS NULL THEN a.deleted_at IS NOT NULL
+         WHEN pg_input_is_valid(r.after_state->>'deleted_at','timestamptz') THEN (r.after_state->>'deleted_at')::timestamptz IS DISTINCT FROM a.deleted_at
+         ELSE true END
+SQL,
+        'history.open_conflict_wrong_workspace' => <<<'SQL'
+SELECT count(*) FROM inventory_reconciliation_conflicts c JOIN inventory_assets a ON a.id=c.asset_id
+ WHERE c.resolved_at IS NULL AND c.workspace_id<>a.workspace_id
+SQL,
+        'history.observation_state_without_receipt' => <<<'SQL'
+SELECT count(*) FROM inventory_observation_state s JOIN inventory_assets a ON a.id=s.asset_id
+ WHERE NOT EXISTS (SELECT 1 FROM inventory_observations o WHERE o.asset_id=s.asset_id AND o.workspace_id=a.workspace_id
+ AND o.source=s.source AND o.observed_at=s.last_observed_at AND o.outcome<>'stale')
+SQL,
+        'imports.payload_count_mismatch' => <<<'SQL'
+SELECT count(*) FROM inventory_import_batches b WHERE jsonb_array_length(b.rows_payload)<>b.row_count
+SQL,
         'catalog.invalid_group_membership' => <<<'SQL'
 SELECT count(*) FROM inventory_group_assets ga
  LEFT JOIN inventory_assets a ON a.id=ga.asset_id AND a.workspace_id=ga.workspace_id
  LEFT JOIN inventory_groups g ON g.id=ga.group_id AND g.workspace_id=ga.workspace_id
  WHERE a.id IS NULL OR g.id IS NULL
+SQL,
+        'history.version_gaps' => <<<'SQL'
+SELECT count(*) FROM (SELECT asset_id FROM inventory_asset_revisions GROUP BY asset_id
+ HAVING count(*)<>max(asset_version)-min(asset_version)+1) gaps
 SQL,
         'history.missing_latest_revision' => <<<'SQL'
 SELECT count(*) FROM inventory_assets a
@@ -87,6 +116,7 @@ SQL,
         'imports.progress_mismatch' => <<<'SQL'
 SELECT count(*) FROM inventory_import_batches b
  WHERE b.processed_rows <> (SELECT count(*) FROM inventory_import_results r WHERE r.batch_id=b.id)
+ OR b.processed_rows <> (SELECT coalesce(max(r.row_number),0) FROM inventory_import_results r WHERE r.batch_id=b.id)
  OR (b.status IN ('completed','completed_with_errors') AND b.processed_rows<>b.row_count)
 SQL,
         'credentials.cross_workspace_references' => <<<'SQL'
@@ -134,7 +164,7 @@ SQL,
             $required = ['users','workspaces','workspace_members','inventory_assets','inventory_networks',
                 'inventory_interfaces','inventory_ip_addresses','inventory_relationships','inventory_tags',
                 'inventory_asset_tags','inventory_groups','inventory_group_assets','inventory_asset_revisions',
-                'inventory_field_provenance','inventory_import_batches','inventory_import_results',
+                'inventory_field_provenance','inventory_reconciliation_conflicts','inventory_observation_state','inventory_observations','inventory_import_batches','inventory_import_results',
                 'inventory_credential_scopes','inventory_asset_credential_bindings'];
             $tables = $pdo->query("SELECT relname FROM pg_class JOIN pg_namespace n ON n.oid=relnamespace
                 WHERE n.nspname=current_schema() AND relkind IN ('r','p')")?->fetchAll(PDO::FETCH_COLUMN);

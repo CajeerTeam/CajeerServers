@@ -170,32 +170,36 @@ SQL);
             $this->rbac->requirePermission($principal,'inventory.transfer.manage',$pdo);
             $this->rbac->requirePermission($principal,'inventory.reconcile.manage',$pdo);
             $rows=json_decode($batch['rows_payload'],true,16,JSON_THROW_ON_ERROR);
-            if(!is_array($rows)||count($rows)>TransferFormat::MAX_ROWS)throw new \RuntimeException('Corrupt import batch.');
+            if(!is_array($rows)||!array_is_list($rows)||count($rows)<1||count($rows)>TransferFormat::MAX_ROWS)throw new \RuntimeException('Corrupt import batch.');
             $pdo->prepare("UPDATE inventory_import_batches SET status='running',started_at=COALESCE(started_at,clock_timestamp()),updated_at=clock_timestamp() WHERE id=:id")
                 ->execute(['id'=>$id]);
             $from=(int)$batch['processed_rows'];
             for($i=$from;$i<count($rows);$i++){
-                $this->inventory->workspaceRole($pdo,$batch['workspace_id'],$batch['actor_id'],true);
-                $this->rbac->requirePermission($principal,'inventory.transfer.manage',$pdo);
-                $this->rbac->requirePermission($principal,'inventory.reconcile.manage',$pdo);
-                $row=$rows[$i];$outcome='error';$assetId=null;$code=null;
-                try{
-                    $result=$this->history->observe($batch['actor_id'],[
-                        'workspace_id'=>$batch['workspace_id'],'source'=>'import','external_id'=>$row['external_id'],
-                        'type'=>$row['type'],'fields'=>$row['fields'],'event_key'=>'import.'.$id.'.'.($i+1),
-                    ]);
-                    $outcome=$result['outcome'];$assetId=$result['asset_id'];
-                }catch(HttpException $e){
-                    if (in_array($e->status,[401,403,404],true)) throw $e;
-                    $code=$e->errorCode;
-                }
-                // Atomic progress and result journal (no raw input values, no sensitive errors).
-                $this->db->transaction(function(PDO $tx)use($id,$i,$outcome,$assetId,$code):void{
-                    $stmt=$tx->prepare('INSERT INTO inventory_import_results(batch_id,row_number,outcome,error_code,asset_id) VALUES(CAST(:id AS uuid),:row,:outcome,:error,CAST(:asset AS uuid)) ON CONFLICT(batch_id,row_number) DO NOTHING');
+                $this->db->transaction(function(PDO $tx)use($id,$i,$rows,$batch,$principal):void{
+                    // Same lock order as normal inventory writes. Recheck permissions on each row.
+                    $this->inventory->lockWorkspace($tx,$batch['workspace_id']);
+                    $this->inventory->workspaceRole($tx,$batch['workspace_id'],$batch['actor_id'],true);
+                    $this->rbac->requirePermission($principal,'inventory.transfer.manage',$tx);
+                    $this->rbac->requirePermission($principal,'inventory.reconcile.manage',$tx);
+                    $progress=$tx->prepare('SELECT processed_rows FROM inventory_import_batches WHERE id=:id FOR UPDATE');
+                    $progress->execute(['id'=>$id]);
+                    if ((int)$progress->fetchColumn()!==$i) throw new \RuntimeException('Import progress changed; retry from committed checkpoint.');
+                    $row=$rows[$i];$outcome='error';$assetId=null;$code=null;
+                    try{
+                        $result=$this->history->observe($batch['actor_id'],[
+                            'workspace_id'=>$batch['workspace_id'],'source'=>'import','external_id'=>$row['external_id'],
+                            'type'=>$row['type'],'fields'=>$row['fields'],'event_key'=>'import.'.$id.'.'.($i+1),
+                        ],nested:true);
+                        $outcome=$result['outcome'];$assetId=$result['asset_id'];
+                    }catch(HttpException $e){
+                        if (in_array($e->status,[401,403,404],true)) throw $e;
+                        $code=$e->errorCode;
+                    }
+                    $stmt=$tx->prepare('INSERT INTO inventory_import_results(batch_id,row_number,outcome,error_code,asset_id) VALUES(CAST(:id AS uuid),:row,:outcome,:error,CAST(:asset AS uuid))');
                     $stmt->execute(['id'=>$id,'row'=>$i+1,'outcome'=>$outcome,'error'=>$code,'asset'=>$assetId]);
-                    $tx->prepare('UPDATE inventory_import_batches SET processed_rows=GREATEST(processed_rows,:processed),updated_at=clock_timestamp() WHERE id=:id')
+                    $tx->prepare('UPDATE inventory_import_batches SET processed_rows=:processed,updated_at=clock_timestamp() WHERE id=:id')
                         ->execute(['id'=>$id,'processed'=>$i+1]);
-                });
+                },3);
             }
             $final=$this->db->transaction(function(PDO $tx)use($id,$batch):array{
                 $stmt=$tx->prepare('SELECT outcome,count(*)::int AS total FROM inventory_import_results WHERE batch_id=:id GROUP BY outcome');

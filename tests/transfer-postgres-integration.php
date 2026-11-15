@@ -94,6 +94,21 @@ try{
     $json=$transfer->export($admin,$ws,'json');
     $ok(count(json_decode($json,true,16,JSON_THROW_ON_ERROR))===2,'JSON export returns two records');
     $reject(404,fn()=>$transfer->export($outsider,$ws,'json'),'cross-workspace export denied');
+    // A database fault on receipt persistence must also roll back the observation and asset.
+    $faultContent=json_encode([['external_id'=>'atomic-fault','type'=>'server','fields'=>['name'=>'Atomic fault']]],JSON_THROW_ON_ERROR);
+    $faultBatch=$transfer->submit($admin,$ws,'json',$faultContent,'transfer-fault-001');
+    $pdo->exec("CREATE FUNCTION test_fail_receipt() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'fixture receipt failure'; END; $$");
+    $pdo->exec('CREATE TRIGGER test_fail_receipt BEFORE INSERT ON inventory_import_results FOR EACH ROW EXECUTE FUNCTION test_fail_receipt()');
+    try{$transfer->processBatch($faultBatch['id']);throw new RuntimeException('Faulty receipt unexpectedly committed');}
+    catch(PDOException $e){$ok((string)$e->getCode()==='P0001','injected receipt failure propagates');}
+    $pdo->exec('DROP TRIGGER test_fail_receipt ON inventory_import_results');$pdo->exec('DROP FUNCTION test_fail_receipt()');
+    $ok((int)$pdo->query("SELECT count(*) FROM inventory_assets WHERE external_id='atomic-fault'")->fetchColumn()===0,'observation and asset rolled back with receipt');
+    $ok($transfer->batch($admin,$ws,$faultBatch['id'])['processed_rows']===0,'checkpoint unchanged after failed receipt');
+    try{$pdo->prepare('UPDATE inventory_import_batches SET processed_rows=1 WHERE id=:id')->execute(['id'=>$faultBatch['id']]);throw new RuntimeException('Invalid checkpoint committed');}
+    catch(PDOException $e){$ok((string)$e->getCode()==='23514','database rejects progress without receipt');}
+    $ok($transfer->processBatch($faultBatch['id'])['status']==='completed','retry commits observation and receipt atomically');
+    $ok($transfer->batch($admin,$ws,$faultBatch['id'])['processed_rows']===1,'retry advances exactly one row');
+
     // Old unsafely scoped legacy rows cannot be enrolled or attached after Vault is enabled.
     $legacy=$pdo->prepare("INSERT INTO credentials(name,type,encrypted_payload) VALUES('legacy unverified','api',decode(:bytes,'hex')) RETURNING id::text");
     $legacy->execute(['bytes'=>bin2hex(random_bytes(32))]);$oldCredential=$legacy->fetchColumn();

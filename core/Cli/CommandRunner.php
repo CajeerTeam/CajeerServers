@@ -35,6 +35,11 @@ final class CommandRunner
             if (in_array($command, ['maintenance:status','maintenance:enable','maintenance:disable','upgrade:apply','upgrade:restore'], true)) {
                 return (new UpgradeCommands($this->app))->run($command, $argv);
             }
+            if ($command==='inventory:repair') return (new InventoryCommands($this->app))->run($command,$argv);
+            // Read-only diagnostics remain available while a failed upgrade is offline.
+            if ($command==='inventory:integrity' && ($maintenance->active() || $maintenance->requiresUpgrade())) {
+                return $maintenance->exclusive(fn()=>(new InventoryCommands($this->app))->run($command,$argv),10);
+            }
             if (!in_array($command, ['help','version','--version','-V','health:live','install:status','backup:key:generate','backup:verify'], true)) $lease = $maintenance->shared();
             return match ($command) {
                 'help' => $this->help(),
@@ -151,6 +156,7 @@ CajeerServers CLI
   inventory:preflight [--json] [--strict]  Проверить реальные записи и схему Inventory без изменений
   inventory:constraints [--json] [--apply]  Просмотреть / валидировать NOT VALID ограничения Inventory
   inventory:integrity [--json] [--deep]  Проверка согласованности CMDB (только чтение)
+  inventory:repair --workspace=UUID [--apply --confirm=SHA256]  Offline repair missing manual provenance
   vault:key:generate   --output=/private/vault.key; сохраняет ключ только в файл с правами 0600
   vault:key:status     Проверить конфигурацию ключа без обращения к PostgreSQL
   vault:key:rotate     --next-key-file=/private/new.key --confirm-offline; транзакционное переоборачивание DEK
